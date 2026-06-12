@@ -37,6 +37,117 @@ struct GitHubError: Error, Sendable {
     let message: String
 }
 
+/// A reference to a GitHub repository extracted from user input such as a URL
+/// or an `owner/repo` shorthand. Keeps the original text for display/logging.
+struct RepoReference: Sendable {
+    let owner: String
+    let repo: String
+    let raw: String
+
+    var nameWithOwner: String { "\(owner)/\(repo)" }
+}
+
+extension RepoReference {
+    /// Parses a GitHub repository reference from common formats:
+    ///   - https://github.com/owner/repo
+    ///   - https://github.com/owner/repo.git
+    ///   - http://github.com/owner/repo
+    ///   - github.com/owner/repo
+    ///   - git@github.com:owner/repo.git
+    ///   - owner/repo
+    /// Returns `nil` when the input is empty, not GitHub, or not exactly an owner/repo pair.
+    static func parse(_ input: String) -> RepoReference? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let ssh = parseSSH(trimmed, raw: trimmed) {
+            return ssh
+        }
+
+        if let web = parseWebURL(trimmed, raw: trimmed) {
+            return web
+        }
+
+        return parseOwnerRepoShorthand(trimmed, raw: trimmed)
+    }
+
+    private static func parseSSH(_ input: String, raw: String) -> RepoReference? {
+        if input.lowercased().hasPrefix("ssh://") {
+            guard let components = URLComponents(string: input),
+                  components.scheme?.lowercased() == "ssh",
+                  components.host?.lowercased() == "github.com" else { return nil }
+            return pair(fromPath: components.path, raw: raw)
+        }
+
+        guard let at = input.firstIndex(of: "@"),
+              let colon = input[at...].firstIndex(of: ":"),
+              at < colon else { return nil }
+
+        let host = String(input[input.index(after: at)..<colon]).lowercased()
+        guard host == "github.com" else { return nil }
+
+        let path = String(input[input.index(after: colon)...])
+        return pair(fromPath: path, raw: raw)
+    }
+
+    private static func parseWebURL(_ input: String, raw: String) -> RepoReference? {
+        var candidate = input
+        if candidate.lowercased().hasPrefix("github.com/") {
+            candidate = "https://" + candidate
+        }
+
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              components.host?.lowercased() == "github.com" else { return nil }
+
+        return pair(fromPath: components.path, raw: raw)
+    }
+
+    private static func parseOwnerRepoShorthand(_ input: String, raw: String) -> RepoReference? {
+        var candidate = input
+        while candidate.hasSuffix("/") {
+            candidate.removeLast()
+        }
+        return pair(fromPath: candidate, raw: raw)
+    }
+
+    private static func pair(fromPath path: String, raw: String) -> RepoReference? {
+        let components = path
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard components.count == 2 else { return nil }
+
+        let owner = components[0]
+        let repo = stripGitSuffix(components[1])
+        guard isValidOwner(owner), isValidRepo(repo) else { return nil }
+        return RepoReference(owner: owner, repo: repo, raw: raw)
+    }
+
+    private static func stripGitSuffix(_ name: String) -> String {
+        name.lowercased().hasSuffix(".git") ? String(name.dropLast(4)) : name
+    }
+
+    /// GitHub account and organization names are intentionally stricter than repo names.
+    private static func isValidOwner(_ name: String) -> Bool {
+        guard !name.isEmpty, name.count <= 39 else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        guard name.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
+        guard !name.hasPrefix("-"), !name.hasSuffix("-") else { return false }
+        guard !name.contains("--") else { return false }
+        return true
+    }
+
+    /// Repository names can contain dots, underscores, and repeated hyphens.
+    /// The app still rejects path separators and empty/special names before calling git.
+    private static func isValidRepo(_ name: String) -> Bool {
+        guard !name.isEmpty, name.count <= 100 else { return false }
+        guard name != ".", name != "..", name.lowercased() != ".git" else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        return name.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+}
+
 /// Whether a cloned repo has been compared with its upstream remote during this
 /// status pass. `.checked` means `git fetch` completed before ahead/behind was
 /// parsed, so `behind` reflects GitHub now rather than stale local tracking refs.
@@ -256,6 +367,95 @@ enum GitHub {
             return ShellResult(exitCode: 1, stdout: "", stderr: "already exists: \(dest)")
         }
         return Shell.run(["git", "clone", url, dest])
+    }
+
+    /// Fork `source` into the active user's account and return the resulting repo.
+    /// Does not clone; callers should clone separately using the returned `Repo`.
+    /// Waits up to `timeoutSeconds` for the fork to become available via the API.
+    static func fork(source: RepoReference,
+                     intoAccount alias: String,
+                     defaultBranchOnly: Bool = true,
+                     timeoutSeconds: UInt64 = 60) -> Result<Repo, GitHubError> {
+        let accountCheck = ensureActiveAccount(alias)
+        guard accountCheck.ok else {
+            let detail = (accountCheck.stdout + accountCheck.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(GitHubError(message: detail.isEmpty ? "Could not switch to account \(alias)" : detail))
+        }
+
+        guard let currentUser = currentLogin() else {
+            return .failure(GitHubError(message: "Could not determine the active GitHub user."))
+        }
+
+        let forkedNameWithOwner = "\(currentUser)/\(source.repo)"
+        var forkArgs = ["gh", "repo", "fork", source.nameWithOwner, "--clone=false"]
+        if defaultBranchOnly {
+            forkArgs.append("--default-branch-only")
+        }
+
+        let forkRes = Shell.run(forkArgs)
+        if !forkRes.ok {
+            if let existing = repoView(nameWithOwner: forkedNameWithOwner) {
+                return .success(existing)
+            }
+
+            let msg = (forkRes.stderr + forkRes.stdout)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(GitHubError(message: msg.isEmpty ? "fork failed" : msg))
+        }
+
+        return waitForRepo(nameWithOwner: forkedNameWithOwner,
+                           timeoutSeconds: timeoutSeconds)
+    }
+
+    /// Poll the GitHub API until the repo exists or the timeout elapses.
+    private static func waitForRepo(nameWithOwner: String,
+                                    timeoutSeconds: UInt64) -> Result<Repo, GitHubError> {
+        let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+
+        while Date() < deadline {
+            if let repo = repoView(nameWithOwner: nameWithOwner) {
+                return .success(repo)
+            }
+            // Not ready yet; wait before retrying.
+            Thread.sleep(forTimeInterval: 1.0)
+        }
+
+        return .failure(GitHubError(message: """
+            Fork created, but it didn't become available within \(timeoutSeconds) seconds. \
+            You can try cloning \(nameWithOwner) manually once GitHub finishes the fork.
+            """))
+    }
+
+    private static func repoView(nameWithOwner: String) -> Repo? {
+        let view = Shell.run([
+            "gh", "repo", "view", nameWithOwner,
+            "--json", "name,nameWithOwner,description,visibility,updatedAt,url"
+        ])
+        guard view.ok,
+              let data = view.stdout.data(using: .utf8),
+              let repo = try? JSONDecoder().decode(Repo.self, from: data) else { return nil }
+        return repo
+    }
+
+    /// Returns the login of the currently active `gh` account, or nil on failure.
+    static func currentLogin() -> String? {
+        let res = Shell.run(["gh", "api", "user", "--jq", ".login"])
+        guard res.ok else { return nil }
+        let login = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return login.isEmpty ? nil : login
+    }
+
+    /// Add or update an `upstream` remote pointing back to the original source repo.
+    static func setUpstream(source: RepoReference, at path: String) -> ShellResult {
+        let url = "https://github.com/\(source.nameWithOwner).git"
+        let existing = Shell.run(["git", "-C", path, "remote", "get-url", "upstream"])
+        let result = existing.ok
+            ? Shell.run(["git", "-C", path, "remote", "set-url", "upstream", url])
+            : Shell.run(["git", "-C", path, "remote", "add", "upstream", url])
+
+        guard result.ok else { return result }
+        return ShellResult(exitCode: 0, stdout: "upstream -> \(url)", stderr: result.stderr)
     }
 
     static func pull(at path: String) -> ShellResult {

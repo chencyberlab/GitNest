@@ -12,6 +12,8 @@ struct ContentView: View {
     @State private var initPlan: ProjectInitPlan?
     @State private var initVisibility: RepoVisibilityChoice = .private
     @State private var moveOriginalToTrash = false
+    @State private var showForkSheet = false
+    @State private var forkAddress: String = ""
     @State private var accountSearch: String = ""
     @State private var expandedAccountAliases: Set<String> = []
     @State private var showSettings = false
@@ -160,6 +162,9 @@ struct ContentView: View {
         }
         .sheet(item: $initPlan) { plan in
             initProjectSheet(plan)
+        }
+        .sheet(isPresented: $showForkSheet) {
+            forkProjectSheet
         }
         .alert(
             pullAlertTitle,
@@ -804,7 +809,17 @@ struct ContentView: View {
                 }
                 .buttonStyle(PrimaryPurpleButtonStyle())
                 .tooltip(gateHint ?? "Choose a local project folder, create a GitHub repo, and push it")
-                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos)
+                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
+
+                Button {
+                    showForkSheet = true
+                    forkAddress = ""
+                } label: {
+                    Label("Fork project", systemImage: "tuningfork")
+                }
+                .buttonStyle(PrimaryPurpleButtonStyle())
+                .tooltip(gateHint ?? "Fork a GitHub repository into this account and clone it")
+                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
 
                 Button {
                     Task { await model.loadRepos(for: account) }
@@ -813,7 +828,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(PrimaryPurpleButtonStyle())
                 .tooltip(gateHint ?? "List every repo \(account.alias) owns (via gh)")
-                .disabled(!ready || model.isLoadingRepos || model.isInitializingProject)
+                .disabled(!ready || model.isLoadingRepos || model.isInitializingProject || model.isForkingProject)
             }
         }
     }
@@ -943,6 +958,74 @@ struct ContentView: View {
                 }
                 .buttonStyle(PrimaryPurpleButtonStyle())
                 .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(22)
+        .frame(width: 520)
+        .background(Theme.surface)
+    }
+
+    private var forkProjectSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Fork Project")
+                    .font(Theme.title(18))
+                Text("Enter the GitHub repository address to fork into \(model.selectedAccount?.alias ?? "this account").")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2)
+            }
+
+            Divider().overlay(Theme.border)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("GitHub project address")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
+                TextField("e.g. https://github.com/owner/repo or owner/repo", text: $forkAddress)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .disabled(model.isForkingProject)
+                Text("The repository will be forked to your account, then cloned into the account folder.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if model.isForkingProject {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Forking and cloning…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    showForkSheet = false
+                }
+                .buttonStyle(SubtleButtonStyle())
+                .disabled(model.isForkingProject)
+
+                Button {
+                    let address = forkAddress
+                    let account = model.selectedAccount
+                    Task {
+                        guard let account else { return }
+                        let ok = await model.forkProject(source: address, account: account)
+                        if ok {
+                            showForkSheet = false
+                        }
+                        // On failure, keep the sheet open so the user can retry.
+                    }
+                } label: {
+                    Label("Fork & Clone", systemImage: "tuningfork")
+                }
+                .buttonStyle(PrimaryPurpleButtonStyle())
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.isForkingProject || RepoReference.parse(forkAddress) == nil)
             }
         }
         .padding(22)

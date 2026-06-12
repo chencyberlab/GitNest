@@ -127,6 +127,7 @@ final class AppModel: ObservableObject {
     @Published var isCheckingRepoRemotes = false
     @Published var repoRefreshMessage: String?
     @Published var isInitializingProject = false
+    @Published var isForkingProject = false
     @Published var log: String = ""
     /// Whether the most recently appended log line was a failure/warning. The
     /// collapsed Output status line uses this to stay pinned on problems while
@@ -888,6 +889,62 @@ final class AppModel: ObservableObject {
         refreshClonedStatus(for: plan.account)
         await refreshStatuses(for: plan.account, refreshRemote: true)
         return res.ok
+    }
+
+    /// Fork a GitHub repository into the selected account and clone it into the
+    /// account's folder. Returns `true` when both fork and clone succeeded.
+    func forkProject(source: String, account: Account) async -> Bool {
+        guard let ref = RepoReference.parse(source) else {
+            appendLog("✗ Invalid GitHub project address: \(source)")
+            return false
+        }
+
+        let dest = (account.folder as NSString).appendingPathComponent(ref.repo)
+        guard !FileManager.default.fileExists(atPath: dest) else {
+            appendLog("✗ A folder named \(ref.repo) already exists in \(account.folder).")
+            return false
+        }
+
+        isForkingProject = true
+        defer { isForkingProject = false }
+        appendLog("Forking \(ref.nameWithOwner) into \(account.alias)'s account…")
+
+        let forkResult = await ghSerialized { GitHub.fork(source: ref, intoAccount: account.alias) }
+        guard case .success(let repo) = forkResult else {
+            if case .failure(let error) = forkResult {
+                appendLog("✗ Fork failed: \(error.message)")
+            } else {
+                appendLog("✗ Fork failed.")
+            }
+            return false
+        }
+
+        appendLog("✓ Fork ready: \(repo.nameWithOwner). Cloning into \(account.folder)…")
+        let cloneRes = await run { GitHub.clone(repo: repo, into: account.folder) }
+        report(cloneRes, ok: "cloned \(repo.name)")
+
+        guard cloneRes.ok else {
+            refreshClonedStatus(for: account)
+            await refreshStatuses(for: account, refreshRemote: true)
+            return false
+        }
+
+        let upstream = await run { GitHub.setUpstream(source: ref, at: dest) }
+        let upstreamText = (upstream.stdout + upstream.stderr)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if upstream.ok {
+            appendLog("✓ added upstream \(ref.nameWithOwner)" + (upstreamText.isEmpty ? "" : "\n\(upstreamText)"))
+        } else {
+            appendLog("⚠ Cloned, but could not add upstream: \(upstreamText.isEmpty ? "unknown error" : upstreamText)")
+        }
+
+        refreshClonedStatus(for: account)
+        await refreshStatuses(for: account, refreshRemote: true)
+
+        // Also refresh the repo list so the newly forked repo appears as a row.
+        await loadRepos(for: account, silent: true, userInitiated: false)
+
+        return true
     }
 
     // MARK: Add-account wizard
