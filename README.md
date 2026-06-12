@@ -179,18 +179,82 @@ the `ceil(repoCount / 500)` size step in `effectiveRefreshInterval`.
 
 ## Build & run
 
+Requires macOS 13 or later, the Swift toolchain, and `gh`, `git`, and `ssh` on
+`PATH`. Installing Xcode or the Xcode command-line tools is enough for Swift:
+
+```bash
+xcode-select --install
+```
+
+Build the app for the Mac you are currently using:
+
 ```bash
 ./build.sh
 open ./GitNest.app
 ```
 
-Requires the Swift toolchain, plus `gh`, `git`, and `ssh` on PATH.
+`build.sh` compiles into `~/Library/Caches/GitNest` and only assembles the final
+`.app` in the project folder. The scratch path is deliberately outside iCloud:
+SQLite `build.db` locking fails on iCloud-synced folders such as `~/Desktop` with
+a "disk I/O error". Override it when needed:
 
-`build.sh` compiles into `~/Library/Caches/GitNest` and only assembles the
-final `.app` in the project folder. The scratch path is deliberately outside
-iCloud: SQLite `build.db` locking fails on iCloud-synced folders (such as
-`~/Desktop`) with a "disk I/O error". Override it with `SCRATCH_PATH=… ./build.sh`
-if you keep the project somewhere local.
+```bash
+SCRATCH_PATH=/tmp/gitnest-build ./build.sh
+```
+
+### Architecture builds
+
+By default, `./build.sh` uses `BUILD_ARCH=native`, which matches the Mac running
+the build. On Apple Silicon that produces an `arm64` app; on Intel that produces
+an `x86_64` app.
+
+Use `BUILD_ARCH` to choose the release target:
+
+```bash
+BUILD_ARCH=arm64 ./build.sh       # Apple Silicon only
+BUILD_ARCH=x86_64 ./build.sh      # Intel only
+BUILD_ARCH=universal ./build.sh   # Apple Silicon + Intel in one app
+```
+
+Confirm what you built:
+
+```bash
+lipo -archs GitNest.app/Contents/MacOS/GitNest
+```
+
+### Package a release zip
+
+Attach a zip to a GitHub release, not the raw `.app` folder:
+
+```bash
+BUILD_ARCH=universal SCRATCH_PATH=/tmp/gitnest-build ./build.sh
+ditto -c -k --keepParent GitNest.app GitNest-v0.0.1-macos-universal.zip
+shasum -a 256 GitNest-v0.0.1-macos-universal.zip > GitNest-v0.0.1-macos-universal.zip.sha256
+```
+
+The local build is ad-hoc signed. It is fine for local testing and small manual
+releases, but downloaded copies may show macOS Gatekeeper warnings. A polished
+public release should use Developer ID signing, notarization, and a real reverse
+DNS bundle identifier, for example:
+
+```bash
+BUNDLE_IDENTIFIER=com.example.GitNest BUILD_ARCH=universal ./build.sh
+```
+
+### Users building from source
+
+Users can clone the repository and run the same local build:
+
+```bash
+git clone https://github.com/OWNER/GitNest.git
+cd GitNest
+./build.sh
+open ./GitNest.app
+```
+
+They should build `native` unless they specifically need to produce a release
+for a different Mac architecture. A universal build is useful for maintainers who
+want to publish a single zip that works on both Apple Silicon and Intel Macs.
 
 ## Prerequisites / new device setup
 
