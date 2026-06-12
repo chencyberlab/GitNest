@@ -23,7 +23,7 @@ case "$BUILD_ARCH" in
     ;;
   arm64|x86_64)
     BUILD_ARGS=(-c "$CONFIG" --arch "$BUILD_ARCH" --scratch-path "$SCRATCH")
-    BIN="${SCRATCH}/apple/Products/Release/${APP_NAME}"
+    BIN="${SCRATCH}/${BUILD_ARCH}-apple-macosx/${CONFIG}/${APP_NAME}"
     ;;
   universal)
     BUILD_ARGS=(-c "$CONFIG" --arch arm64 --arch x86_64 --scratch-path "$SCRATCH")
