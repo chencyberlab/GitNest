@@ -1,0 +1,66 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GitNest">
+  <defs>
+    <!-- Background: purple-forward blend drifting into indigo for depth -->
+    <linearGradient id="bg" x1="160" y1="120" x2="880" y2="920" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="0.5" stop-color="#7132f5"/>
+      <stop offset="1" stop-color="#4f31c9"/>
+    </linearGradient>
+
+    <!-- Soft glow behind the graph -->
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Subtle top-light on each node -->
+    <linearGradient id="node" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e9e4fb"/>
+    </linearGradient>
+
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#2a1066" flood-opacity="0.30"/>
+    </filter>
+
+    <!-- Rim light: bright top edge fading to a dark bottom edge for faux-3D depth -->
+    <linearGradient id="rim" x1="0" y1="0" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.85"/>
+      <stop offset="0.4" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="0.7" stop-color="#000000" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.22"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Scale the whole icon to the standard macOS body footprint (~80% of canvas) -->
+  <g transform="translate(512 512) scale(0.92) translate(-512 -512)">
+
+  <!-- Rounded-square app canvas -->
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
+  <circle cx="512" cy="512" r="340" fill="url(#glow)"/>
+
+  <!-- Faux-3D bevel: thin inner rim that catches light at the top -->
+  <rect x="66.5" y="66.5" width="891" height="891" rx="205.5" fill="none" stroke="url(#rim)" stroke-width="5"/>
+
+  <!-- Git graph: a trunk forking into multiple branches -->
+  <g stroke="#ffffff" stroke-width="34" stroke-linecap="round" fill="none" opacity="0.95">
+    <!-- trunk -->
+    <line x1="392" y1="300" x2="392" y2="724"/>
+    <!-- upper branch -->
+    <path d="M392 512 C 488 512, 556 372, 652 372"/>
+    <!-- lower branch -->
+    <path d="M392 512 C 488 512, 556 652, 652 652"/>
+  </g>
+
+  <!-- Commit / account nodes -->
+  <g filter="url(#soft)">
+    <circle cx="392" cy="300" r="54" fill="url(#node)"/>
+    <circle cx="392" cy="724" r="54" fill="url(#node)"/>
+    <circle cx="652" cy="372" r="54" fill="url(#node)"/>
+    <circle cx="652" cy="652" r="54" fill="url(#node)"/>
+    <!-- fork hub: the unifying manager -->
+    <circle cx="392" cy="512" r="66" fill="url(#node)"/>
+  </g>
+
+  </g>
+</svg>

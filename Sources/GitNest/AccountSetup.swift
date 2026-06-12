@@ -1,0 +1,272 @@
+import Foundation
+
+/// Orchestrates adding a new GitHub account to the local multi-account setup:
+/// a dedicated SSH key, the `~/.ssh/config` host alias, the global `includeIf`
+/// rule, the per-account `~/.gitconfig-<alias>`, and the local repo folder.
+///
+/// Safety rules, enforced everywhere here:
+///  • every file edit timestamp-backs-up the original first,
+///  • an existing SSH key is reused, never overwritten,
+///  • edits are idempotent (re-running for the same account is a no-op/refresh),
+///  • `git config` is used for gitconfig so the files stay syntactically valid.
+enum AccountSetup {
+    // MARK: Paths
+
+    static func sshDir() -> String { ("~/.ssh" as NSString).expandingTildeInPath }
+    static func keyPath(alias: String) -> String {
+        (sshDir() as NSString).appendingPathComponent("id_\(alias)")
+    }
+    static func pubKeyPath(alias: String) -> String { keyPath(alias: alias) + ".pub" }
+    static func sshConfigPath() -> String { (sshDir() as NSString).appendingPathComponent("config") }
+    static func gitconfigPath() -> String { ("~/.gitconfig" as NSString).expandingTildeInPath }
+    static func accountGitconfigPath(alias: String) -> String {
+        ("~/.gitconfig-\(alias)" as NSString).expandingTildeInPath
+    }
+
+    // MARK: Identity (read from gh after sign-in)
+
+    struct Identity: Sendable {
+        let login: String
+        let id: Int
+        let name: String?
+        var alias: String { login.lowercased() }
+        var displayName: String { (name?.isEmpty == false) ? name! : login }
+        /// GitHub's private no-reply commit address — safe to commit with.
+        var noreplyEmail: String { "\(id)+\(login)@users.noreply.github.com" }
+    }
+
+    struct SSHConfigResult: Sendable {
+        let block: String
+        let backupPath: String?
+
+        var wroteBlock: Bool { !block.isEmpty }
+    }
+
+    struct GitConfigWriteResult: Sendable {
+        let accountGitconfigBackupPath: String?
+        let globalGitconfigBackupPath: String?
+    }
+
+    struct Verification: Sendable, Equatable {
+        let expectedAlias: String
+        let sshText: String
+        let sshLogin: String?
+        let ghLogin: String?
+
+        var sshOK: Bool { loginMatches(sshLogin, expectedAlias: expectedAlias) }
+        var ghOK: Bool { loginMatches(ghLogin, expectedAlias: expectedAlias) }
+        var ok: Bool { sshOK && ghOK }
+    }
+
+    /// Read the currently active gh account's login/id/name (call right after sign-in).
+    static func currentIdentity() -> Result<Identity, GitHubError> {
+        let res = Shell.run(["gh", "api", "user", "--jq", "{login: .login, id: .id, name: .name}"])
+        guard res.ok, let data = res.stdout.data(using: .utf8) else {
+            return .failure(GitHubError(message: short(res)))
+        }
+        struct U: Decodable { let login: String; let id: Int; let name: String? }
+        guard let u = try? JSONDecoder().decode(U.self, from: data) else {
+            return .failure(GitHubError(message: "could not parse gh user info"))
+        }
+        return .success(Identity(login: u.login, id: u.id, name: u.name))
+    }
+
+    // MARK: SSH key
+
+    /// Create a dedicated ed25519 key for `alias` if one doesn't already exist.
+    /// Returns the public key text and whether it was newly created. Never
+    /// overwrites an existing key (it's reused, since it may already be on GitHub).
+    static func ensureKey(alias: String, comment: String) -> Result<(publicKey: String, created: Bool), GitHubError> {
+        let dir = sshDir()
+        _ = Shell.run(["mkdir", "-p", dir])
+        _ = Shell.run(["chmod", "700", dir])
+        let key = keyPath(alias: alias)
+        var created = false
+        if !FileManager.default.fileExists(atPath: key) {
+            // -N '' = no passphrase (key is protected by file perms + the keychain).
+            let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", ""])
+            guard res.ok else { return .failure(GitHubError(message: short(res))) }
+            created = true
+        }
+        guard let pub = try? String(contentsOfFile: pubKeyPath(alias: alias), encoding: .utf8) else {
+            return .failure(GitHubError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
+        }
+        return .success((pub.trimmingCharacters(in: .whitespacesAndNewlines), created))
+    }
+
+    // MARK: Config writers
+
+    /// Append a `Host github-<alias>` block to `~/.ssh/config` if absent (backs up
+    /// first). Returns the block written, or "" when it was already configured.
+    static func ensureSSHConfig(alias: String) -> Result<SSHConfigResult, GitHubError> {
+        let host = "github-\(alias)"
+        let path = sshConfigPath()
+        let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        if containsHostEntry(host: host, in: existing) {
+            return .success(SSHConfigResult(block: "", backupPath: nil))   // already present — leave it alone
+        }
+        let backupPath: String?
+        do {
+            backupPath = try backup(path)
+        } catch {
+            return .failure(GitHubError(message: "could not back up ~/.ssh/config: \(error.localizedDescription)"))
+        }
+        let block = """
+        Host \(host)
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_\(alias)
+            IdentitiesOnly yes
+            AddKeysToAgent yes
+            UseKeychain yes
+        """
+        let newText = existing.isEmpty ? block + "\n" : existing.trimmingTrailingNewlines() + "\n\n" + block + "\n"
+        do {
+            try newText.write(toFile: path, atomically: true, encoding: .utf8)
+            _ = Shell.run(["chmod", "600", path])
+            return .success(SSHConfigResult(block: block, backupPath: backupPath))
+        } catch {
+            return .failure(GitHubError(message: "could not write ~/.ssh/config: \(error.localizedDescription)"))
+        }
+    }
+
+    /// Write the per-account gitconfig + global `includeIf` rule and create the
+    /// folder. Backs up `~/.gitconfig` first; uses `git config` so files stay valid.
+    static func writeGitConfig(alias: String, name: String, email: String, folder: String) -> Result<GitConfigWriteResult, GitHubError> {
+        let accountCfg = accountGitconfigPath(alias: alias)
+        let host = "github-\(alias)"
+        let expandedFolder = (folder as NSString).expandingTildeInPath
+
+        let mk = Shell.run(["mkdir", "-p", expandedFolder])
+        guard mk.ok else { return .failure(GitHubError(message: short(mk))) }
+
+        let accountBackup: String?
+        let globalBackup: String?
+        do {
+            accountBackup = try backup(accountCfg)
+            globalBackup = try backup(gitconfigPath())
+        } catch {
+            return .failure(GitHubError(message: "could not create config backup: \(error.localizedDescription)"))
+        }
+
+        for kv in [("user.name", name), ("user.email", email)] {
+            let r = Shell.run(["git", "config", "--file", accountCfg, kv.0, kv.1])
+            guard r.ok else { return .failure(GitHubError(message: short(r))) }
+        }
+
+        // url."git@github-<alias>:".insteadOf = https://github.com/  and  git@github.com:
+        // Reset then add both, so re-running stays clean (no duplicate lines).
+        let urlKey = "url.git@\(host):.insteadOf"
+        _ = Shell.run(["git", "config", "--file", accountCfg, "--unset-all", urlKey])
+        for value in ["https://github.com/", "git@github.com:"] {
+            let r = Shell.run(["git", "config", "--file", accountCfg, "--add", urlKey, value])
+            guard r.ok else { return .failure(GitHubError(message: short(r))) }
+        }
+
+        // Global includeIf → per-account config. Store portable (~/) paths so the
+        // rule survives moving to another Mac.
+        var gitdir = portablePath(expandedFolder)
+        if !gitdir.hasSuffix("/") { gitdir += "/" }
+        let includeKey = "includeIf.gitdir:\(gitdir).path"
+        let inc = Shell.run(["git", "config", "--global", includeKey, portablePath(accountCfg)])
+        guard inc.ok else { return .failure(GitHubError(message: short(inc))) }
+
+        return .success(GitConfigWriteResult(accountGitconfigBackupPath: accountBackup,
+                                             globalGitconfigBackupPath: globalBackup))
+    }
+
+    // MARK: Verify
+
+    /// Verify the new account end-to-end: SSH greeting + active gh login.
+    static func verify(alias: String) -> Verification {
+        let greeting = GitHub.sshGreeting(host: "github-\(alias)")
+        _ = Shell.run(["gh", "auth", "switch", "-u", alias])
+        let who = Shell.run(["gh", "api", "user", "--jq", ".login"])
+        let login = who.ok ? who.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        return verification(expectedAlias: alias, sshText: greeting, ghLogin: login)
+    }
+
+    // MARK: Helpers
+
+    /// Timestamped backup before editing a file (no-op when the file is absent).
+    @discardableResult
+    static func backup(_ path: String) throws -> String? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        var dest = backupDestination(for: path)
+        while FileManager.default.fileExists(atPath: dest) {
+            dest = backupDestination(for: path)
+        }
+        try FileManager.default.copyItem(atPath: path, toPath: dest)
+        return dest
+    }
+
+    static func backupDestination(for path: String,
+                                  timestamp: String = backupFormatter.string(from: Date()),
+                                  nonce: String = UUID().uuidString) -> String {
+        "\(path).backup-\(timestamp)-\(nonce.prefix(8))"
+    }
+
+    static func containsHostEntry(host: String, in config: String) -> Bool {
+        for raw in config.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard parts.first?.caseInsensitiveCompare("Host") == .orderedSame else { continue }
+            if parts.dropFirst().contains(where: { $0.caseInsensitiveCompare(host) == .orderedSame }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    static func sshLogin(from greeting: String) -> String? {
+        let nsText = greeting as NSString
+        let pattern = #"Hi\s+([^!]+)!"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+        let range = NSRange(location: 0, length: nsText.length)
+        guard let match = regex.firstMatch(in: greeting, options: [], range: range),
+              match.numberOfRanges > 1 else { return nil }
+        return nsText.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func verification(expectedAlias: String, sshText: String, ghLogin: String?) -> Verification {
+        Verification(expectedAlias: expectedAlias,
+                     sshText: sshText,
+                     sshLogin: sshLogin(from: sshText),
+                     ghLogin: ghLogin)
+    }
+
+    static func loginMatches(_ login: String?, expectedAlias: String) -> Bool {
+        guard let login, !login.isEmpty else { return false }
+        return login.caseInsensitiveCompare(expectedAlias) == .orderedSame
+    }
+
+    private static let backupFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    /// Rewrite an absolute path under the home dir to a portable `~/…` form.
+    static func portablePath(_ path: String) -> String {
+        let home = NSHomeDirectory()
+        if path == home { return "~" }
+        if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
+        return path
+    }
+
+    private static func short(_ r: ShellResult) -> String {
+        (r.stderr + r.stdout).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+private extension String {
+    func trimmingTrailingNewlines() -> String {
+        var s = self
+        while s.hasSuffix("\n") || s.hasSuffix("\r") { s.removeLast() }
+        return s
+    }
+}
