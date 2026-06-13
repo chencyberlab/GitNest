@@ -38,6 +38,8 @@ struct ContentView: View {
     @State private var statusFadeTask: Task<Void, Never>?
     /// Seconds the status line stays before fading. Errors/warnings never fade.
     private static let statusFadeDelay: Duration = .seconds(4)
+    /// Identity of the invisible tail view the Output log auto-scrolls to.
+    private static let logBottomAnchor = "logBottom"
 
     /// Persisted appearance choice: "system" | "light" | "dark".
     @AppStorage("appearancePreference") private var appearancePreference: String = "system"
@@ -856,7 +858,7 @@ struct ContentView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         initVisibility = .private
         moveOriginalToTrash = false
-        initPlan = model.makeInitPlan(sourceURL: url, account: account)
+        Task { initPlan = await model.makeInitPlan(sourceURL: url, account: account) }
     }
 
     private func startProjectInit(_ plan: ProjectInitPlan,
@@ -903,6 +905,13 @@ struct ContentView: View {
                     Text("Use the copied folder for future development after upload.")
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.textTertiary)
+                    if let origin = plan.sourceOrigin {
+                        Label("This folder is a clone of \(origin) — its full commit history will be pushed to \(plan.account.alias)/\(plan.repoName).",
+                              systemImage: "exclamationmark.triangle.fill")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.amber)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     Label("Already inside \(plan.account.alias)'s GitHub folder; will initialize in place.",
                           systemImage: "checkmark.circle")
@@ -1497,6 +1506,9 @@ struct ContentView: View {
                 }
             }
         }
+        // A pull/push/commit/clone is already running for this repo — block a second
+        // one rather than let two git processes collide on `index.lock`.
+        .disabled(model.busyRepos.contains(repo.id))
     }
 
     private func iconButton(_ systemName: String, _ help: String,
@@ -1635,19 +1647,28 @@ struct ContentView: View {
             }
 
             if outputExpanded {
-                ScrollView {
-                    Text(model.log.isEmpty ? "—" : model.log)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
-                        .padding(8)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Text(model.log.isEmpty ? "—" : model.log)
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                            .padding(8)
+                        // Invisible tail the viewport scrolls to, so the newest log
+                        // line is always visible instead of hidden below the fold.
+                        Color.clear.frame(height: 1).id(Self.logBottomAnchor)
+                    }
+                    .frame(height: 112)
+                    .background(Theme.surfaceMuted)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                        .strokeBorder(Theme.border, lineWidth: 1))
+                    .padding(.top, 6)
+                    .onChange(of: model.log) { _ in
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(Self.logBottomAnchor, anchor: .bottom) }
+                    }
+                    .onAppear { proxy.scrollTo(Self.logBottomAnchor, anchor: .bottom) }
                 }
-                .frame(height: 112)
-                .background(Theme.surfaceMuted)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                    .strokeBorder(Theme.border, lineWidth: 1))
-                .padding(.top, 6)
             }
         }
         // Every new log line refreshes the collapsed status: show it, then fade

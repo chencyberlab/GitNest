@@ -83,7 +83,10 @@ enum AccountSetup {
         let key = keyPath(alias: alias)
         var created = false
         if !FileManager.default.fileExists(atPath: key) {
-            // -N '' = no passphrase (key is protected by file perms + the keychain).
+            // -N "" = no passphrase: the key is protected by its file permissions
+            // alone. There's no passphrase for the keychain (UseKeychain) to store,
+            // so the keychain adds nothing here — a deliberate tradeoff for
+            // unattended, per-account git over SSH.
             let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", ""])
             guard res.ok else { return .failure(GitHubError(message: short(res))) }
             created = true

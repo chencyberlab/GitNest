@@ -26,13 +26,9 @@ final class GitChangesTests: XCTestCase {
     }
 
     func testParseHandlesPathsWithSpacesAndStatuses() {
-        let output = """
-         M Sources/App State.swift
-        ?? notes/todo.md
-         D OldConfig.json
-        A  Added.swift
-        """
-        let changes = GitChanges.parse(porcelain: output)
+        // -z records are NUL-terminated (\u{0}), not newline-separated.
+        let output = " M Sources/App State.swift\u{0}?? notes/todo.md\u{0} D OldConfig.json\u{0}A  Added.swift\u{0}"
+        let changes = GitChanges.parse(porcelainZ: output)
 
         XCTAssertEqual(changes.count, 4)
         XCTAssertEqual(changes[0].path, "Sources/App State.swift")
@@ -45,7 +41,8 @@ final class GitChangesTests: XCTestCase {
     }
 
     func testParseSplitsRenamesIntoOriginalAndNewPath() {
-        let changes = GitChanges.parse(porcelain: "R  old/name.swift -> new/name.swift")
+        // -z emits the new path first, then a second NUL-terminated original path.
+        let changes = GitChanges.parse(porcelainZ: "R  new/name.swift\u{0}old/name.swift\u{0}")
 
         XCTAssertEqual(changes.count, 1)
         XCTAssertEqual(changes[0].status, .renamed)
@@ -53,27 +50,33 @@ final class GitChangesTests: XCTestCase {
         XCTAssertEqual(changes[0].path, "new/name.swift")
     }
 
-    func testParseUnquotesPathsWithEscapes() {
-        // git quotes paths containing a double quote even with quotePath disabled.
-        let changes = GitChanges.parse(porcelain: " M \"weird \\\"name\\\".txt\"")
+    func testParseDoesNotMistakeArrowsInFilenamesForRenames() {
+        // A file literally named "weird -> name.txt": -z keeps it as one record, so
+        // it stays a single untracked entry instead of being split into a rename.
+        let changes = GitChanges.parse(porcelainZ: "?? weird -> name.txt\u{0}")
 
         XCTAssertEqual(changes.count, 1)
-        XCTAssertEqual(changes[0].path, "weird \"name\".txt")
+        XCTAssertEqual(changes[0].status, .untracked)
+        XCTAssertEqual(changes[0].path, "weird -> name.txt")
+        XCTAssertNil(changes[0].originalPath)
     }
 
-    func testParseIgnoresBlankLines() {
-        XCTAssertTrue(GitChanges.parse(porcelain: "\n\n").isEmpty)
-        XCTAssertTrue(GitChanges.parse(porcelain: "").isEmpty)
+    func testParseHandlesPathsWithNewlinesAndQuotes() {
+        // -z never quotes/escapes, so control chars and quotes pass through verbatim.
+        let changes = GitChanges.parse(porcelainZ: " M weird\n\"name\".txt\u{0}")
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].path, "weird\n\"name\".txt")
+    }
+
+    func testParseIgnoresEmptyRecords() {
+        XCTAssertTrue(GitChanges.parse(porcelainZ: "\u{0}\u{0}").isEmpty)
+        XCTAssertTrue(GitChanges.parse(porcelainZ: "").isEmpty)
     }
 
     func testGroupedOrdersGroupsAndSortsFilesWithinThem() {
-        let output = """
-        ?? z-untracked.txt
-         M b.swift
-         M a.swift
-         D gone.txt
-        """
-        let groups = GitChanges.grouped(GitChanges.parse(porcelain: output))
+        let output = "?? z-untracked.txt\u{0} M b.swift\u{0} M a.swift\u{0} D gone.txt\u{0}"
+        let groups = GitChanges.grouped(GitChanges.parse(porcelainZ: output))
 
         XCTAssertEqual(groups.map(\.title), ["Modified", "Deleted", "Untracked"])
         XCTAssertEqual(groups[0].files.map(\.path), ["a.swift", "b.swift"])

@@ -90,11 +90,15 @@ enum TerminalLauncher {
         } catch {
             throw TerminalOpenError.launchFailed(error.localizedDescription)
         }
+        // Drain stderr before waiting: readDataToEndOfFile() returns at the child's
+        // EOF, so reading first can't deadlock on a full pipe buffer the way reading
+        // after waitUntilExit() can (harmless for `open`, but the safe ordering).
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
 
         // `open` exits non-zero (and explains on stderr) when the app isn't found.
         guard process.terminationStatus == 0 else {
-            let detail = String(decoding: errPipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            let detail = String(decoding: errData, as: UTF8.self)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             throw TerminalOpenError.openFailed(appName: displayName, detail: detail)
         }

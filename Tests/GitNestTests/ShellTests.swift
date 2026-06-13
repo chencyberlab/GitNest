@@ -108,4 +108,31 @@ final class ShellTests: XCTestCase {
     func testResolveExecutablePassesThroughExplicitPaths() {
         XCTAssertEqual(Shell.resolveExecutable("/bin/echo"), "/bin/echo")
     }
+
+    func testProcessHandleCancelStopsARunningCommand() {
+        let handle = Shell.ProcessHandle()
+        let started = Date()
+        let done = expectation(description: "command returns")
+        var result: ShellResult?
+        DispatchQueue.global().async {
+            result = Shell.run(["sleep", "30"], handle: handle)
+            done.fulfill()
+        }
+        // Let it spawn, then kill it from another thread — like the wizard's Cancel.
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { handle.cancel() }
+
+        wait(for: [done], timeout: 10)
+        XCTAssertEqual(result?.ok, false)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+    }
+
+    func testProcessHandleCancelBeforeSpawnKillsImmediately() {
+        let handle = Shell.ProcessHandle()
+        handle.cancel()   // cancelled before the command even starts
+        let started = Date()
+        let res = Shell.run(["sleep", "30"], handle: handle)
+
+        XCTAssertFalse(res.ok)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+    }
 }

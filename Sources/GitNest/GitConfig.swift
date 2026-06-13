@@ -22,6 +22,7 @@ enum GitConfig {
         guard let text = try? String(contentsOfFile: gitconfig, encoding: .utf8) else { return [] }
 
         var accounts: [Account] = []
+        var seenAliases: Set<String> = []
         var pendingFolder: String?
 
         for raw in text.components(separatedBy: .newlines) {
@@ -31,7 +32,12 @@ enum GitConfig {
             } else if line.lowercased().hasPrefix("path"),
                       let folder = pendingFolder,
                       let cfgPath = value(line) {
-                if let account = loadAccountFile(expand(cfgPath), folder: expand(folder)) {
+                // Two `includeIf` rules can point at the same per-account config (one
+                // account, two folders), which yields the same alias twice. The app
+                // keys everything — Account.id, repoCache, ForEach — on alias, so a
+                // duplicate would collide caches and trap ForEach. Keep the first.
+                if let account = loadAccountFile(expand(cfgPath), folder: expand(folder)),
+                   seenAliases.insert(account.alias).inserted {
                     accounts.append(account)
                 }
                 pendingFolder = nil
@@ -40,9 +46,11 @@ enum GitConfig {
         return accounts
     }
 
-    // [includeIf "gitdir:~/path/"]
+    // [includeIf "gitdir:~/path/"] — also the case-insensitive [includeIf "gitdir/i:…"]
     private static func matchGitdir(_ line: String) -> String? {
-        guard line.hasPrefix("[includeIf"), let r = line.range(of: "gitdir:") else { return nil }
+        guard line.hasPrefix("[includeIf") else { return nil }
+        // Check `gitdir/i:` first since it's a longer, more specific marker.
+        guard let r = line.range(of: "gitdir/i:") ?? line.range(of: "gitdir:") else { return nil }
         let after = line[r.upperBound...]
         guard let endQuote = after.firstIndex(of: "\"") else { return nil }
         return String(after[..<endQuote])

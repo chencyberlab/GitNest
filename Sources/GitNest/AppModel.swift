@@ -165,6 +165,10 @@ final class AppModel: ObservableObject {
     @Published var repoRefreshMessage: String?
     @Published var isInitializingProject = false
     @Published var isForkingProject = false
+    /// Repos with a mutating git action (pull/push/commit/clone) in flight, so the
+    /// row can disable its buttons and a double-click can't run two `git pull`s on
+    /// the same repo and trip over `index.lock`.
+    @Published private(set) var busyRepos: Set<Repo.ID> = []
     @Published var log: String = ""
     /// Whether the most recently appended log line was a failure/warning. The
     /// collapsed Output status line uses this to stay pinned on problems while
@@ -199,6 +203,10 @@ final class AppModel: ObservableObject {
     private var repoLastRefreshAt: [String: Date] = [:]
     private var lifecycleStarted = false
     private var addAccountSessionID = UUID()
+    /// The in-flight `gh auth login --web` process, if any, so cancelling the
+    /// Add-account wizard (or starting another sign-in) can kill its GitHub poll
+    /// instead of leaving it to block the serialized gh chain for minutes.
+    private var activeAuthProcess: Shell.ProcessHandle?
     private var accountStatusSessionID = UUID()
     private var accountStatusLoadMode: AccountStatusLoadMode = .smart
     private static let accountOrderDefaultsKey = "accountOrder"
@@ -230,7 +238,7 @@ final class AppModel: ObservableObject {
         let previous = ghChain
         let task = Task<T, Never> {
             _ = await previous.value
-            return await Task.detached(priority: .userInitiated) { work() }.value
+            return await Self.runBlocking(work)
         }
         ghChain = Task { _ = await task.value }
         return await task.value
@@ -309,7 +317,10 @@ final class AppModel: ObservableObject {
 
     private func orderedAccounts(_ loaded: [Account]) -> [Account] {
         let savedOrder = UserDefaults.standard.stringArray(forKey: Self.accountOrderDefaultsKey) ?? []
-        let orderIndex = Dictionary(uniqueKeysWithValues: savedOrder.enumerated().map { ($0.element, $0.offset) })
+        // A saved order can carry duplicate aliases (older builds, or a hand-edited
+        // defaults file) — keep the first position for each so this never traps.
+        let orderIndex = Dictionary(savedOrder.enumerated().map { ($0.element, $0.offset) },
+                                    uniquingKeysWith: { first, _ in first })
         return loaded.enumerated()
             .sorted { lhs, rhs in
                 let left = orderIndex[lhs.element.alias] ?? Int.max
@@ -669,7 +680,10 @@ final class AppModel: ObservableObject {
     /// One interval tick — skip while a load/init is in flight or nothing is loaded.
     private func autoRefreshStatusesTick() async {
         guard let account = selectedAccount,
-              !isLoadingRepos, !isInitializingProject, !repos.isEmpty else { return }
+              !isLoadingRepos, !isInitializingProject, !repos.isEmpty,
+              // A post-load remote refresh is in flight; let it finish so this
+              // local-only tick can't race it and clobber the just-fetched state.
+              !isCheckingRepoRemotes else { return }
         await refreshStatuses(for: account)
     }
 
@@ -688,12 +702,23 @@ final class AppModel: ObservableObject {
             if selectedAccount?.alias == alias, !repoStatuses.isEmpty { repoStatuses = [:] }
             return
         }
+        let previous = selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
         let next = await run { () -> [Repo.ID: RepoStatus] in
             var out: [Repo.ID: RepoStatus] = [:]
             for target in targets {
-                if let status = GitHub.status(at: target.path, refreshRemote: refreshRemote) {
-                    out[target.id] = status
+                guard var status = GitHub.status(at: target.path, refreshRemote: refreshRemote) else { continue }
+                // Local-only rescans don't fetch, so they can't re-confirm the
+                // remote — they'd reset every row to `.unchecked` and wipe the
+                // green "current after live fetch" pill on the next 10s tick.
+                // Carry forward the last live-fetch verdict while the upstream is
+                // unchanged (and the fresh parse hasn't found something newer,
+                // e.g. `[gone]`).
+                if !refreshRemote, status.remoteState == .unchecked, status.hasUpstream,
+                   let prev = previous[target.id], prev.remoteState == .checked,
+                   prev.upstreamRemote == status.upstreamRemote {
+                    status.remoteState = .checked
                 }
+                out[target.id] = status
             }
             return out
         }
@@ -768,7 +793,20 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func makeInitPlan(sourceURL: URL, account: Account) -> ProjectInitPlan {
+    /// Persist a cloned/conflict update to `alias`'s cache, mirroring it into the
+    /// visible sets only while that account is still the selected one.
+    private func commitCloneState(_ cloned: Set<Repo.ID>,
+                                  _ conflicts: [Repo.ID: RepoFolderConflict],
+                                  for alias: String) {
+        clonedReposCache[alias] = cloned
+        repoFolderConflictsCache[alias] = conflicts
+        if selectedAccount?.alias == alias {
+            clonedRepos = cloned
+            repoFolderConflicts = conflicts
+        }
+    }
+
+    func makeInitPlan(sourceURL: URL, account: Account) async -> ProjectInitPlan {
         let sourcePath = sourceURL.standardizedFileURL.path
         let accountFolder = URL(fileURLWithPath: account.folder).standardizedFileURL.path
         let repoName = sanitizedRepoName(from: (sourcePath as NSString).lastPathComponent)
@@ -777,33 +815,50 @@ final class AppModel: ObservableObject {
             ? sourcePath
             : (accountFolder as NSString).appendingPathComponent(repoName)
 
+        // The in-place path refuses on an origin mismatch; the copy path keeps the
+        // folder's `.git` and re-points origin, so flag when copying would push a
+        // *different* repo's full history. (Local read; doesn't hit the network.)
+        var sourceOrigin: String?
+        if !inAccountFolder,
+           let origin = await run({ GitHub.originURL(at: sourcePath) }),
+           !GitHub.remoteLooksLike(origin, owner: account.alias, repoName: repoName) {
+            sourceOrigin = origin
+        }
+
         return ProjectInitPlan(
             account: account,
             sourcePath: sourcePath,
             workingPath: workingPath,
             repoName: repoName,
-            willCopy: !inAccountFolder
+            willCopy: !inAccountFolder,
+            sourceOrigin: sourceOrigin
         )
     }
 
     // MARK: Per-repo actions
 
     func clone(_ repo: Repo) async {
-        guard let account = selectedAccount else { return }
+        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
+        defer { busyRepos.remove(repo.id) }
+        let alias = account.alias
         let dest = localPath(repo, in: account)
+        // Snapshot this account's sets now, while it's the selected one, so an
+        // account switch during the await can't land its result in another
+        // account's visible UI (or write that account's dict into this cache).
+        var cloned = clonedRepos
+        var conflicts = repoFolderConflicts
         let state = await run { Self.localFolderState(for: repo, path: dest) }
         switch state {
         case .cloned:
-            clonedRepos.insert(repo.id)
-            clonedReposCache[account.alias] = clonedRepos
-            repoFolderConflicts.removeValue(forKey: repo.id)
-            repoFolderConflictsCache[account.alias] = repoFolderConflicts
+            cloned.insert(repo.id)
+            conflicts.removeValue(forKey: repo.id)
+            commitCloneState(cloned, conflicts, for: alias)
             appendLog("\(repo.nameWithOwner) is already cloned at \(dest).")
             await refreshStatuses(for: account, refreshRemote: true)
             return
         case .occupied(let conflict):
-            repoFolderConflicts[repo.id] = conflict
-            repoFolderConflictsCache[account.alias] = repoFolderConflicts
+            conflicts[repo.id] = conflict
+            commitCloneState(cloned, conflicts, for: alias)
             appendLog("✗ Cannot clone \(repo.nameWithOwner): \(conflict.message)")
             return
         case .absent:
@@ -819,7 +874,8 @@ final class AppModel: ObservableObject {
     }
 
     func pull(_ repo: Repo) async {
-        guard let account = selectedAccount else { return }
+        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
+        defer { busyRepos.remove(repo.id) }
         let path = localPath(repo, in: account)
         appendLog("Pulling \(repo.name)…")
         let res = await run { GitHub.pull(at: path) }
@@ -834,7 +890,8 @@ final class AppModel: ObservableObject {
     }
 
     func push(_ repo: Repo) async {
-        guard let account = selectedAccount else { return }
+        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
+        defer { busyRepos.remove(repo.id) }
         let path = localPath(repo, in: account)
         appendLog("Pushing \(repo.name)…")
         let res = await run { GitHub.push(at: path) }
@@ -864,7 +921,10 @@ final class AppModel: ObservableObject {
         currentAuthFlowCode = nil
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let clipboardWatcher = Task { await watchClipboardForDeviceCode(after: startingClipboardChangeCount) }
-        let login = await run { GitHub.authLoginWebWithClipboard() }
+        let authProcess = Shell.ProcessHandle()
+        activeAuthProcess = authProcess
+        let login = await run { GitHub.authLoginWebWithClipboard(handle: authProcess) }
+        if activeAuthProcess === authProcess { activeAuthProcess = nil }
         clipboardWatcher.cancel()
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
@@ -986,7 +1046,9 @@ final class AppModel: ObservableObject {
 
     func commit(_ repo: Repo, message: String) async {
         guard let account = selectedAccount,
-              !message.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+              !message.trimmingCharacters(in: .whitespaces).isEmpty,
+              busyRepos.insert(repo.id).inserted else { return }
+        defer { busyRepos.remove(repo.id) }
         let path = localPath(repo, in: account)
         appendLog("Committing \(repo.name): “\(message)”…")
         let res = await run { GitHub.commitAll(at: path, message: message) }
@@ -1087,6 +1149,10 @@ final class AppModel: ObservableObject {
         // If verification already ran, the config was written — refresh so the new
         // account's cards/chips populate, just like the Done path (minus the select).
         let wroteConfig = addAccountVerification != nil
+        // Kill any in-flight `gh auth login` poll so it doesn't keep the serialized
+        // gh chain busy (blocking repo refreshes/account checks) for up to ~10 min.
+        activeAuthProcess?.cancel()
+        activeAuthProcess = nil
         addAccountSessionID = UUID()
         addAccountActive = false
         addAccountBusy = false
@@ -1112,11 +1178,14 @@ final class AppModel: ObservableObject {
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let watcher = Task { await watchClipboardForAddAccountCode(session: session,
                                                                    after: startingClipboardChangeCount) }
+        let authProcess = Shell.ProcessHandle()
+        activeAuthProcess = authProcess
         let result = await ghSerialized { () -> AddAccountLoginResult in
-            let login = GitHub.authLoginWebWithClipboard()
+            let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
             guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
             return AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
         }
+        if activeAuthProcess === authProcess { activeAuthProcess = nil }
         watcher.cancel()
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1237,15 +1306,20 @@ final class AppModel: ObservableObject {
     }
 
     private func watchClipboardForAddAccountCode(session: UUID, after startingChangeCount: Int) async {
+        var lastChangeCount = startingChangeCount
         for _ in 0..<240 { // ~120s
             if Task.isCancelled || !isCurrentAddAccountSession(session) { return }
-            guard NSPasteboard.general.changeCount != startingChangeCount else {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                continue
-            }
-            if let clip = NSPasteboard.general.string(forType: .string),
-               let code = DeviceCode.extract(fromClipboard: clip) {
-                addAccountDeviceCode = code
+            // Only read when the pasteboard actually advances — otherwise this would
+            // re-read (and re-assign the code, re-rendering the sheet) every 500ms,
+            // and on macOS 15.4+ each read can surface a pasteboard-privacy alert.
+            let current = NSPasteboard.general.changeCount
+            if current != lastChangeCount {
+                lastChangeCount = current
+                if let clip = NSPasteboard.general.string(forType: .string),
+                   let code = DeviceCode.extract(fromClipboard: clip) {
+                    addAccountDeviceCode = code
+                    return   // captured — stop polling
+                }
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
@@ -1302,11 +1376,11 @@ final class AppModel: ObservableObject {
     }
 
     private func sanitizedRepoName(from folderName: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
-        let scalars = folderName.unicodeScalars.map { scalar in
-            allowed.contains(scalar) ? Character(scalar) : "-"
-        }
-        var name = String(scalars)
+        // GitHub repo names are ASCII [A-Za-z0-9._-]. CharacterSet.alphanumerics is
+        // Unicode-aware, so it would pass "héllo" through unchanged — which gh
+        // rejects (or GitHub silently renames, desyncing repoFullName).
+        let allowed = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        var name = String(folderName.map { allowed.contains($0) ? $0 : "-" })
         while name.contains("--") {
             name = name.replacingOccurrences(of: "--", with: "-")
         }
@@ -1332,7 +1406,22 @@ final class AppModel: ObservableObject {
 
     /// Run blocking shell work off the main actor; result lands back on the main actor.
     private func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await Task.detached(priority: .userInitiated) { work() }.value
+        await Self.runBlocking(work)
+    }
+
+    /// Shell commands block their thread on semaphores/`waitpid`/`waitUntilExit`.
+    /// A `Task.detached` runs that on Swift's cooperative thread pool, which is only
+    /// ~CPU-core wide — a few concurrent commands (pull on several repos while timers
+    /// tick) could park every pool thread and stall unrelated async work. Dispatch to
+    /// a dedicated concurrent queue instead so those waits never touch the pool.
+    private static let blockingQueue = DispatchQueue(label: "org.gitnest.shell",
+                                                     qos: .userInitiated,
+                                                     attributes: .concurrent)
+
+    static func runBlocking<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+            blockingQueue.async { continuation.resume(returning: work()) }
+        }
     }
 }
 

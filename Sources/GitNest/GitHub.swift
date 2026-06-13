@@ -275,6 +275,11 @@ struct ProjectInitPlan: Identifiable, Sendable {
     let workingPath: String
     let repoName: String
     let willCopy: Bool
+    /// When the source folder is itself a clone of a *different* repo, its origin
+    /// URL. Copying keeps `.git`, so that repo's full history would be re-pushed to
+    /// the new repo — surfaced in the confirmation so it isn't a silent surprise.
+    /// nil when it's not a clone (or already points at the target repo).
+    var sourceOrigin: String? = nil
 
     var sourceName: String {
         (sourcePath as NSString).lastPathComponent
@@ -317,7 +322,8 @@ enum GitHub {
     }
 
     /// Same as `authLoginWeb`, but also copies one-time device code to clipboard.
-    static func authLoginWebWithClipboard() -> ShellResult {
+    /// `handle` lets the caller kill the long-lived login poll on cancel.
+    static func authLoginWebWithClipboard(handle: Shell.ProcessHandle? = nil) -> ShellResult {
         Shell.run([
             "gh", "auth", "login",
             "--hostname", "github.com",
@@ -325,7 +331,7 @@ enum GitHub {
             "--clipboard",
             "--git-protocol", "ssh",
             "--skip-ssh-key"
-        ])
+        ], handle: handle)
     }
 
     /// Best-effort: make `owner` the active gh account so its private repos are visible.
@@ -555,13 +561,20 @@ enum GitHub {
     private static func waitForRepo(nameWithOwner: String,
                                     timeoutSeconds: UInt64) -> Result<Repo, GitHubError> {
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
+        var delay: TimeInterval = 1.0
+        let maxDelay: TimeInterval = 8.0
 
         while Date() < deadline {
             if let repo = repoView(nameWithOwner: nameWithOwner) {
                 return .success(repo)
             }
-            // Not ready yet; wait before retrying.
-            Thread.sleep(forTimeInterval: 1.0)
+            // Not ready yet; back off exponentially (1s, 2s, 4s… capped). Most forks
+            // land in seconds, so this avoids ~60 sequential `gh repo view` calls in
+            // the serialized chain. Never sleep past the deadline.
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            Thread.sleep(forTimeInterval: min(delay, remaining))
+            delay = min(delay * 2, maxDelay)
         }
 
         return .failure(GitHubError(message: """

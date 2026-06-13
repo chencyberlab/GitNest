@@ -29,6 +29,41 @@ enum Shell {
         }
     }
 
+    /// A handle to a running command's process group so another task can kill it
+    /// mid-flight — e.g. the user cancelling the Add-account wizard while
+    /// `gh auth login --web` is still polling GitHub. Thread-safe: the runner
+    /// registers the pid once the child is spawned and clears it once reaped, so a
+    /// late `cancel()` can never signal a recycled pid; `cancel()` itself is safe to
+    /// call before, during, or after the command runs.
+    final class ProcessHandle: @unchecked Sendable {
+        private let lock = NSLock()
+        private var pid: pid_t?
+        private var cancelled = false
+
+        /// Returns false if `cancel()` already fired — the runner should then kill
+        /// the just-spawned child immediately rather than let it run.
+        fileprivate func register(_ pid: pid_t) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            guard !cancelled else { return false }
+            self.pid = pid
+            return true
+        }
+
+        fileprivate func clear() {
+            lock.lock(); pid = nil; lock.unlock()
+        }
+
+        /// Kill the command's process group now, or as soon as it spawns.
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let target = pid
+            lock.unlock()
+            guard let target else { return }
+            if kill(-target, SIGKILL) != 0 { kill(target, SIGKILL) }
+        }
+    }
+
     /// Standard locations searched first — Homebrew (Apple Silicon and Intel),
     /// then the system paths. Covers gh/git/ssh for the common installs even
     /// when the app is launched from Finder with a minimal PATH.
@@ -62,7 +97,8 @@ enum Shell {
     /// JSON must arrive byte-exact.
     static func run(_ args: [String], cwd: String? = nil,
                     timeout: TimeInterval = defaultTimeout,
-                    killGracePeriod: TimeInterval = defaultKillGracePeriod) -> ShellResult {
+                    killGracePeriod: TimeInterval = defaultKillGracePeriod,
+                    handle: ProcessHandle? = nil) -> ShellResult {
         guard let command = args.first else {
             return ShellResult(exitCode: -1, stdout: "", stderr: "no command given")
         }
@@ -77,7 +113,8 @@ enum Shell {
             environment: commandEnvironment(),
             timeout: timeout,
             killGracePeriod: killGracePeriod,
-            displayArgs: args
+            displayArgs: args,
+            handle: handle
         )
     }
 
@@ -97,7 +134,8 @@ enum Shell {
                                       environment: [String: String],
                                       timeout: TimeInterval,
                                       killGracePeriod: TimeInterval,
-                                      displayArgs: [String]) -> ShellResult {
+                                      displayArgs: [String],
+                                      handle: ProcessHandle? = nil) -> ShellResult {
         var outFD: [Int32] = [0, 0]
         var errFD: [Int32] = [0, 0]
         guard pipe(&outFD) == 0 else {
@@ -179,6 +217,12 @@ enum Shell {
             return ShellResult(exitCode: -1, stdout: "", stderr: "failed to launch: \(posixError(spawnResult))")
         }
 
+        // Expose the process group for external cancellation. If `cancel()` already
+        // fired (the wizard was dismissed between spawn and here), kill it now.
+        if let handle, !handle.register(pid) {
+            killProcessGroup(pid, SIGKILL, fallbackToProcess: true)
+        }
+
         let outHandle = FileHandle(fileDescriptor: outFD[0], closeOnDealloc: true)
         let errHandle = FileHandle(fileDescriptor: errFD[0], closeOnDealloc: true)
 
@@ -194,12 +238,17 @@ enum Shell {
         queue.async { drain(errHandle) { buffers.appendErr($0) }; group.leave() }
 
         var waitStatus: Int32 = 0
+        var waitFailed = false
         let exited = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
             var status: Int32 = 0
-            while waitpid(pid, &status, 0) == -1 {
-                if errno != EINTR { break }
-            }
+            var result: pid_t
+            repeat {
+                result = waitpid(pid, &status, 0)
+            } while result == -1 && errno == EINTR
+            // A non-EINTR failure leaves `status` at 0, which decodes to exit 0 —
+            // i.e. a failed wait would silently report success. Flag it instead.
+            if result == -1 { waitFailed = true }
             waitStatus = status
             exited.signal()
         }
@@ -219,6 +268,8 @@ enum Shell {
                 exited.wait()
             }
         }
+        // The child is reaped now; stop the handle from signalling a recycled pid.
+        handle?.clear()
 
         // Phase 2: pipe EOF. Children that inherited stdout/stderr keep the
         // write ends open past the child's own exit; the group kills sweep
@@ -250,7 +301,7 @@ enum Shell {
             }
         }
         return ShellResult(
-            exitCode: timedOut ? -1 : exitCode(fromWaitStatus: waitStatus),
+            exitCode: (timedOut || waitFailed) ? -1 : exitCode(fromWaitStatus: waitStatus),
             stdout: String(decoding: outData, as: UTF8.self),
             stderr: stderrText
         )
@@ -307,22 +358,40 @@ enum Shell {
 
     private static let cacheLock = NSLock()
     private static var executableCache: [String: String] = [:]
+    private static var missCache: [String: Date] = [:]
+    /// How long a "not found" result is trusted before re-checking. Short enough
+    /// that installing a missing tool still takes effect quickly, long enough that
+    /// the 10s status timer doesn't respawn a login `zsh -lc` on every tick when a
+    /// tool (e.g. git) is genuinely missing.
+    private static let missCacheTTL: TimeInterval = 60
 
     /// Absolute path for `command`: the developer PATH and inherited PATH are
     /// checked directly, then — for unusual setups (MacPorts, nix) — a login
-    /// shell is asked once via `command -v`. Successful lookups are cached;
-    /// misses are not, so installing a missing tool works without a relaunch.
+    /// shell is asked once via `command -v`. Hits are cached permanently; misses
+    /// for a short TTL, so installing a missing tool works without a relaunch.
     static func resolveExecutable(_ command: String) -> String? {
         if command.contains("/") { return command }   // explicit path — use as-is
 
         cacheLock.lock()
-        let cached = executableCache[command]
+        if let cached = executableCache[command] {
+            cacheLock.unlock()
+            return cached
+        }
+        if let missedAt = missCache[command], Date().timeIntervalSince(missedAt) < missCacheTTL {
+            cacheLock.unlock()
+            return nil
+        }
         cacheLock.unlock()
-        if let cached { return cached }
 
-        guard let found = findExecutable(command) else { return nil }
+        guard let found = findExecutable(command) else {
+            cacheLock.lock()
+            missCache[command] = Date()
+            cacheLock.unlock()
+            return nil
+        }
         cacheLock.lock()
         executableCache[command] = found
+        missCache.removeValue(forKey: command)
         cacheLock.unlock()
         return found
     }

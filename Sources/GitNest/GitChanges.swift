@@ -58,25 +58,32 @@ struct GitChangeGroup: Identifiable {
 /// Pure parsing/grouping for `git status --porcelain`, kept separate from the
 /// shell call so it can be unit-tested without a real repo.
 enum GitChanges {
-    /// Parse `git status --porcelain` (v1) output into classified file changes.
-    /// Handles `XY path` lines and rename/copy `XY old -> new` lines, and strips
-    /// the surrounding quotes git adds for paths with unusual characters.
-    static func parse(porcelain output: String) -> [GitFileChange] {
+    /// Parse `git status --porcelain -z` output into classified file changes.
+    /// `-z` makes each record NUL-terminated and never quotes or escapes paths, so
+    /// a filename containing " -> " (or a newline, a double quote, …) is
+    /// unambiguous: a rename/copy is just a second NUL-terminated token holding the
+    /// original path, rather than an in-line `old -> new` that has to be guessed at.
+    static func parse(porcelainZ output: String) -> [GitFileChange] {
         var changes: [GitFileChange] = []
-        for rawLine in output.split(separator: "\n", omittingEmptySubsequences: true) {
-            let line = String(rawLine)
+        let records = output.split(separator: "\0", omittingEmptySubsequences: false).map(String.init)
+        var i = 0
+        while i < records.count {
+            let record = records[i]
+            i += 1
             // A valid entry is at least "XY p" — two status chars, a space, a path.
-            guard line.count > 3 else { continue }
-            let chars = Array(line)
+            guard record.count > 3 else { continue }
+            let chars = Array(record.prefix(2))
             let status = classify(chars[0], chars[1])
-            let rest = String(line.dropFirst(3))
+            let path = String(record.dropFirst(3))   // -z order: the new path first
 
-            if let arrow = rest.range(of: " -> ") {
-                let original = unquote(String(rest[..<arrow.lowerBound]))
-                let path = unquote(String(rest[arrow.upperBound...]))
+            // Rename/copy (R or C in either column) → the next record is the
+            // original path.
+            if chars[0] == "R" || chars[1] == "R" || chars[0] == "C" || chars[1] == "C" {
+                let original = i < records.count ? records[i] : nil
+                i += 1
                 changes.append(GitFileChange(path: path, originalPath: original, status: status))
             } else {
-                changes.append(GitFileChange(path: unquote(rest), originalPath: nil, status: status))
+                changes.append(GitFileChange(path: path, originalPath: nil, status: status))
             }
         }
         return changes
@@ -113,26 +120,6 @@ enum GitChanges {
         return .other("\(x)\(y)")
     }
 
-    /// Strip the surrounding quotes and undo the basic C-style escapes git uses
-    /// when a path contains unusual characters. Plain paths pass through unchanged.
-    private static func unquote(_ raw: String) -> String {
-        guard raw.count >= 2, raw.hasPrefix("\""), raw.hasSuffix("\"") else { return raw }
-        let inner = raw.dropFirst().dropLast()
-        var result = ""
-        var iterator = inner.makeIterator()
-        while let c = iterator.next() {
-            guard c == "\\" else { result.append(c); continue }
-            switch iterator.next() {
-            case "n":  result.append("\n")
-            case "t":  result.append("\t")
-            case "\"": result.append("\"")
-            case "\\": result.append("\\")
-            case let other?: result.append(other)
-            case nil: break
-            }
-        }
-        return result
-    }
 }
 
 extension GitHub {
@@ -140,18 +127,18 @@ extension GitHub {
     /// summary popover. Returns `.success([])` for a clean tree, and `.failure`
     /// only when git itself fails (not a repo, git missing, etc.). Network-free.
     static func changedFiles(at path: String) -> Result<[GitFileChange], GitHubError> {
-        // Mirror status(at:): never take .git/index.lock from this read. Disable
-        // path quoting so non-ASCII names come back readable.
+        // Mirror status(at:): never take .git/index.lock from this read. `-z` gives
+        // NUL-terminated, never-quoted records, so non-ASCII / unusual names come
+        // back readable and unambiguous (no quotePath dance, no " -> " guessing).
         let res = Shell.run([
             "git", "--no-optional-locks", "-C", path,
-            "-c", "core.quotePath=false",
-            "status", "--porcelain"
+            "status", "--porcelain", "-z"
         ])
         guard res.ok else {
             let raw = (res.stderr.isEmpty ? res.stdout : res.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return .failure(GitHubError(message: raw.isEmpty ? "git status failed" : raw))
         }
-        return .success(GitChanges.parse(porcelain: res.stdout))
+        return .success(GitChanges.parse(porcelainZ: res.stdout))
     }
 }

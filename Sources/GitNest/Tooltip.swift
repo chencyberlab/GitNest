@@ -82,6 +82,10 @@ private struct TooltipModifier: ViewModifier {
                 if isHovering { tip.hover(id: id, text: text, anchor: anchor) }
                 else { tip.endHover(id: id) }
             }
+            // If the hovered control is removed (e.g. a badge dropped by the 10s
+            // refresh), onHover(false) never fires — dismiss the bubble explicitly
+            // so it doesn't linger until the next hover.
+            .onDisappear { if hovering { tip.endHover(id: id) } }
     }
 }
 
