@@ -10,7 +10,7 @@ struct GitNestApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(model)
-                .frame(minWidth: 900, minHeight: 560)
+                .frame(minWidth: 920, minHeight: 580)
         }
         .defaultSize(width: 980, height: 660)
     }

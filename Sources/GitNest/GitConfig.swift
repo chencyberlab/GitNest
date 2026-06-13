@@ -103,9 +103,15 @@ enum GitConfig {
         return value
     }
 
-    // .../github_<alias>/  ->  <alias>
+    // .../github-<alias>/ or .../github_<alias>/  ->  <alias>
+    // Both separators are accepted: the README documents the hyphen form
+    // (~/Developer/github-work/) while earlier setups used an underscore.
     private static func folderAlias(_ folder: String) -> String? {
         let last = (folder as NSString).lastPathComponent
-        return last.hasPrefix("github_") ? String(last.dropFirst("github_".count)) : nil
+        for prefix in ["github-", "github_"] where last.hasPrefix(prefix) {
+            let alias = String(last.dropFirst(prefix.count))
+            return alias.isEmpty ? nil : alias
+        }
+        return nil
     }
 }

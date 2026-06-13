@@ -650,7 +650,7 @@ final class AppModel: ObservableObject {
     /// result. Per-owner in-flight guards in loadRepos keep this from stacking on a
     /// manual load already running.
     private func autoRefreshRepoListTick() async {
-        guard repoAutoRefreshSeconds > 0, !isInitializingProject, !addAccountActive else { return }
+        guard repoAutoRefreshSeconds > 0, !isInitializingProject, !isForkingProject, !addAccountActive else { return }
         let selected = selectedAccount?.alias
         let targets = accounts
             .filter { repoAutoRefreshAccounts.contains($0.alias) }

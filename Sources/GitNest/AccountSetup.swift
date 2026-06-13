@@ -166,6 +166,13 @@ enum AccountSetup {
             guard r.ok else { return .failure(GitHubError(message: short(r))) }
         }
 
+        // Drop any existing includeIf rules that already point at this account's
+        // config. Re-running the wizard with a *different* folder would otherwise
+        // leave the old `includeIf.gitdir:<old-folder>` rule behind, so both the
+        // old and new folder would load this account — a silent accumulation of
+        // stale rules. Removing first then re-adding guarantees exactly one rule.
+        removeIncludeRules(pointingTo: accountCfg)
+
         // Global includeIf → per-account config. Store portable (~/) paths so the
         // rule survives moving to another Mac.
         var gitdir = portablePath(expandedFolder)
@@ -259,6 +266,34 @@ enum AccountSetup {
         if path == home { return "~" }
         if path.hasPrefix(home + "/") { return "~" + path.dropFirst(home.count) }
         return path
+    }
+
+    /// Unset every global `includeIf.gitdir:*` rule whose value resolves to
+    /// `accountCfg`. Quiet when there are none (`--get-regexp` exits non-zero).
+    private static func removeIncludeRules(pointingTo accountCfg: String) {
+        let listed = Shell.run(["git", "config", "--global", "-z", "--get-regexp", "gitdir:"])
+        guard listed.ok else { return }
+        for key in includeKeysPointing(to: accountCfg, inNullDelimited: listed.stdout) {
+            _ = Shell.run(["git", "config", "--global", "--unset-all", key])
+        }
+    }
+
+    /// Canonical `includeIf.gitdir:*.path` keys in `output` whose value points at
+    /// `target`. `output` is the NUL-delimited `key\nvalue` stream produced by
+    /// `git config -z --get-regexp`; tilde paths on either side are expanded so a
+    /// portable `~/.gitconfig-x` matches the same absolute file.
+    static func includeKeysPointing(to target: String, inNullDelimited output: String) -> [String] {
+        let wanted = (target as NSString).expandingTildeInPath
+        var keys: [String] = []
+        for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
+            guard let newline = record.firstIndex(of: "\n") else { continue }
+            let key = String(record[..<newline])
+            let value = String(record[record.index(after: newline)...])
+            let lowerKey = key.lowercased()
+            guard lowerKey.hasPrefix("includeif.gitdir:"), lowerKey.hasSuffix(".path") else { continue }
+            if (value as NSString).expandingTildeInPath == wanted { keys.append(key) }
+        }
+        return keys
     }
 
     private static func short(_ r: ShellResult) -> String {

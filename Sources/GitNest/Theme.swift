@@ -200,6 +200,10 @@ struct IconChipButtonStyle: ButtonStyle {
         let tint: Color?
         let fill: Color?
         let isHovered: Bool
+        // Custom ButtonStyles don't dim on their own, so read `isEnabled` and grey
+        // out when a row marks the action `.disabled(...)` while it's busy — without
+        // this the buttons stop responding but still look fully active.
+        @Environment(\.isEnabled) private var isEnabled
         @Environment(\.theme) private var theme
 
         var body: some View {
@@ -213,6 +217,7 @@ struct IconChipButtonStyle: ButtonStyle {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
                     .strokeBorder(resolvedTint.opacity(isHovered ? 0.55 : 0.22), lineWidth: 1))
+                .opacity(isEnabled ? 1 : 0.4)
                 .contentShape(Rectangle())
         }
     }

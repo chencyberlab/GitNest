@@ -61,4 +61,34 @@ final class AccountSetupTests: XCTestCase {
 
         XCTAssertEqual(backup, "/Users/example/.gitconfig.backup-20260603-101112-abcdef12")
     }
+
+    func testIncludeKeysPointingMatchesEveryRuleForTheSameAccountAcrossFolders() {
+        // Two folders point at the same per-account config — the stale-rule cleanup
+        // must catch both so re-running the wizard can't leave an orphan behind.
+        let home = NSHomeDirectory()
+        let output = [
+            "includeIf.gitdir:~/Developer/github-work/.path\n~/.gitconfig-work",
+            "includeIf.gitdir:~/Old/github-work/.path\n\(home)/.gitconfig-work",
+            "includeIf.gitdir:~/Developer/github-home/.path\n~/.gitconfig-home",
+        ].joined(separator: "\0") + "\0"
+
+        let keys = AccountSetup.includeKeysPointing(to: "~/.gitconfig-work", inNullDelimited: output)
+
+        XCTAssertEqual(keys, [
+            "includeIf.gitdir:~/Developer/github-work/.path",   // portable value
+            "includeIf.gitdir:~/Old/github-work/.path",         // expanded value, same file
+        ])
+    }
+
+    func testIncludeKeysPointingIgnoresUnrelatedKeys() {
+        let output = [
+            "user.name\nWork User",                                  // not an includeIf rule
+            "includeIf.gitdir:~/Developer/github-home/.path\n~/.gitconfig-home",   // different account
+            "includeIf.gitdir:~/Developer/github-work/.path\n~/.gitconfig-work",
+        ].joined(separator: "\0") + "\0"
+
+        let keys = AccountSetup.includeKeysPointing(to: "~/.gitconfig-work", inNullDelimited: output)
+
+        XCTAssertEqual(keys, ["includeIf.gitdir:~/Developer/github-work/.path"])
+    }
 }

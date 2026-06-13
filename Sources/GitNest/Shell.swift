@@ -29,6 +29,25 @@ enum Shell {
         }
     }
 
+    /// The reaped child's wait status, handed from the waitpid task to the runner.
+    /// The `exited` semaphore already orders the write-before-read, but routing it
+    /// through a locked box (rather than mutable vars captured by the dispatch
+    /// block) keeps the hand-off explicit so it stays clean under TSan and Swift 6
+    /// strict concurrency.
+    private final class WaitOutcome: @unchecked Sendable {
+        private let lock = NSLock()
+        private var status: Int32 = 0
+        private var failed = false
+
+        func record(status: Int32, failed: Bool) {
+            lock.lock(); self.status = status; self.failed = failed; lock.unlock()
+        }
+        func read() -> (status: Int32, failed: Bool) {
+            lock.lock(); defer { lock.unlock() }
+            return (status, failed)
+        }
+    }
+
     /// A handle to a running command's process group so another task can kill it
     /// mid-flight — e.g. the user cancelling the Add-account wizard while
     /// `gh auth login --web` is still polling GitHub. Thread-safe: the runner
@@ -237,8 +256,7 @@ enum Shell {
         group.enter()
         queue.async { drain(errHandle) { buffers.appendErr($0) }; group.leave() }
 
-        var waitStatus: Int32 = 0
-        var waitFailed = false
+        let waitOutcome = WaitOutcome()
         let exited = DispatchSemaphore(value: 0)
         DispatchQueue.global(qos: .utility).async {
             var status: Int32 = 0
@@ -248,8 +266,7 @@ enum Shell {
             } while result == -1 && errno == EINTR
             // A non-EINTR failure leaves `status` at 0, which decodes to exit 0 —
             // i.e. a failed wait would silently report success. Flag it instead.
-            if result == -1 { waitFailed = true }
-            waitStatus = status
+            waitOutcome.record(status: status, failed: result == -1)
             exited.signal()
         }
 
@@ -292,6 +309,9 @@ enum Shell {
         }
 
         let (outData, errData) = buffers.snapshot()
+        // Safe to read now: the child is reaped and `exited` was signalled, which
+        // happens-before this point on every path out of phase 1 above.
+        let (waitStatus, waitFailed) = waitOutcome.read()
         var stderrText = String(decoding: errData, as: UTF8.self)
         if timedOut {
             if !stderrText.isEmpty, !stderrText.hasSuffix("\n") { stderrText += "\n" }
