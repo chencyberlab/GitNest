@@ -7,6 +7,7 @@ import AppKit
 struct CopyableField: View {
     let value: String
     @State private var copied = false
+    @Environment(\.theme) private var theme
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
@@ -27,16 +28,16 @@ struct CopyableField: View {
                 Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
                     .font(.system(size: 11, weight: .semibold))
                     .labelStyle(.titleAndIcon)
-                    .foregroundStyle(copied ? Theme.green : Theme.purpleAccent)
+                    .foregroundStyle(copied ? theme.success : theme.accent)
             }
             .buttonStyle(.plain)
             .focusable(false)
         }
         .padding(8)
-        .background(Theme.surfaceMuted)
+        .background(theme.surfaceMuted)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .strokeBorder(Theme.border, lineWidth: 1))
+            .strokeBorder(theme.border, lineWidth: 1))
     }
 }
 
@@ -45,24 +46,25 @@ struct CopyableField: View {
 /// write the local config (with backups) and verify.
 struct AddAccountSheet: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.theme) private var theme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            Divider().overlay(Theme.border)
+            Divider().overlay(theme.border)
             stepContent
             if let error = model.addAccountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.danger)
+                    .foregroundStyle(theme.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider().overlay(Theme.border)
+            Divider().overlay(theme.border)
             footer
         }
         .padding(22)
         .frame(width: 560)
-        .background(Theme.surface)
+        .background(theme.surface)
         .interactiveDismissDisabled(model.addAccountBusy && model.addAccountStep == .finish)
     }
 
@@ -73,7 +75,7 @@ struct AddAccountSheet: View {
             Text("Add a GitHub account").font(Theme.title(18))
             Text(stepLabel)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
         }
     }
 
@@ -101,17 +103,17 @@ struct AddAccountSheet: View {
     private var signInStep: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sign in to the GitHub account you want to add. Your browser opens to github.com/login/device — enter the one-time code shown below.")
-                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             if let code = model.addAccountDeviceCode {
-                Text("One-time code").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textTertiary)
+                Text("One-time code").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 CopyableField(value: code)
             }
             if model.addAccountBusy {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Waiting for sign-in to complete…")
-                        .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                        .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 }
             }
         }
@@ -121,10 +123,10 @@ struct AddAccountSheet: View {
         VStack(alignment: .leading, spacing: 12) {
             if let id = model.addAccountIdentity {
                 Label("Signed in as \(id.login)", systemImage: "checkmark.circle.fill")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Theme.green)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.success)
             }
             Text("Choose (or create) the folder where this account's repositories will live. The include rule is written to match it.")
-                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Button { chooseFolder() } label: { Label("Choose Folder…", systemImage: "folder") }
@@ -132,16 +134,16 @@ struct AddAccountSheet: View {
                 if let folder = model.addAccountFolder {
                     Text(folder)
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(theme.textMuted)
                         .lineLimit(1).truncationMode(.middle)
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Commit email").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textTertiary)
+                Text("Commit email").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 TextField("email", text: $model.addAccountEmail)
                     .textFieldStyle(.roundedBorder).font(.system(size: 12))
                 Text("Defaults to GitHub's private no-reply address — keeps your real email off commits.")
-                    .font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                    .font(.system(size: 10)).foregroundStyle(theme.textTertiary)
             }
         }
     }
@@ -151,10 +153,10 @@ struct AddAccountSheet: View {
             Text(model.addAccountKeyCreated
                  ? "A dedicated SSH key was created for this account. Add its public key to GitHub:"
                  : "This account already has a dedicated SSH key. Make sure its public key is on GitHub:")
-                .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
             if let pub = model.addAccountPublicKey {
-                Text("Public key").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.textTertiary)
+                Text("Public key").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 CopyableField(value: pub)
             }
             Button { copyKeyAndOpenGitHub() } label: {
@@ -162,7 +164,7 @@ struct AddAccountSheet: View {
             }
             .buttonStyle(SubtleButtonStyle())
             Text("On GitHub: Settings → SSH and GPG keys → New SSH key. Paste, save, then continue.")
-                .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                .font(.system(size: 11)).foregroundStyle(theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -173,24 +175,24 @@ struct AddAccountSheet: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Writing config (with backups) & verifying…")
-                        .font(.system(size: 12)).foregroundStyle(Theme.textSecondary)
+                        .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 }
             } else {
                 if let verification = model.addAccountVerification {
                     Label(sshVerificationText(verification),
                           systemImage: verification.sshOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(verification.sshOK ? Theme.green : Theme.amber)
+                        .foregroundStyle(verification.sshOK ? theme.success : theme.warning)
                         .fixedSize(horizontal: false, vertical: true)
                     Label(ghVerificationText(verification),
                           systemImage: verification.ghOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(verification.ghOK ? Theme.green : Theme.amber)
+                        .foregroundStyle(verification.ghOK ? theme.success : theme.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Label("Verification has not run yet.", systemImage: "exclamationmark.triangle.fill")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(Theme.amber)
+                        .foregroundStyle(theme.warning)
                 }
                 if model.addAccountVerification?.ok != true {
                     Button { Task { await model.addAccountReverify() } } label: {
@@ -199,7 +201,7 @@ struct AddAccountSheet: View {
                     .buttonStyle(SubtleButtonStyle())
                 }
                 Text("Written with timestamped backups of ~/.ssh/config and ~/.gitconfig. The account appears in the sidebar once you're done.")
-                    .font(.system(size: 11)).foregroundStyle(Theme.textTertiary)
+                    .font(.system(size: 11)).foregroundStyle(theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -224,13 +226,13 @@ struct AddAccountSheet: View {
             Button { Task { await model.addAccountSignIn() } } label: {
                 Label("Sign in to GitHub", systemImage: "person.badge.key")
             }
-            .buttonStyle(PrimaryPurpleButtonStyle())
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(model.addAccountBusy)
         case .folder:
             Button { Task { await model.addAccountGenerateKey() } } label: {
                 Label("Next", systemImage: "arrow.right")
             }
-            .buttonStyle(PrimaryPurpleButtonStyle())
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(model.addAccountBusy || model.addAccountFolder == nil)
         case .sshKey:
             Button {
@@ -240,13 +242,13 @@ struct AddAccountSheet: View {
             } label: {
                 Label("I've added it — continue", systemImage: "checkmark")
             }
-            .buttonStyle(PrimaryPurpleButtonStyle())
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(model.addAccountBusy)
         case .finish:
             Button { model.completeAddAccount() } label: {
                 Label("Done", systemImage: "checkmark")
             }
-            .buttonStyle(PrimaryPurpleButtonStyle())
+            .buttonStyle(PrimaryButtonStyle())
             .disabled(model.addAccountBusy || model.addAccountVerification?.ok != true)
         }
     }

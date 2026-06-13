@@ -44,6 +44,9 @@ struct ContentView: View {
     /// Persisted appearance choice: "system" | "light" | "dark".
     @AppStorage("appearancePreference") private var appearancePreference: String = "system"
 
+    /// Persisted colour-scheme palette choice.
+    @AppStorage("colorThemeID") private var colorThemeID: String = ColorThemePalette.gitNest.id
+
     /// Output pane starts collapsed to save vertical space; choice is remembered.
     @AppStorage("outputExpanded") private var outputExpanded: Bool = false
 
@@ -62,6 +65,12 @@ struct ContentView: View {
     /// name used when the choice is `.custom`.
     @AppStorage("preferredTerminal") private var preferredTerminalRaw: String = PreferredTerminal.none.rawValue
     @AppStorage("customTerminalAppName") private var customTerminalName: String = ""
+
+    /// Resolved theme for this view. Injected into the environment so sheets,
+    /// popovers and reusable button styles all see the same palette.
+    private var theme: Theme {
+        Theme(palette: ColorThemePalette.palette(for: colorThemeID) ?? .gitNest)
+    }
 
     // Shared column widths so the header and rows line up.
     private let visWidth: CGFloat = 52
@@ -143,11 +152,12 @@ struct ContentView: View {
         }
         .frame(minWidth: 920, minHeight: 580)
         .navigationTitle("GitNest")
-        .tint(Theme.purpleAccent)
+        .tint(theme.accent)
         .preferredColorScheme(resolvedScheme)
         .coordinateSpace(name: TooltipController.space)
         .overlay { TooltipOverlay() }
         .environmentObject(tooltip)
+        .environment(\.theme, theme)
         .onAppear {
             model.startLifecycle(statusMode: accountStatusLoadMode,
                                  repoAutoRefreshSeconds: repoAutoRefreshSeconds)
@@ -213,7 +223,7 @@ struct ContentView: View {
             }
             .pickerStyle(.inline)
         } label: {
-            Image(systemName: appearanceIcon).foregroundStyle(Theme.purpleAccent)
+            Image(systemName: appearanceIcon).foregroundStyle(theme.accent)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -230,7 +240,7 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .focusable(false)
-        .foregroundStyle(Theme.purpleAccent)
+        .foregroundStyle(theme.accent)
         .tooltip("Settings — account status, repo auto-refresh, and open actions")
         .popover(isPresented: $showSettings, arrowEdge: .bottom) {
             settingsPopover
@@ -241,12 +251,26 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Settings")
                 .font(Theme.title(15))
-                .foregroundStyle(Theme.textPrimary)
+                .foregroundStyle(theme.text)
 
             settingsSection(title: "Account Status", help: accountStatusLoadMode.help) {
                 Picker("Account status loading", selection: $accountStatusLoadModeRaw) {
                     ForEach(AccountStatusLoadMode.allCases) { mode in
                         Text(mode.title).tag(mode.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            settingsSection(
+                title: "Colour scheme",
+                help: "Choose the accent and surface colours used throughout the app."
+            ) {
+                Picker("Colour scheme", selection: $colorThemeID) {
+                    ForEach(allPalettes) { palette in
+                        Text(palette.displayName).tag(palette.id)
                     }
                 }
                 .labelsHidden()
@@ -321,11 +345,11 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textPrimary)
+                .foregroundStyle(theme.text)
             content()
             Text(help)
                 .font(.system(size: 10))
-                .foregroundStyle(Theme.textTertiary)
+                .foregroundStyle(theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -338,11 +362,11 @@ struct ContentView: View {
     @ViewBuilder
     private func selectionBackground(_ selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .fill(selected ? Theme.purpleSubtle : Color.clear)
+            .fill(selected ? theme.accentSubtle : Color.clear)
             .overlay(alignment: .leading) {
                 if selected {
                     RoundedRectangle(cornerRadius: 2)
-                        .fill(Theme.purpleAccent)
+                        .fill(theme.accent)
                         .frame(width: 3)
                         .padding(.vertical, 4)
                 }
@@ -357,10 +381,10 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("GitNest")
                         .font(Theme.title(16))
-                        .foregroundStyle(Theme.textPrimary)
+                        .foregroundStyle(theme.text)
                     Text(appVersionLabel)
                         .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
@@ -369,14 +393,14 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Text("ACCOUNTS")
                         .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(Theme.textSecondary).tracking(0.6)
+                        .foregroundStyle(theme.textMuted).tracking(0.6)
                     Spacer()
                     Button { model.beginAddAccount() } label: {
                         Image(systemName: "plus").font(.system(size: 12, weight: .bold))
                     }
                     .buttonStyle(.plain)
                     .focusable(false)
-                    .foregroundStyle(Theme.purpleAccent)
+                    .foregroundStyle(theme.accent)
                     .tooltip("Add a GitHub account")
                     appearanceMenu
                     settingsButton
@@ -417,7 +441,7 @@ struct ContentView: View {
                 if filteredAccounts.isEmpty && !accountSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("No accounts match.")
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 10)
@@ -427,7 +451,7 @@ struct ContentView: View {
             .coordinateSpace(name: Self.accountListSpace)
         }
         .frame(minWidth: 280)
-        .background(Theme.surface)
+        .background(theme.surface)
         .safeAreaInset(edge: .bottom) {
             Button { model.refreshAll(statusMode: accountStatusLoadMode, manual: true) } label: {
                 Label("Refresh", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
@@ -468,28 +492,28 @@ struct ContentView: View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
             TextField("Wild search accounts…", text: $accountSearch)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !accountSearch.isEmpty {
                 Text("\(filteredAccounts.count)/\(model.accounts.count)")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
                 Button { accountSearch = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .tooltip("Clear account search")
             }
         }
         .padding(.horizontal, 9).padding(.vertical, 6)
-        .background(Theme.surfaceMuted)
+        .background(theme.surfaceMuted)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .strokeBorder(Theme.border, lineWidth: 1))
+            .strokeBorder(theme.border, lineWidth: 1))
     }
 
     private func accountCard(_ account: Account) -> some View {
@@ -521,7 +545,7 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(Theme.textTertiary)
+                            .foregroundStyle(theme.textTertiary)
                             .frame(width: 18, height: 18)
                     }
                     .buttonStyle(.plain)
@@ -529,8 +553,8 @@ struct ContentView: View {
                 }
 
                 if expanded {
-                    Text(account.email).font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
-                    Text(account.sshHost).font(.system(size: 10)).foregroundStyle(Theme.textTertiary)
+                    Text(account.email).font(.system(size: 11)).foregroundStyle(theme.textMuted)
+                    Text(account.sshHost).font(.system(size: 10)).foregroundStyle(theme.textTertiary)
                     if let greeting = model.sshGreetings[account.alias] {
                         let ok = model.accountSSHReady(account)
                         authBadge(
@@ -554,14 +578,14 @@ struct ContentView: View {
                     HStack(spacing: 7) {
                         ActionIconButton(systemName: "person.badge.key",
                                          help: "Run gh auth login (web) for this account",
-                                         tint: Theme.purpleAccent,
-                                         fill: Theme.purpleSubtle) {
+                                         tint: theme.accent,
+                                         fill: theme.accentSubtle) {
                             ghLoginTarget = account
                         }
                         ActionIconButton(systemName: "globe",
                                          help: "Open github.com/\(account.alias) in your browser",
-                                         tint: Theme.purpleAccent,
-                                         fill: Theme.purpleSubtle) {
+                                         tint: theme.accent,
+                                         fill: theme.accentSubtle) {
                             model.openGitHubProfile(account)
                         }
                     }
@@ -598,19 +622,19 @@ struct ContentView: View {
                 .accessibilityLabel(status.help)
         case .notLoaded:
             accountSummaryImage(systemName: "circle.dashed",
-                                tint: Theme.textTertiary,
+                                tint: theme.textTertiary,
                                 help: status.help)
         case .ready:
             accountSummaryImage(systemName: "checkmark.circle.fill",
-                                tint: Theme.green,
+                                tint: theme.success,
                                 help: status.help)
         case .partial:
             accountSummaryImage(systemName: "questionmark.circle.fill",
-                                tint: Theme.amber,
+                                tint: theme.warning,
                                 help: status.help)
         case .failed:
             accountSummaryImage(systemName: "xmark.circle.fill",
-                                tint: Theme.danger,
+                                tint: theme.error,
                                 help: status.help)
         }
     }
@@ -647,7 +671,7 @@ struct ContentView: View {
     private func accountReorderControls(_ account: Account) -> some View {
         Image(systemName: "line.3.horizontal")
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(draggingAlias == account.alias ? Theme.purpleAccent : Theme.textTertiary)
+            .foregroundStyle(draggingAlias == account.alias ? theme.accent : theme.textTertiary)
             .frame(width: 22, height: 40, alignment: .center)
             .contentShape(Rectangle())
             .simultaneousGesture(reorderDragGesture(account))
@@ -733,12 +757,12 @@ struct ContentView: View {
                 .font(.system(size: 10, weight: .semibold))
                 .lineLimit(1)
         }
-        .foregroundStyle(ok ? Theme.green : Theme.danger)
+        .foregroundStyle(ok ? theme.success : theme.error)
         .padding(.vertical, 2).padding(.horizontal, 7)
         // Fix the width before the background so the colored pill itself is the
         // same size for both indicators (not just the layout slot).
         .frame(width: authBadgeWidth, alignment: .leading)
-        .background(ok ? Theme.greenSubtle : Theme.dangerSubtle)
+        .background(ok ? theme.successSubtle : theme.errorSubtle)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous))
         .tooltip("\(status) — \(help)")
     }
@@ -756,12 +780,12 @@ struct ContentView: View {
             if let image = phase.image {
                 image.resizable().scaledToFill()
             } else {
-                Image(systemName: "person.crop.circle.fill").resizable().foregroundStyle(Theme.textSecondary)
+                Image(systemName: "person.crop.circle.fill").resizable().foregroundStyle(theme.textMuted)
             }
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .overlay(Circle().strokeBorder(Theme.border, lineWidth: 1))
+        .overlay(Circle().strokeBorder(theme.border, lineWidth: 1))
     }
 
     // MARK: Detail — repos + actions
@@ -770,7 +794,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let account = model.selectedAccount {
                 header(account)
-                Divider().overlay(Theme.border)
+                Divider().overlay(theme.border)
                 if !model.isLoadingRepos && !model.repos.isEmpty {
                     repoSearchBar
                 }
@@ -779,15 +803,15 @@ struct ContentView: View {
             } else {
                 Spacer()
                 Text("Select an account on the left.")
-                    .font(.system(size: 14)).foregroundStyle(Theme.textSecondary)
+                    .font(.system(size: 14)).foregroundStyle(theme.textMuted)
                     .frame(maxWidth: .infinity)
                 Spacer()
             }
-            Divider().overlay(Theme.border)
+            Divider().overlay(theme.border)
             outputPane
         }
         .padding(18)
-        .background(Theme.surface)
+        .background(theme.surface)
     }
 
     private func header(_ account: Account) -> some View {
@@ -797,7 +821,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(account.name).font(Theme.display(22))
                 Label(account.folder, systemImage: "folder")
-                    .font(.system(size: 11)).foregroundStyle(Theme.textSecondary)
+                    .font(.system(size: 11)).foregroundStyle(theme.textMuted)
             }
             Spacer()
             HStack(spacing: 10) {
@@ -806,7 +830,7 @@ struct ContentView: View {
                 } label: {
                     Label("Init project", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Choose a local project folder, create a GitHub repo, and push it")
                 .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
 
@@ -816,7 +840,7 @@ struct ContentView: View {
                 } label: {
                     Label("Fork project", systemImage: "tuningfork")
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Fork a GitHub repository into this account and clone it")
                 .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
 
@@ -825,7 +849,7 @@ struct ContentView: View {
                 } label: {
                     Label("Load repos", systemImage: "tray.and.arrow.down")
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "List every repo \(account.alias) owns (via gh)")
                 .disabled(!ready || model.isLoadingRepos || model.isInitializingProject || model.isForkingProject)
             }
@@ -884,46 +908,46 @@ struct ContentView: View {
                     .font(Theme.title(18))
                 Text("\(plan.account.alias)/\(plan.repoName)")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
             }
 
-            Divider().overlay(Theme.border)
+            Divider().overlay(theme.border)
 
             VStack(alignment: .leading, spacing: 10) {
                 Label(plan.sourcePath, systemImage: "folder")
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
                     .lineLimit(2)
                     .truncationMode(.middle)
 
                 if plan.willCopy {
                     Label("Will copy to \(plan.workingPath)", systemImage: "arrow.turn.down.right")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(theme.textMuted)
                         .lineLimit(2)
                         .truncationMode(.middle)
                     Text("Use the copied folder for future development after upload.")
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                     if let origin = plan.sourceOrigin {
                         Label("This folder is a clone of \(origin) — its full commit history will be pushed to \(plan.account.alias)/\(plan.repoName).",
                               systemImage: "exclamationmark.triangle.fill")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Theme.amber)
+                            .foregroundStyle(theme.warning)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 } else {
                     Label("Already inside \(plan.account.alias)'s GitHub folder; will initialize in place.",
                           systemImage: "checkmark.circle")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.green)
+                        .foregroundStyle(theme.success)
                 }
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Repo type")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
                 Picker("Repo type", selection: $initVisibility) {
                     ForEach(RepoVisibilityChoice.allCases) { choice in
                         Text(choice.title).tag(choice)
@@ -938,12 +962,12 @@ struct ContentView: View {
                     .font(.system(size: 12, weight: .medium))
                 Text("The copied folder in \(plan.account.alias)'s GitHub folder will remain.")
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
             } else {
                 Label("Trash cleanup is unavailable because this folder is already in the account folder.",
                       systemImage: "info.circle")
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
             }
 
             HStack {
@@ -962,13 +986,13 @@ struct ContentView: View {
                 } label: {
                     Label("Create Repo", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding(22)
         .frame(width: 520)
-        .background(Theme.surface)
+        .background(theme.surface)
     }
 
     private var forkProjectSheet: some View {
@@ -978,23 +1002,23 @@ struct ContentView: View {
                     .font(Theme.title(18))
                 Text("Enter the GitHub repository address to fork into \(model.selectedAccount?.alias ?? "this account").")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
                     .lineLimit(2)
             }
 
-            Divider().overlay(Theme.border)
+            Divider().overlay(theme.border)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("GitHub project address")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
                 TextField("e.g. https://github.com/owner/repo or owner/repo", text: $forkAddress)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 12))
                     .disabled(model.isForkingProject)
                 Text("The repository will be forked to your account, then cloned into the account folder.")
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1003,7 +1027,7 @@ struct ContentView: View {
                     ProgressView().controlSize(.small)
                     Text("Forking and cloning…")
                         .font(.system(size: 12))
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(theme.textMuted)
                 }
             }
 
@@ -1029,14 +1053,14 @@ struct ContentView: View {
                 } label: {
                     Label("Fork & Clone", systemImage: "tuningfork")
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(model.isForkingProject || RepoReference.parse(forkAddress) == nil)
             }
         }
         .padding(22)
         .frame(width: 520)
-        .background(Theme.surface)
+        .background(theme.surface)
     }
 
     // MARK: Repo list (custom selection, no system blue)
@@ -1054,7 +1078,7 @@ struct ContentView: View {
         } else {
             VStack(spacing: 0) {
                 repoListHeader
-                Divider().overlay(Theme.border)
+                Divider().overlay(theme.border)
                 ScrollView {
                     if model.filteredRepos.isEmpty {
                         repoListEmptyState
@@ -1067,9 +1091,9 @@ struct ContentView: View {
                 }
             }
             .frame(minHeight: 240)
-            .background(Theme.surface)
+            .background(theme.surface)
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                .strokeBorder(Theme.border, lineWidth: 1))
+                .strokeBorder(theme.border, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
             .sheet(item: $commitTarget) { repo in commitSheet(repo) }
             .confirmationDialog(
@@ -1110,7 +1134,7 @@ struct ContentView: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
             TextField("Wild search repos…  (part of a name, glob like m*ger, or fuzzy “mgm”)",
                       text: $model.repoSearch)
                 .textFieldStyle(.plain)
@@ -1118,21 +1142,21 @@ struct ContentView: View {
             if !model.repoSearch.isEmpty {
                 Text("\(model.filteredRepos.count)/\(model.repos.count)")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
                 Button { model.repoSearch = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                 }
                 .buttonStyle(.plain)
                 .tooltip("Clear search")
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(Theme.surfaceMuted)
+        .background(theme.surfaceMuted)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .strokeBorder(Theme.border, lineWidth: 1))
+            .strokeBorder(theme.border, lineWidth: 1))
     }
 
     @ViewBuilder
@@ -1140,12 +1164,12 @@ struct ContentView: View {
         VStack(spacing: 8) {
             Image(systemName: model.repos.isEmpty ? "tray" : "magnifyingglass")
                 .font(.system(size: 22))
-                .foregroundStyle(Theme.textTertiary)
+                .foregroundStyle(theme.textTertiary)
             Text(model.repos.isEmpty
                  ? "No repositories loaded yet."
                  : "No repositories match “\(model.repoSearch)”.")
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
             if !model.repos.isEmpty {
                 Button("Clear search") { model.repoSearch = "" }
                     .buttonStyle(SubtleButtonStyle())
@@ -1165,7 +1189,7 @@ struct ContentView: View {
                 .frame(width: updatedWidth, alignment: .leading)
             Text("Actions").frame(width: actionsWidth, alignment: .trailing)
         }
-        .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Theme.textSecondary)
+        .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(theme.textMuted)
         .padding(.horizontal, 12).padding(.vertical, 5)
         .frame(height: 28)
     }
@@ -1182,9 +1206,9 @@ struct ContentView: View {
                 Image(systemName: active ? (model.repoSortAscending ? "chevron.up" : "chevron.down")
                                          : "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(active ? Theme.purpleAccent : Theme.textSecondary.opacity(0.45))
+                    .foregroundStyle(active ? theme.accent : theme.textMuted.opacity(0.45))
             }
-            .foregroundStyle(active ? Theme.textPrimary : Theme.textSecondary)
+            .foregroundStyle(active ? theme.text : theme.textMuted)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1210,14 +1234,14 @@ struct ContentView: View {
                     if let status { statusBadges(status, repo: repo) }
                 }
                 if let d = repo.description, !d.isEmpty {
-                    Text(d).font(.system(size: 11)).foregroundStyle(Theme.textSecondary).lineLimit(1)
+                    Text(d).font(.system(size: 11)).foregroundStyle(theme.textMuted).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             visBadge(repo.visibility)
                 .frame(width: visWidth, alignment: .center)
             Text(formattedUpdated(repo.updatedAt))
-                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.textSecondary)
+                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(theme.textMuted)
                 .lineLimit(1)
                 .frame(width: updatedWidth, alignment: .leading)
             rowActions(repo).frame(width: actionsWidth, alignment: .trailing)
@@ -1226,7 +1250,7 @@ struct ContentView: View {
         .background(selectionBackground(selected))
         .overlay(alignment: .bottom) {
             Rectangle()
-                .fill(Theme.border.opacity(0.75))
+                .fill(theme.border.opacity(0.75))
                 .frame(height: 1)
                 .padding(.leading, 30) // keep icon gutter visually clean
                 .padding(.trailing, 12)
@@ -1245,9 +1269,9 @@ struct ContentView: View {
     private func repoIconColor(cloned: Bool,
                                attention: Bool,
                                conflict: AppModel.RepoFolderConflict?) -> Color {
-        if conflict != nil { return Theme.amber }
-        if cloned { return attention ? Theme.amber : Theme.purpleAccent }
-        return Theme.textSecondary
+        if conflict != nil { return theme.warning }
+        if cloned { return attention ? theme.warning : theme.accent }
+        return theme.textMuted
     }
 
     /// A repo is "shared" when its owner is not the selected account — i.e. you
@@ -1262,7 +1286,7 @@ struct ContentView: View {
     private func sharedBadge(_ owner: String) -> some View {
         Image(systemName: "person.2.fill")
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(theme.textMuted)
             .tooltip("Shared by \(owner) — you're a collaborator")
             .accessibilityLabel("Shared by \(owner)")
     }
@@ -1270,7 +1294,7 @@ struct ContentView: View {
     private func folderConflictBadge(_ conflict: AppModel.RepoFolderConflict) -> some View {
         Image(systemName: "exclamationmark.triangle.fill")
             .font(.system(size: 10.5, weight: .semibold))
-            .foregroundStyle(Theme.amber)
+            .foregroundStyle(theme.warning)
             .tooltip(conflict.shortHelp)
             .accessibilityLabel(conflict.shortHelp)
     }
@@ -1281,15 +1305,15 @@ struct ContentView: View {
     private func visBadge(_ raw: String) -> some View {
         switch raw.lowercased() {
         case "private":
-            visIcon("lock.fill", Theme.amber, "Private")
+            visIcon("lock.fill", theme.warning, "Private")
         case "public":
-            visIcon("globe", Theme.green, "Public")
+            visIcon("globe", theme.success, "Public")
         case "internal":
-            visIcon("building.2.fill", Theme.textSecondary, "Internal")
+            visIcon("building.2.fill", theme.textMuted, "Internal")
         default:
             Text(raw.lowercased())
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
         }
     }
 
@@ -1309,18 +1333,18 @@ struct ContentView: View {
     private func statusBadges(_ status: RepoStatus, repo: Repo) -> some View {
         HStack(spacing: 4) {
             if status.isDiverged {
-                statusIconPill("exclamationmark.triangle.fill", Theme.amber, Theme.amberSubtle,
+                statusIconPill("exclamationmark.triangle.fill", theme.warning, theme.warningSubtle,
                                help: "Local and remote both have commits. Pull or rebase before pushing.")
             }
             if status.changedFiles > 0 {
                 ChangeSummaryButton(repo: repo, count: status.changedFiles)
             }
             if status.ahead > 0 {
-                statusPill("arrow.up", status.ahead, Theme.purpleAccent, Theme.purpleSubtle,
+                statusPill("arrow.up", status.ahead, theme.accent, theme.accentSubtle,
                            help: "\(plural(status.ahead, "local commit")) not pushed yet")
             }
             if status.behind > 0 {
-                statusPill("arrow.down", status.behind, Theme.amber, Theme.amberSubtle,
+                statusPill("arrow.down", status.behind, theme.warning, theme.warningSubtle,
                            help: "\(plural(status.behind, "commit")) behind upstream remote\(remoteCheckContext(status))")
             }
             remoteStateBadge(status)
@@ -1353,16 +1377,16 @@ struct ContentView: View {
     private func remoteStateBadge(_ status: RepoStatus) -> some View {
         switch status.remoteState {
         case .checked where status.isCleanAndCurrent:
-            statusIconPill("checkmark", Theme.green, Theme.greenSubtle,
+            statusIconPill("checkmark", theme.success, theme.successSubtle,
                            help: "Up to date with upstream remote (checked with git fetch)")
         case .failed(let message):
-            statusIconPill("exclamationmark.triangle.fill", Theme.danger, Theme.dangerSubtle,
+            statusIconPill("exclamationmark.triangle.fill", theme.error, theme.errorSubtle,
                            help: "Remote check failed: \(message)")
         case .noUpstream:
-            statusIconPill("questionmark.circle.fill", Theme.textSecondary, Theme.surfaceMuted,
+            statusIconPill("questionmark.circle.fill", theme.textMuted, theme.surfaceMuted,
                            help: "No upstream branch configured; cannot compare this clone with GitHub")
         case .upstreamGone:
-            statusIconPill("exclamationmark.triangle.fill", Theme.amber, Theme.amberSubtle,
+            statusIconPill("exclamationmark.triangle.fill", theme.warning, theme.warningSubtle,
                            help: "The upstream branch no longer exists on the remote (deleted or renamed). Push the branch again or re-set its upstream.")
         case .checked, .unchecked:
             EmptyView()
@@ -1454,7 +1478,7 @@ struct ContentView: View {
             }
             .padding(8)
             .frame(width: 220)
-            .background(Theme.surface)
+            .background(theme.surface)
         }
     }
 
@@ -1464,21 +1488,21 @@ struct ContentView: View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
                 .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.textPrimary)
+                .foregroundStyle(theme.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(Theme.surfaceMuted.opacity(0.001))
+        .background(theme.surfaceMuted.opacity(0.001))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
     }
 
     private func openPopoverDisabledRow(_ title: String, systemImage: String) -> some View {
         Label(title, systemImage: systemImage)
             .font(.system(size: 12, weight: .medium))
-            .foregroundStyle(Theme.textTertiary)
+            .foregroundStyle(theme.textTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.vertical, 6)
             .padding(.horizontal, 8)
@@ -1494,12 +1518,12 @@ struct ContentView: View {
                 iconButton("pencil", "Commit all changes…") { commitMessage = ""; commitTarget = repo }
                 iconButton("arrow.up", "Push (git push)") { pushTarget = repo }
                 iconButton("trash", "Move local folder to Trash (recoverable)",
-                           tint: Theme.danger, fill: Theme.dangerSubtle) { deleteTarget = repo }
+                           tint: theme.error, fill: theme.errorSubtle) { deleteTarget = repo }
             } else if let conflict = model.folderConflict(repo) {
                 disabledIconChip("exclamationmark.triangle.fill",
                                  conflict.shortHelp,
-                                 tint: Theme.amber,
-                                 fill: Theme.amberSubtle)
+                                 tint: theme.warning,
+                                 fill: theme.warningSubtle)
             } else {
                 iconButton("square.and.arrow.down", "Clone into the account folder") {
                     Task { await model.clone(repo) }
@@ -1512,7 +1536,7 @@ struct ContentView: View {
     }
 
     private func iconButton(_ systemName: String, _ help: String,
-                            tint: Color = Theme.purpleAccent, fill: Color = Theme.purpleSubtle,
+                            tint: Color? = nil, fill: Color? = nil,
                             _ action: @escaping () -> Void) -> some View {
         ActionIconButton(systemName: systemName, help: help, tint: tint, fill: fill, action: action)
     }
@@ -1537,7 +1561,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Commit all changes in \(repo.name)").font(Theme.title(16))
             Text("Runs:  git add -A  &&  git commit -m …")
-                .font(.system(size: 11, design: .monospaced)).foregroundStyle(Theme.textSecondary)
+                .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.textMuted)
             TextField("Commit message", text: $commitMessage)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 380)
@@ -1551,25 +1575,25 @@ struct ContentView: View {
                     commitTarget = nil
                     Task { await model.commit(target, message: message) }
                 }
-                .buttonStyle(PrimaryPurpleButtonStyle())
+                .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .disabled(commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
         .padding(22)
-        .background(Theme.surface)
+        .background(theme.surface)
     }
 
     private var cloneBar: some View {
         HStack(spacing: 16) {
-            Label("Remote only", systemImage: "cloud").foregroundStyle(Theme.textSecondary)
-            Label("Cloned locally", systemImage: "internaldrive.fill").foregroundStyle(Theme.purpleAccent)
+            Label("Remote only", systemImage: "cloud").foregroundStyle(theme.textMuted)
+            Label("Cloned locally", systemImage: "internaldrive.fill").foregroundStyle(theme.accent)
             Spacer()
             repoRefreshStatus
             Text(model.repoSearch.isEmpty
                  ? "\(model.repos.count) repo(s)"
                  : "\(model.filteredRepos.count) of \(model.repos.count) repo(s)")
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(theme.textMuted)
         }
         .font(.system(size: 11, weight: .medium))
     }
@@ -1578,18 +1602,18 @@ struct ContentView: View {
     private var repoRefreshStatus: some View {
         if model.isLoadingRepos || model.isRefreshingRepos {
             Label("Refreshing repos…", systemImage: "arrow.clockwise")
-                .foregroundStyle(Theme.amber)
+                .foregroundStyle(theme.warning)
                 .lineLimit(1)
                 .tooltip("Refreshing GitHub repo list")
         } else if model.isCheckingRepoRemotes {
             Label("Checking cloned remotes…", systemImage: "arrow.triangle.2.circlepath")
-                .foregroundStyle(Theme.amber)
+                .foregroundStyle(theme.warning)
                 .lineLimit(1)
                 .tooltip("Fetching upstream remotes for cloned repos")
         } else if let message = model.repoRefreshMessage, !message.isEmpty {
             let failed = message.localizedCaseInsensitiveContains("failed")
             Label(message, systemImage: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(failed ? Theme.danger : Theme.green)
+                .foregroundStyle(failed ? theme.error : theme.success)
                 .lineLimit(1)
                 .tooltip(message)
         }
@@ -1615,7 +1639,7 @@ struct ContentView: View {
                         Text("OUTPUT")
                             .font(.system(size: 11, weight: .bold)).tracking(0.6)
                     }
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -1623,7 +1647,7 @@ struct ContentView: View {
                 if !outputExpanded, let last = lastLogLine {
                     Text(last)
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(theme.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .opacity(statusLineVisible ? 1 : 0)
@@ -1640,7 +1664,7 @@ struct ContentView: View {
                     Label("gh auth status", systemImage: "person.badge.key")
                         .font(.system(size: 10, weight: .semibold))
                         .labelStyle(.titleAndIcon)
-                        .foregroundStyle(Theme.purpleAccent)
+                        .foregroundStyle(theme.accent)
                 }
                 .buttonStyle(.plain)
                 .tooltip("Run gh auth status and show the result in the Output log")
@@ -1659,10 +1683,10 @@ struct ContentView: View {
                         Color.clear.frame(height: 1).id(Self.logBottomAnchor)
                     }
                     .frame(height: 112)
-                    .background(Theme.surfaceMuted)
+                    .background(theme.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                        .strokeBorder(Theme.border, lineWidth: 1))
+                        .strokeBorder(theme.border, lineWidth: 1))
                     .padding(.top, 6)
                     .onChange(of: model.log) { _ in
                         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(Self.logBottomAnchor, anchor: .bottom) }
@@ -1703,8 +1727,8 @@ private struct AccountCardFramesKey: PreferenceKey {
 private struct ActionIconButton: View {
     let systemName: String
     let help: String
-    let tint: Color
-    let fill: Color
+    let tint: Color?
+    let fill: Color?
     let action: () -> Void
 
     @State private var isHovering = false
@@ -1727,8 +1751,8 @@ private struct ActionIconButton: View {
 private struct ActionPopoverButton<PopoverContent: View>: View {
     let systemName: String
     let help: String
-    var tint: Color = Theme.purpleAccent
-    var fill: Color = Theme.purpleSubtle
+    var tint: Color? = nil
+    var fill: Color? = nil
     private let content: (Binding<Bool>) -> PopoverContent
 
     @State private var isHovering = false
@@ -1736,8 +1760,8 @@ private struct ActionPopoverButton<PopoverContent: View>: View {
 
     init(systemName: String,
          help: String,
-         tint: Color = Theme.purpleAccent,
-         fill: Color = Theme.purpleSubtle,
+         tint: Color? = nil,
+         fill: Color? = nil,
          @ViewBuilder content: @escaping (Binding<Bool>) -> PopoverContent) {
         self.systemName = systemName
         self.help = help

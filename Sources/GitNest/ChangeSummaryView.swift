@@ -7,6 +7,7 @@ struct ChangeSummaryButton: View {
     let repo: Repo
     let count: Int
     @EnvironmentObject private var model: AppModel
+    @Environment(\.theme) private var theme
     @State private var showing = false
 
     var body: some View {
@@ -18,9 +19,9 @@ struct ChangeSummaryButton: View {
                     .font(.system(size: 6, weight: .black))
                     .opacity(0.65)
             }
-            .foregroundStyle(Theme.amber)
+            .foregroundStyle(theme.warning)
             .padding(.vertical, 1).padding(.horizontal, 5)
-            .background(Theme.amberSubtle)
+            .background(theme.warningSubtle)
             .clipShape(Capsule())
             .contentShape(Capsule())
         }
@@ -39,6 +40,7 @@ struct ChangeSummaryButton: View {
 struct ChangeSummaryContent: View {
     let repo: Repo
     @EnvironmentObject private var model: AppModel
+    @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
     /// Cap the scroll area; larger change sets scroll inside it.
@@ -63,7 +65,7 @@ struct ChangeSummaryContent: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Changes in \(repo.name)")
                 .font(Theme.title(14))
-                .foregroundStyle(Theme.textPrimary)
+                .foregroundStyle(theme.text)
             content
         }
         .padding(16)
@@ -79,24 +81,24 @@ struct ChangeSummaryContent: View {
                 ProgressView().controlSize(.small)
                 Text("Reading changes…")
                     .font(.system(size: 12))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
         case .empty:
             Label("No changes — the working tree is clean.", systemImage: "checkmark.circle")
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.green)
+                .foregroundStyle(theme.success)
                 .fixedSize(horizontal: false, vertical: true)
 
         case .failed(let message):
             VStack(alignment: .leading, spacing: 4) {
                 Label("Couldn't read changes", systemImage: "exclamationmark.triangle")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.danger)
+                    .foregroundStyle(theme.error)
                 Text(message)
                     .font(.system(size: 11))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -139,7 +141,7 @@ struct ChangeSummaryContent: View {
             ForEach(shown) { file in
                 Text(line(for: file))
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Theme.textSecondary)
+                    .foregroundStyle(theme.textMuted)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
@@ -148,7 +150,7 @@ struct ChangeSummaryContent: View {
             if overflow > 0 {
                 Text("+ \(overflow) more")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Theme.textTertiary)
+                    .foregroundStyle(theme.textTertiary)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -163,13 +165,13 @@ struct ChangeSummaryContent: View {
 
     private func color(for status: GitChangeStatus) -> Color {
         switch status {
-        case .modified:   return Theme.amber
-        case .added:      return Theme.green
-        case .deleted:    return Theme.danger
-        case .renamed:    return Theme.purpleAccent
-        case .untracked:  return Theme.blue
-        case .conflicted: return Theme.pink
-        case .other:      return Theme.teal
+        case .modified:   return theme.warning
+        case .added:      return theme.success
+        case .deleted:    return theme.error
+        case .renamed:    return theme.accent
+        case .untracked:  return theme.blue
+        case .conflicted: return theme.pink
+        case .other:      return theme.teal
         }
     }
 

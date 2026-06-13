@@ -100,6 +100,7 @@ extension View {
 /// on the view that defines `TooltipController.space`.
 struct TooltipOverlay: View {
     @EnvironmentObject private var tip: TooltipController
+    @Environment(\.theme) private var theme
     @State private var size: CGSize = .zero
 
     var body: some View {
@@ -122,17 +123,17 @@ struct TooltipOverlay: View {
     private func bubble(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Theme.tooltipText)
+            .foregroundStyle(theme.tooltipText)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: 260, alignment: .leading)
             .padding(.horizontal, 9).padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                    .fill(Theme.tooltipBackground)
+                    .fill(theme.tooltipBackground)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-                    .strokeBorder(Theme.border, lineWidth: 1)
+                    .strokeBorder(theme.border, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
             .fixedSize()
