@@ -33,6 +33,33 @@ final class ForkProjectTests: XCTestCase {
         )
     }
 
+    func testForkedRepoNameCandidatesIncludeRenamedForkBeforeFallback() {
+        let candidates = GitHub.forkedRepoNameCandidates(
+            from: "fork already exists: https://github.com/me/repo-3",
+            currentUser: "me",
+            fallbackRepo: "repo"
+        )
+
+        XCTAssertEqual(candidates, ["me/repo-3", "me/repo"])
+    }
+
+    func testRepoViewDetailsVerifiesForkParent() {
+        let source = RepoReference(owner: "source", repo: "repo", raw: "source/repo")
+        let repo = Repo(
+            name: "repo-3",
+            nameWithOwner: "me/repo-3",
+            description: nil,
+            visibility: "public",
+            updatedAt: nil,
+            url: "https://github.com/me/repo-3"
+        )
+
+        XCTAssertTrue(RepoViewDetails(repo: repo, parentNameWithOwner: "source/repo").isFork(of: source))
+        XCTAssertTrue(RepoViewDetails(repo: repo, parentNameWithOwner: "SOURCE/REPO").isFork(of: source))
+        XCTAssertFalse(RepoViewDetails(repo: repo, parentNameWithOwner: "other/repo").isFork(of: source))
+        XCTAssertFalse(RepoViewDetails(repo: repo, parentNameWithOwner: nil).isFork(of: source))
+    }
+
     func testRepoReferenceParsesHTTPSURL() {
         let ref = RepoReference.parse("https://github.com/owner/repo")
         XCTAssertEqual(ref?.owner, "owner")

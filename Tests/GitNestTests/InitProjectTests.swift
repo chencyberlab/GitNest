@@ -19,6 +19,12 @@ final class InitProjectTests: XCTestCase {
         XCTAssertFalse(GitHub.remoteLooksLike("git@gitlab.com:owner/repo.git", owner: "owner", repoName: "repo"))
     }
 
+    func testRemoteLooksLikeRejectsGithubLookalikeHosts() {
+        XCTAssertFalse(GitHub.remoteLooksLike("https://notgithub.com/owner/repo.git", owner: "owner", repoName: "repo"))
+        XCTAssertFalse(GitHub.remoteLooksLike("https://github.example.com/owner/repo.git", owner: "owner", repoName: "repo"))
+        XCTAssertFalse(GitHub.remoteLooksLike("git@github.example.com:owner/repo.git", owner: "owner", repoName: "repo"))
+    }
+
     func testRemoteLooksLikeRequiresExactOwnerRepoPath() {
         XCTAssertFalse(GitHub.remoteLooksLike("git@github.com:owner/repo-old.git", owner: "owner", repoName: "repo"))
         XCTAssertFalse(GitHub.remoteLooksLike("https://github.com/owner/repo-extra", owner: "owner", repoName: "repo"))

@@ -32,6 +32,42 @@ private struct RestRepo: Decodable {
     }
 }
 
+private struct RepoViewPayload: Decodable {
+    struct Parent: Decodable {
+        let nameWithOwner: String
+    }
+
+    let name: String
+    let nameWithOwner: String
+    let description: String?
+    let visibility: String
+    let updatedAt: String?
+    let url: String
+    let parent: Parent?
+
+    var details: RepoViewDetails {
+        RepoViewDetails(
+            repo: Repo(name: name,
+                       nameWithOwner: nameWithOwner,
+                       description: description,
+                       visibility: visibility,
+                       updatedAt: updatedAt,
+                       url: url),
+            parentNameWithOwner: parent?.nameWithOwner
+        )
+    }
+}
+
+struct RepoViewDetails {
+    let repo: Repo
+    let parentNameWithOwner: String?
+
+    func isFork(of source: RepoReference) -> Bool {
+        guard let parentNameWithOwner else { return false }
+        return parentNameWithOwner.caseInsensitiveCompare(source.nameWithOwner) == .orderedSame
+    }
+}
+
 /// Error carrying a human-readable message from a failed `gh`/`git` call.
 struct GitHubError: Error, Sendable {
     let message: String
@@ -321,7 +357,25 @@ enum GitHub {
     /// added to as a collaborator (owned by someone else). Switches to that
     /// account first so private repos are visible.
     static func listRepos(owner: String) -> Result<[Repo], GitHubError> {
-        switchTo(owner)
+        listRepos(owner: owner,
+                  ensureActive: ensureActiveAccount,
+                  ownedRepos: ownedRepos,
+                  collaboratorRepos: collaboratorRepos)
+    }
+
+    static func listRepos(owner: String,
+                          ensureActive: (String) -> ShellResult,
+                          ownedRepos: () -> Result<[Repo], GitHubError>,
+                          collaboratorRepos: () -> [Repo]) -> Result<[Repo], GitHubError> {
+        let accountCheck = ensureActive(owner)
+        guard accountCheck.ok else {
+            let detail = (accountCheck.stderr.isEmpty ? accountCheck.stdout : accountCheck.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(GitHubError(message: detail.isEmpty
+                ? "Could not switch to account \(owner)"
+                : detail))
+        }
+
         let ownedResult = ownedRepos()
         let owned: [Repo]
         switch ownedResult {
@@ -370,7 +424,7 @@ enum GitHub {
         return repos
     }
 
-    private static func decodeSlurpedRestRepos(_ text: String) -> [Repo]? {
+    static func decodeSlurpedRestRepos(_ text: String) -> [Repo]? {
         guard let data = text.data(using: .utf8) else { return nil }
         let decoder = JSONDecoder()
         if let pages = try? decoder.decode([[RestRepo]].self, from: data) {
@@ -411,15 +465,20 @@ enum GitHub {
             return .failure(GitHubError(message: "Could not determine the active GitHub user."))
         }
 
-        let fallbackNameWithOwner = "\(currentUser)/\(source.repo)"
         var forkArgs = ["gh", "repo", "fork", source.nameWithOwner, "--clone=false"]
         if defaultBranchOnly {
             forkArgs.append("--default-branch-only")
         }
 
         let forkRes = Shell.run(forkArgs)
+        let forkOutput = forkRes.stdout + "\n" + forkRes.stderr
         if !forkRes.ok {
-            if let existing = repoView(nameWithOwner: fallbackNameWithOwner) {
+            if let existing = existingFork(
+                from: forkOutput,
+                currentUser: currentUser,
+                fallbackRepo: source.repo,
+                source: source
+            ) {
                 return .success(existing)
             }
 
@@ -429,7 +488,7 @@ enum GitHub {
         }
 
         let forkedNameWithOwner = forkedRepoNameWithOwner(
-            from: forkRes.stdout + "\n" + forkRes.stderr,
+            from: forkOutput,
             currentUser: currentUser,
             fallbackRepo: source.repo
         )
@@ -440,27 +499,56 @@ enum GitHub {
     static func forkedRepoNameWithOwner(from output: String,
                                         currentUser: String,
                                         fallbackRepo: String) -> String {
-        if let ref = firstRepoReference(in: output, owner: currentUser) {
-            return ref.nameWithOwner
-        }
-        return "\(currentUser)/\(fallbackRepo)"
+        forkedRepoNameCandidates(from: output, currentUser: currentUser, fallbackRepo: fallbackRepo)[0]
     }
 
-    private static func firstRepoReference(in text: String, owner: String) -> RepoReference? {
+    static func forkedRepoNameCandidates(from output: String,
+                                         currentUser: String,
+                                         fallbackRepo: String) -> [String] {
+        let fallback = "\(currentUser)/\(fallbackRepo)"
+        var seen: Set<String> = []
+        var candidates: [String] = []
+        for ref in repoReferences(in: output, owner: currentUser) {
+            let key = ref.nameWithOwner.lowercased()
+            guard seen.insert(key).inserted else { continue }
+            candidates.append(ref.nameWithOwner)
+        }
+        if seen.insert(fallback.lowercased()).inserted {
+            candidates.append(fallback)
+        }
+        return candidates
+    }
+
+    private static func existingFork(from output: String,
+                                     currentUser: String,
+                                     fallbackRepo: String,
+                                     source: RepoReference) -> Repo? {
+        for nameWithOwner in forkedRepoNameCandidates(from: output,
+                                                      currentUser: currentUser,
+                                                      fallbackRepo: fallbackRepo) {
+            guard let details = repoViewDetails(nameWithOwner: nameWithOwner),
+                  details.isFork(of: source) else { continue }
+            return details.repo
+        }
+        return nil
+    }
+
+    private static func repoReferences(in text: String, owner: String) -> [RepoReference] {
         let pattern = #"(https://github\.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+(?:\.git)?|git@github\.com:[A-Za-z0-9-]+/[A-Za-z0-9._-]+(?:\.git)?|\b[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9._-]+(?:\.git)?\b)"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
+            return []
         }
         let nsText = text as NSString
         let matches = regex.matches(in: text, range: NSRange(location: 0, length: nsText.length))
+        var refs: [RepoReference] = []
         for match in matches {
             let raw = nsText.substring(with: match.range(at: 1))
                 .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()[]{}<>\"'"))
             guard let ref = RepoReference.parse(raw),
                   ref.owner.caseInsensitiveCompare(owner) == .orderedSame else { continue }
-            return ref
+            refs.append(ref)
         }
-        return nil
+        return refs
     }
 
     /// Poll the GitHub API until the repo exists or the timeout elapses.
@@ -483,14 +571,18 @@ enum GitHub {
     }
 
     private static func repoView(nameWithOwner: String) -> Repo? {
+        repoViewDetails(nameWithOwner: nameWithOwner)?.repo
+    }
+
+    private static func repoViewDetails(nameWithOwner: String) -> RepoViewDetails? {
         let view = Shell.run([
             "gh", "repo", "view", nameWithOwner,
-            "--json", "name,nameWithOwner,description,visibility,updatedAt,url"
+            "--json", "name,nameWithOwner,description,visibility,updatedAt,url,parent"
         ])
         guard view.ok,
               let data = view.stdout.data(using: .utf8),
-              let repo = try? JSONDecoder().decode(Repo.self, from: data) else { return nil }
-        return repo
+              let payload = try? JSONDecoder().decode(RepoViewPayload.self, from: data) else { return nil }
+        return payload.details
     }
 
     /// Returns the login of the currently active `gh` account, or nil on failure.
@@ -570,10 +662,15 @@ enum GitHub {
     }
 
     static func origin(at path: String, matches repo: Repo) -> Bool {
-        let origin = Shell.run(["git", "-C", path, "remote", "get-url", "origin"])
-        guard origin.ok else { return false }
-        let existing = origin.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let existing = originURL(at: path) else { return false }
         return remoteLooksLike(existing, owner: repo.owner, repoName: repo.name)
+    }
+
+    static func originURL(at path: String) -> String? {
+        let origin = Shell.run(["git", "-C", path, "remote", "get-url", "origin"])
+        guard origin.ok else { return nil }
+        let existing = origin.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return existing.isEmpty ? nil : existing
     }
 
     static func initAndPushProject(_ plan: ProjectInitPlan, visibility: RepoVisibilityChoice) -> ShellResult {
@@ -724,14 +821,22 @@ enum GitHub {
            let colon = trimmed[at...].firstIndex(of: ":"),
            at < colon {
             let host = String(trimmed[trimmed.index(after: at)..<colon]).lowercased()
-            guard host.contains("github") else { return nil }
+            guard isGitHubSSHHost(host) else { return nil }
             return ownerRepoPair(fromPath: String(trimmed[trimmed.index(after: colon)...]))
         }
 
         guard let components = URLComponents(string: trimmed),
-              let host = components.host?.lowercased(),
-              host.contains("github") else { return nil }
+              let host = components.host?.lowercased() else { return nil }
+        if components.scheme?.lowercased() == "ssh" {
+            guard isGitHubSSHHost(host) else { return nil }
+        } else {
+            guard host == "github.com" else { return nil }
+        }
         return ownerRepoPair(fromPath: components.path)
+    }
+
+    private static func isGitHubSSHHost(_ host: String) -> Bool {
+        host == "github.com" || host.hasPrefix("github-")
     }
 
     private static func ownerRepoPair(fromPath path: String) -> (owner: String, repo: String)? {

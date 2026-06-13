@@ -147,10 +147,8 @@ struct ContentView: View {
         .overlay { TooltipOverlay() }
         .environmentObject(tooltip)
         .onAppear {
-            model.configureAccountStatusLoadMode(accountStatusLoadMode)
-            model.refreshAll(statusMode: accountStatusLoadMode)
-            model.startStatusAutoRefresh()
-            model.configureRepoAutoRefresh(seconds: repoAutoRefreshSeconds)
+            model.startLifecycle(statusMode: accountStatusLoadMode,
+                                 repoAutoRefreshSeconds: repoAutoRefreshSeconds)
         }
         .onChange(of: repoAutoRefreshSeconds) { seconds in
             model.configureRepoAutoRefresh(seconds: seconds)
@@ -1187,17 +1185,19 @@ struct ContentView: View {
         let selected = model.selectedRepo == repo.id
         let status = model.repoStatuses[repo.id]
         let cloned = model.isCloned(repo)
+        let conflict = model.folderConflict(repo)
         let attention = status?.needsAttention ?? false
         let shared = isShared(repo)
         return HStack(spacing: 10) {
-            Image(systemName: cloned ? "internaldrive.fill" : "cloud")
-                .foregroundStyle(cloned ? (attention ? Theme.amber : Theme.purpleAccent) : Theme.textSecondary)
+            Image(systemName: repoIcon(cloned: cloned, conflict: conflict))
+                .foregroundStyle(repoIconColor(cloned: cloned, attention: attention, conflict: conflict))
                 .frame(width: 18)
-                .tooltip(cloneIconHelp(cloned: cloned, status: status))
+                .tooltip(cloneIconHelp(cloned: cloned, status: status, conflict: conflict))
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 6) {
                     Text(repo.name).font(.system(size: 13, weight: .medium))
                     if shared { sharedBadge(repo.owner) }
+                    if let conflict { folderConflictBadge(conflict) }
                     if let status { statusBadges(status, repo: repo) }
                 }
                 if let d = repo.description, !d.isEmpty {
@@ -1227,6 +1227,20 @@ struct ContentView: View {
         .padding(.horizontal, 4)
     }
 
+    private func repoIcon(cloned: Bool, conflict: AppModel.RepoFolderConflict?) -> String {
+        if cloned { return "internaldrive.fill" }
+        if conflict != nil { return "exclamationmark.triangle.fill" }
+        return "cloud"
+    }
+
+    private func repoIconColor(cloned: Bool,
+                               attention: Bool,
+                               conflict: AppModel.RepoFolderConflict?) -> Color {
+        if conflict != nil { return Theme.amber }
+        if cloned { return attention ? Theme.amber : Theme.purpleAccent }
+        return Theme.textSecondary
+    }
+
     /// A repo is "shared" when its owner is not the selected account — i.e. you
     /// were added as a collaborator. Own repos return false (no badge).
     private func isShared(_ repo: Repo) -> Bool {
@@ -1242,6 +1256,14 @@ struct ContentView: View {
             .foregroundStyle(Theme.textSecondary)
             .tooltip("Shared by \(owner) — you're a collaborator")
             .accessibilityLabel("Shared by \(owner)")
+    }
+
+    private func folderConflictBadge(_ conflict: AppModel.RepoFolderConflict) -> some View {
+        Image(systemName: "exclamationmark.triangle.fill")
+            .font(.system(size: 10.5, weight: .semibold))
+            .foregroundStyle(Theme.amber)
+            .tooltip(conflict.shortHelp)
+            .accessibilityLabel(conflict.shortHelp)
     }
 
     /// Visibility as a glanceable icon: amber lock = private, green globe =
@@ -1351,7 +1373,10 @@ struct ContentView: View {
         }
     }
 
-    private func cloneIconHelp(cloned: Bool, status: RepoStatus?) -> String {
+    private func cloneIconHelp(cloned: Bool,
+                               status: RepoStatus?,
+                               conflict: AppModel.RepoFolderConflict?) -> String {
+        if let conflict { return conflict.shortHelp }
         guard cloned else { return "Remote only" }
         guard let status else { return "Cloned locally — status pending" }
         if status.isCleanAndCurrent {
@@ -1461,6 +1486,11 @@ struct ContentView: View {
                 iconButton("arrow.up", "Push (git push)") { pushTarget = repo }
                 iconButton("trash", "Move local folder to Trash (recoverable)",
                            tint: Theme.danger, fill: Theme.dangerSubtle) { deleteTarget = repo }
+            } else if let conflict = model.folderConflict(repo) {
+                disabledIconChip("exclamationmark.triangle.fill",
+                                 conflict.shortHelp,
+                                 tint: Theme.amber,
+                                 fill: Theme.amberSubtle)
             } else {
                 iconButton("square.and.arrow.down", "Clone into the account folder") {
                     Task { await model.clone(repo) }
@@ -1473,6 +1503,22 @@ struct ContentView: View {
                             tint: Color = Theme.purpleAccent, fill: Color = Theme.purpleSubtle,
                             _ action: @escaping () -> Void) -> some View {
         ActionIconButton(systemName: systemName, help: help, tint: tint, fill: fill, action: action)
+    }
+
+    private func disabledIconChip(_ systemName: String,
+                                  _ help: String,
+                                  tint: Color,
+                                  fill: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 13, weight: .bold))
+            .foregroundStyle(tint)
+            .frame(width: 28, height: 26)
+            .background(fill.opacity(0.7))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                .strokeBorder(tint.opacity(0.24), lineWidth: 1))
+            .tooltip(help)
+            .accessibilityLabel(help)
     }
 
     private func commitSheet(_ repo: Repo) -> some View {

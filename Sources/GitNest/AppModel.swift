@@ -70,6 +70,43 @@ final class AppModel: ObservableObject {
         }
     }
 
+    struct RepoFolderConflict: Sendable, Equatable {
+        let path: String
+        let origin: String?
+
+        var message: String {
+            if let origin, !origin.isEmpty {
+                return """
+                Target folder already contains a different Git repo:
+                \(path)
+
+                origin: \(origin)
+
+                Move or rename that folder before cloning this repository.
+                """
+            }
+            return """
+            Target path already exists, but it is not this GitHub repository:
+            \(path)
+
+            Move or rename that folder before cloning this repository.
+            """
+        }
+
+        var shortHelp: String {
+            if let origin, !origin.isEmpty {
+                return "Folder occupied by a different repo: \(origin)"
+            }
+            return "Folder occupied by something that is not this repo"
+        }
+    }
+
+    private enum LocalRepoFolderState: Sendable, Equatable {
+        case absent
+        case cloned
+        case occupied(RepoFolderConflict)
+    }
+
     private struct AddAccountLoginResult: Sendable {
         let login: ShellResult
         let identity: Result<AccountSetup.Identity, GitHubError>?
@@ -149,15 +186,18 @@ final class AppModel: ObservableObject {
     @Published var addAccountVerification: AccountSetup.Verification?
     @Published var clonedRepos: Set<Repo.ID> = []   // repo owner/name values present on disk for the selected account
     @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]   // repo owner/name -> local/upstream state
+    @Published var repoFolderConflicts: [Repo.ID: RepoFolderConflict] = [:]
     private var currentAuthFlowCode: String?
     private var repoCache: [String: [Repo]] = [:]
     private var clonedReposCache: [String: Set<Repo.ID>] = [:]
     private var repoStatusesCache: [String: [Repo.ID: RepoStatus]] = [:]
+    private var repoFolderConflictsCache: [String: [Repo.ID: RepoFolderConflict]] = [:]
     private var repoSearchCache: [String: String] = [:]
     private var selectedRepoCache: [String: Repo.ID] = [:]
     private var repoLoadsInFlight: Set<String> = []
     private var repoAutoRefreshAccounts: Set<String> = []
     private var repoLastRefreshAt: [String: Date] = [:]
+    private var lifecycleStarted = false
     private var addAccountSessionID = UUID()
     private var accountStatusSessionID = UUID()
     private var accountStatusLoadMode: AccountStatusLoadMode = .smart
@@ -215,6 +255,18 @@ final class AppModel: ObservableObject {
 
     func configureAccountStatusLoadMode(_ mode: AccountStatusLoadMode) {
         accountStatusLoadMode = mode
+    }
+
+    func startLifecycle(statusMode: AccountStatusLoadMode, repoAutoRefreshSeconds: Int) {
+        configureAccountStatusLoadMode(statusMode)
+        if !lifecycleStarted {
+            lifecycleStarted = true
+            refreshAll(statusMode: statusMode)
+            startStatusAutoRefresh()
+        } else {
+            startStatusAutoRefresh()
+        }
+        configureRepoAutoRefresh(seconds: repoAutoRefreshSeconds)
     }
 
     func refreshAll(statusMode: AccountStatusLoadMode? = nil, manual: Bool = false) {
@@ -277,6 +329,7 @@ final class AppModel: ObservableObject {
         repoCache[alias] = repos
         clonedReposCache[alias] = clonedRepos
         repoStatusesCache[alias] = repoStatuses
+        repoFolderConflictsCache[alias] = repoFolderConflicts
         repoSearchCache[alias] = repoSearch
         if let selectedRepo {
             selectedRepoCache[alias] = selectedRepo
@@ -290,6 +343,7 @@ final class AppModel: ObservableObject {
         repos = repoCache[alias] ?? []
         clonedRepos = clonedReposCache[alias] ?? []
         repoStatuses = repoStatusesCache[alias] ?? [:]
+        repoFolderConflicts = repoFolderConflictsCache[alias] ?? [:]
         repoSearch = repoSearchCache[alias] ?? ""
 
         if let cachedSelection = selectedRepoCache[alias],
@@ -507,6 +561,17 @@ final class AppModel: ObservableObject {
     }
 
     func configureRepoAutoRefresh(seconds: Int) {
+        if seconds > 0,
+           repoAutoRefreshTimer != nil,
+           repoAutoRefreshSeconds == UInt64(seconds) {
+            return
+        }
+        if seconds <= 0,
+           repoAutoRefreshTimer == nil,
+           repoAutoRefreshSeconds == 0 {
+            return
+        }
+
         repoAutoRefreshTimer?.cancel()
         repoAutoRefreshTimer = nil
         guard seconds > 0 else {
@@ -558,9 +623,9 @@ final class AppModel: ObservableObject {
     /// current in the background and is already fresh when you switch to it.
     /// Non-visible accounts update only their cache (no UI churn); the visible one
     /// shows the usual indicator. Accounts are refreshed one at a time through the
-    /// gh chain, with the selected account last so gh rests on the account you're
-    /// viewing. Per-owner in-flight guards in loadRepos keep this from stacking on
-    /// a manual load already running.
+    /// gh chain, with the selected account last so the visible rows get the freshest
+    /// result. Per-owner in-flight guards in loadRepos keep this from stacking on a
+    /// manual load already running.
     private func autoRefreshRepoListTick() async {
         guard repoAutoRefreshSeconds > 0, !isInitializingProject, !addAccountActive else { return }
         let selected = selectedAccount?.alias
@@ -646,6 +711,10 @@ final class AppModel: ObservableObject {
 
     func isCloned(_ repo: Repo) -> Bool { clonedRepos.contains(repo.id) }
 
+    func folderConflict(_ repo: Repo) -> RepoFolderConflict? {
+        repoFolderConflicts[repo.id]
+    }
+
     /// Both per-account connection checks (SSH key greeting + gh auth) have passed.
     /// Used to gate the repo/init actions until the account is confirmed reachable.
     func accountReady(_ account: Account) -> Bool {
@@ -675,20 +744,28 @@ final class AppModel: ObservableObject {
     func refreshClonedStatus(for account: Account) async {
         let alias = account.alias
         let sourceRepos = selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])
-        let present = await run { () -> Set<Repo.ID> in
-            let fm = FileManager.default
+        let scan = await run { () -> (present: Set<Repo.ID>, conflicts: [Repo.ID: RepoFolderConflict]) in
             var present: Set<Repo.ID> = []
+            var conflicts: [Repo.ID: RepoFolderConflict] = [:]
             for repo in sourceRepos {
                 let path = (account.folder as NSString).appendingPathComponent(repo.name)
-                let git = (path as NSString).appendingPathComponent(".git")
-                if fm.fileExists(atPath: git), GitHub.origin(at: path, matches: repo) {
+                switch Self.localFolderState(for: repo, path: path) {
+                case .cloned:
                     present.insert(repo.id)
+                case .occupied(let conflict):
+                    conflicts[repo.id] = conflict
+                case .absent:
+                    break
                 }
             }
-            return present
+            return (present, conflicts)
         }
-        clonedReposCache[alias] = present
-        if selectedAccount?.alias == alias { clonedRepos = present }
+        clonedReposCache[alias] = scan.present
+        repoFolderConflictsCache[alias] = scan.conflicts
+        if selectedAccount?.alias == alias {
+            clonedRepos = scan.present
+            repoFolderConflicts = scan.conflicts
+        }
     }
 
     func makeInitPlan(sourceURL: URL, account: Account) -> ProjectInitPlan {
@@ -713,6 +790,26 @@ final class AppModel: ObservableObject {
 
     func clone(_ repo: Repo) async {
         guard let account = selectedAccount else { return }
+        let dest = localPath(repo, in: account)
+        let state = await run { Self.localFolderState(for: repo, path: dest) }
+        switch state {
+        case .cloned:
+            clonedRepos.insert(repo.id)
+            clonedReposCache[account.alias] = clonedRepos
+            repoFolderConflicts.removeValue(forKey: repo.id)
+            repoFolderConflictsCache[account.alias] = repoFolderConflicts
+            appendLog("\(repo.nameWithOwner) is already cloned at \(dest).")
+            await refreshStatuses(for: account, refreshRemote: true)
+            return
+        case .occupied(let conflict):
+            repoFolderConflicts[repo.id] = conflict
+            repoFolderConflictsCache[account.alias] = repoFolderConflicts
+            appendLog("✗ Cannot clone \(repo.nameWithOwner): \(conflict.message)")
+            return
+        case .absent:
+            break
+        }
+
         appendLog("Cloning \(repo.nameWithOwner) → \(account.folder)…")
         let folder = account.folder
         let res = await run { GitHub.clone(repo: repo, into: folder) }
@@ -1215,6 +1312,22 @@ final class AppModel: ObservableObject {
         }
         name = name.trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
         return name.isEmpty ? "new-repo" : name
+    }
+
+    nonisolated private static func localFolderState(for repo: Repo, path: String) -> LocalRepoFolderState {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: path) else { return .absent }
+
+        let git = (path as NSString).appendingPathComponent(".git")
+        guard fm.fileExists(atPath: git) else {
+            return .occupied(RepoFolderConflict(path: path, origin: nil))
+        }
+
+        let origin = GitHub.originURL(at: path)
+        if let origin, GitHub.remoteLooksLike(origin, owner: repo.owner, repoName: repo.name) {
+            return .cloned
+        }
+        return .occupied(RepoFolderConflict(path: path, origin: origin))
     }
 
     /// Run blocking shell work off the main actor; result lands back on the main actor.

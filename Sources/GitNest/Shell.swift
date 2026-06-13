@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Result of running an external command.
@@ -46,32 +47,106 @@ enum Shell {
             return ShellResult(exitCode: 127, stdout: "", stderr: "command not found: \(command)")
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = Array(args.dropFirst())
-        if let cwd { process.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+        return runExecutable(
+            executable: executable,
+            arguments: Array(args.dropFirst()),
+            cwd: cwd,
+            environment: commandEnvironment(),
+            timeout: timeout,
+            displayArgs: args
+        )
+    }
 
+    private static func commandEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         let currentPath = environment["PATH"] ?? ""
         environment["PATH"] = developerPath + (currentPath.isEmpty ? "" : ":\(currentPath)")
         // There is no terminal to answer a username/password prompt on, so make
         // git fail fast instead of waiting forever on one.
         environment["GIT_TERMINAL_PROMPT"] = "0"
-        process.environment = environment
+        return environment
+    }
 
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = errPipe
-
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-
-        do {
-            try process.run()
-        } catch {
-            return ShellResult(exitCode: -1, stdout: "", stderr: "failed to launch: \(error)")
+    private static func runExecutable(executable: String,
+                                      arguments: [String],
+                                      cwd: String?,
+                                      environment: [String: String],
+                                      timeout: TimeInterval,
+                                      displayArgs: [String]) -> ShellResult {
+        var outFD: [Int32] = [0, 0]
+        var errFD: [Int32] = [0, 0]
+        guard pipe(&outFD) == 0 else {
+            return ShellResult(exitCode: -1, stdout: "", stderr: "pipe failed: \(posixError(errno))")
         }
+        guard pipe(&errFD) == 0 else {
+            close(outFD[0]); close(outFD[1])
+            return ShellResult(exitCode: -1, stdout: "", stderr: "pipe failed: \(posixError(errno))")
+        }
+
+        var actions: posix_spawn_file_actions_t? = nil
+        var attrs: posix_spawnattr_t? = nil
+        var setupError = posix_spawn_file_actions_init(&actions)
+        guard setupError == 0 else {
+            closePipe(outFD); closePipe(errFD)
+            return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
+        }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+
+        setupError = posix_spawnattr_init(&attrs)
+        guard setupError == 0 else {
+            closePipe(outFD); closePipe(errFD)
+            return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
+        }
+        defer { posix_spawnattr_destroy(&attrs) }
+
+        func record(_ code: Int32) {
+            if setupError == 0, code != 0 { setupError = code }
+        }
+
+        record(posix_spawn_file_actions_adddup2(&actions, outFD[1], STDOUT_FILENO))
+        record(posix_spawn_file_actions_adddup2(&actions, errFD[1], STDERR_FILENO))
+        record(posix_spawn_file_actions_addclose(&actions, outFD[0]))
+        record(posix_spawn_file_actions_addclose(&actions, errFD[0]))
+        record(posix_spawn_file_actions_addclose(&actions, outFD[1]))
+        record(posix_spawn_file_actions_addclose(&actions, errFD[1]))
+        if let cwd {
+            cwd.withCString { record(posix_spawn_file_actions_addchdir_np(&actions, $0)) }
+        }
+
+        // Put the launched command in its own process group. On timeout we kill
+        // that group, not just the direct PID, so helper children that inherited
+        // stdout/stderr cannot keep the read pipes open indefinitely.
+        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        record(posix_spawnattr_setflags(&attrs, flags))
+        record(posix_spawnattr_setpgroup(&attrs, 0))
+
+        guard setupError == 0 else {
+            closePipe(outFD); closePipe(errFD)
+            return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
+        }
+
+        let argv = [executable] + arguments
+        let env = environment.map { "\($0.key)=\($0.value)" }
+        var pid = pid_t()
+        let spawnResult = executable.withCString { executablePath in
+            withCStringArray(argv) { argvPointer in
+                withCStringArray(env) { envPointer in
+                    posix_spawn(&pid, executablePath, &actions, &attrs, argvPointer, envPointer)
+                }
+            }
+        }
+
+        close(outFD[1])
+        close(errFD[1])
+
+        guard spawnResult == 0 else {
+            close(outFD[0])
+            close(errFD[0])
+            return ShellResult(exitCode: -1, stdout: "", stderr: "failed to launch: \(posixError(spawnResult))")
+        }
+
+        let outHandle = FileHandle(fileDescriptor: outFD[0], closeOnDealloc: true)
+        let errHandle = FileHandle(fileDescriptor: errFD[0], closeOnDealloc: true)
 
         // Read both pipes concurrently to avoid deadlock if one fills its buffer.
         var outData = Data()
@@ -79,31 +154,101 @@ enum Shell {
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "shell.read", attributes: .concurrent)
         group.enter()
-        queue.async { outData = outPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        queue.async { outData = outHandle.readDataToEndOfFile(); group.leave() }
         group.enter()
-        queue.async { errData = errPipe.fileHandleForReading.readDataToEndOfFile(); group.leave() }
+        queue.async { errData = errHandle.readDataToEndOfFile(); group.leave() }
 
+        var waitStatus: Int32 = 0
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .utility).async {
+            var status: Int32 = 0
+            while waitpid(pid, &status, 0) == -1 {
+                if errno != EINTR { break }
+            }
+            waitStatus = status
+            exited.signal()
+        }
+
+        let deadline = DispatchTime.now() + timeout
         var timedOut = false
-        if exited.wait(timeout: .now() + timeout) == .timedOut {
+        var processExited = false
+        if exited.wait(timeout: deadline) == .timedOut {
             timedOut = true
-            if process.isRunning { process.terminate() }   // SIGTERM first
+            killProcessGroup(pid, SIGTERM, fallbackToProcess: true)
             if exited.wait(timeout: .now() + 5) == .timedOut {
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                killProcessGroup(pid, SIGKILL, fallbackToProcess: true)
                 exited.wait()
             }
+            processExited = true
+        } else {
+            processExited = true
         }
-        group.wait()
+
+        if group.wait(timeout: deadline) == .timedOut {
+            timedOut = true
+            killProcessGroup(pid, SIGTERM, fallbackToProcess: !processExited)
+            if !processExited {
+                if exited.wait(timeout: .now() + 5) == .timedOut {
+                    killProcessGroup(pid, SIGKILL, fallbackToProcess: true)
+                    exited.wait()
+                }
+                processExited = true
+            }
+            if group.wait(timeout: .now() + 5) == .timedOut {
+                killProcessGroup(pid, SIGKILL, fallbackToProcess: false)
+                group.wait()
+            }
+        } else {
+            group.wait()
+        }
 
         var stderrText = String(decoding: errData, as: UTF8.self)
         if timedOut {
             if !stderrText.isEmpty, !stderrText.hasSuffix("\n") { stderrText += "\n" }
-            stderrText += "command timed out after \(Int(timeout))s: \(args.joined(separator: " "))"
+            stderrText += "command timed out after \(Int(timeout))s: \(displayArgs.joined(separator: " "))"
         }
         return ShellResult(
-            exitCode: timedOut ? -1 : process.terminationStatus,
+            exitCode: timedOut ? -1 : exitCode(fromWaitStatus: waitStatus),
             stdout: String(decoding: outData, as: UTF8.self),
             stderr: stderrText
         )
+    }
+
+    private static func closePipe(_ pipe: [Int32]) {
+        close(pipe[0])
+        close(pipe[1])
+    }
+
+    private static func killProcessGroup(_ pid: pid_t, _ signal: Int32, fallbackToProcess: Bool) {
+        if kill(-pid, signal) != 0, fallbackToProcess {
+            kill(pid, signal)
+        }
+    }
+
+    private static func exitCode(fromWaitStatus status: Int32) -> Int32 {
+        let signal = status & 0x7f
+        if signal == 0 {
+            return (status >> 8) & 0xff
+        }
+        if signal != 0x7f {
+            return 128 + signal
+        }
+        return status
+    }
+
+    private static func posixError(_ code: Int32) -> String {
+        String(cString: strerror(code))
+    }
+
+    private static func withCStringArray<R>(_ strings: [String],
+                                            _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> R) -> R {
+        let cStrings = strings.map { strdup($0)! }
+        defer { cStrings.forEach { free($0) } }
+        var pointers = cStrings.map { Optional($0) }
+        pointers.append(nil)
+        return pointers.withUnsafeMutableBufferPointer { buffer in
+            body(buffer.baseAddress!)
+        }
     }
 
     // MARK: Binary lookup
@@ -146,37 +291,18 @@ enum Shell {
     /// only a line that is an actual executable path is trusted.
     private static func loginShellLookup(_ command: String) -> String? {
         let escaped = "'" + command.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", "command -v -- " + escaped]
-        let outPipe = Pipe()
-        process.standardOutput = outPipe
-        process.standardError = FileHandle.nullDevice
-        let exited = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in exited.signal() }
-
-        guard (try? process.run()) != nil else { return nil }
-
-        var data = Data()
-        let group = DispatchGroup()
-        group.enter()
-        DispatchQueue.global(qos: .utility).async {
-            data = outPipe.fileHandleForReading.readDataToEndOfFile()
-            group.leave()
-        }
-
-        if exited.wait(timeout: .now() + executableLookupTimeout) == .timedOut {
-            if process.isRunning { process.terminate() }
-            if exited.wait(timeout: .now() + 1) == .timedOut {
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                exited.wait()
-            }
-        }
-        group.wait()
-        guard process.terminationStatus == 0 else { return nil }
+        let result = runExecutable(
+            executable: "/bin/zsh",
+            arguments: ["-lc", "command -v -- " + escaped],
+            cwd: nil,
+            environment: commandEnvironment(),
+            timeout: executableLookupTimeout,
+            displayArgs: ["/bin/zsh", "-lc", "command -v -- " + escaped]
+        )
+        guard result.ok else { return nil }
 
         let fm = FileManager.default
-        return String(decoding: data, as: UTF8.self)
+        return result.stdout
             .split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .last { $0.hasPrefix("/") && fm.isExecutableFile(atPath: $0) }
