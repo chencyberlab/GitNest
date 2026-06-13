@@ -54,6 +54,49 @@ final class ShellTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 10)
     }
 
+    func testAbandonsReadersWhenAnEscapedChildHoldsThePipe() {
+        let started = Date()
+        // The forked grandchild calls setsid(), leaving the command's process
+        // group entirely, while keeping the inherited stdout open — the one
+        // shape the group kill cannot reach. The call must still return.
+        let script = "use POSIX qw(setsid); exit 0 if fork(); setsid(); sleep 30;"
+        let res = Shell.run(["perl", "-e", script], timeout: 1, killGracePeriod: 0.5)
+
+        XCTAssertFalse(res.ok)
+        XCTAssertTrue(res.stderr.contains("timed out"))
+        XCTAssertTrue(res.stderr.contains("abandoned"))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 10)
+    }
+
+    func testTimedOutCommandStillReportsPartialOutput() {
+        let res = Shell.run(["sh", "-c", "echo started; sleep 30"], timeout: 1)
+
+        XCTAssertFalse(res.ok)
+        XCTAssertEqual(res.stdout, "started\n")
+        XCTAssertTrue(res.stderr.contains("timed out"))
+    }
+
+    func testStdinIsDevNullSoToolsNeverWaitForInput() {
+        let started = Date()
+        let res = Shell.run(["cat"], timeout: 5)
+
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(res.stdout, "")
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testChildInheritsOnlyStandardDescriptors() {
+        // The test runner has many fds open; CLOEXEC_DEFAULT must keep them
+        // out of the child. /dev/fd shows the child shell's own table: stdio
+        // plus the descriptor ls itself uses to read the /dev/fd directory.
+        let res = Shell.run(["sh", "-c", "ls /dev/fd"])
+
+        XCTAssertTrue(res.ok)
+        let fds = res.stdout.split(whereSeparator: \.isNewline).compactMap { Int($0) }
+        XCTAssertFalse(fds.isEmpty)
+        XCTAssertTrue(fds.allSatisfy { $0 <= 4 }, "unexpected inherited fds: \(fds)")
+    }
+
     func testResolveExecutableFindsCoreTools() {
         for tool in ["git", "ssh", "mkdir", "chmod"] {
             let path = Shell.resolveExecutable(tool)

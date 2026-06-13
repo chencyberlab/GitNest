@@ -10,6 +10,25 @@ struct ShellResult: Sendable {
 }
 
 enum Shell {
+    /// Pipe output collected under a lock, appended chunk by chunk as it
+    /// arrives. The lock makes it safe to snapshot from the waiting thread
+    /// even when a reader has to be abandoned (a stray child outside the
+    /// process group can hold the write end open indefinitely), and the
+    /// incremental appends mean a timed-out command still reports whatever
+    /// it managed to print.
+    private final class PipeBuffers: @unchecked Sendable {
+        private let lock = NSLock()
+        private var out = Data()
+        private var err = Data()
+
+        func appendOut(_ chunk: Data) { lock.lock(); out.append(chunk); lock.unlock() }
+        func appendErr(_ chunk: Data) { lock.lock(); err.append(chunk); lock.unlock() }
+        func snapshot() -> (out: Data, err: Data) {
+            lock.lock(); defer { lock.unlock() }
+            return (out, err)
+        }
+    }
+
     /// Standard locations searched first — Homebrew (Apple Silicon and Intel),
     /// then the system paths. Covers gh/git/ssh for the common installs even
     /// when the app is launched from Finder with a minimal PATH.
@@ -31,6 +50,9 @@ enum Shell {
     /// legitimately slow. Network-quick commands fail much earlier on their
     /// own (e.g. ssh's ConnectTimeout, GIT_TERMINAL_PROMPT=0).
     static let defaultTimeout: TimeInterval = 600
+    /// How long each kill-escalation step (SIGTERM → SIGKILL → abandon) waits.
+    /// Overridable per call so tests don't sit through real grace periods.
+    static let defaultKillGracePeriod: TimeInterval = 5
     private static let executableLookupTimeout: TimeInterval = 10
 
     /// Run a command directly (no intermediate shell). The first element is
@@ -39,7 +61,8 @@ enum Shell {
     /// quoting pitfalls and no user dotfile output polluting stdout — `gh`'s
     /// JSON must arrive byte-exact.
     static func run(_ args: [String], cwd: String? = nil,
-                    timeout: TimeInterval = defaultTimeout) -> ShellResult {
+                    timeout: TimeInterval = defaultTimeout,
+                    killGracePeriod: TimeInterval = defaultKillGracePeriod) -> ShellResult {
         guard let command = args.first else {
             return ShellResult(exitCode: -1, stdout: "", stderr: "no command given")
         }
@@ -53,6 +76,7 @@ enum Shell {
             cwd: cwd,
             environment: commandEnvironment(),
             timeout: timeout,
+            killGracePeriod: killGracePeriod,
             displayArgs: args
         )
     }
@@ -72,6 +96,7 @@ enum Shell {
                                       cwd: String?,
                                       environment: [String: String],
                                       timeout: TimeInterval,
+                                      killGracePeriod: TimeInterval,
                                       displayArgs: [String]) -> ShellResult {
         var outFD: [Int32] = [0, 0]
         var errFD: [Int32] = [0, 0]
@@ -103,6 +128,11 @@ enum Shell {
             if setupError == 0, code != 0 { setupError = code }
         }
 
+        // stdin: /dev/null, explicitly. Tools that try to read input get EOF
+        // immediately instead of waiting forever, and CLOEXEC_DEFAULT below
+        // would otherwise leave the child with fd 0 closed entirely (the next
+        // file it opened would silently become its stdin).
+        record(posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0))
         record(posix_spawn_file_actions_adddup2(&actions, outFD[1], STDOUT_FILENO))
         record(posix_spawn_file_actions_adddup2(&actions, errFD[1], STDERR_FILENO))
         record(posix_spawn_file_actions_addclose(&actions, outFD[0]))
@@ -113,10 +143,14 @@ enum Shell {
             cwd.withCString { record(posix_spawn_file_actions_addchdir_np(&actions, $0)) }
         }
 
-        // Put the launched command in its own process group. On timeout we kill
-        // that group, not just the direct PID, so helper children that inherited
-        // stdout/stderr cannot keep the read pipes open indefinitely.
-        let flags = Int16(POSIX_SPAWN_SETPGROUP)
+        // SETPGROUP: put the launched command in its own process group. On
+        // timeout we kill that group, not just the direct PID, so helper
+        // children that inherited stdout/stderr cannot keep the read pipes
+        // open indefinitely.
+        // CLOEXEC_DEFAULT (Apple extension): every descriptor except the ones
+        // set up by the file actions above is closed in the child, so the
+        // app's sockets and files never leak into git/gh/ssh.
+        let flags = Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT)
         record(posix_spawnattr_setflags(&attrs, flags))
         record(posix_spawnattr_setpgroup(&attrs, 0))
 
@@ -148,15 +182,16 @@ enum Shell {
         let outHandle = FileHandle(fileDescriptor: outFD[0], closeOnDealloc: true)
         let errHandle = FileHandle(fileDescriptor: errFD[0], closeOnDealloc: true)
 
-        // Read both pipes concurrently to avoid deadlock if one fills its buffer.
-        var outData = Data()
-        var errData = Data()
+        // Read both pipes concurrently to avoid deadlock if one fills its
+        // buffer. Chunks land in the lock-guarded buffers as they arrive, so a
+        // snapshot is safe (and meaningful) even if a reader never finishes.
+        let buffers = PipeBuffers()
         let group = DispatchGroup()
         let queue = DispatchQueue(label: "shell.read", attributes: .concurrent)
         group.enter()
-        queue.async { outData = outHandle.readDataToEndOfFile(); group.leave() }
+        queue.async { drain(outHandle) { buffers.appendOut($0) }; group.leave() }
         group.enter()
-        queue.async { errData = errHandle.readDataToEndOfFile(); group.leave() }
+        queue.async { drain(errHandle) { buffers.appendErr($0) }; group.leave() }
 
         var waitStatus: Int32 = 0
         let exited = DispatchSemaphore(value: 0)
@@ -171,47 +206,64 @@ enum Shell {
 
         let deadline = DispatchTime.now() + timeout
         var timedOut = false
-        var processExited = false
+
+        // Phase 1: the direct child. This always terminates — SIGKILL on the
+        // child itself cannot be ignored, so the final wait is bounded in
+        // practice. After this point the child is reaped and `waitStatus` is
+        // safe to read (ordered by the semaphore).
         if exited.wait(timeout: deadline) == .timedOut {
             timedOut = true
             killProcessGroup(pid, SIGTERM, fallbackToProcess: true)
-            if exited.wait(timeout: .now() + 5) == .timedOut {
+            if exited.wait(timeout: .now() + killGracePeriod) == .timedOut {
                 killProcessGroup(pid, SIGKILL, fallbackToProcess: true)
                 exited.wait()
             }
-            processExited = true
-        } else {
-            processExited = true
         }
 
+        // Phase 2: pipe EOF. Children that inherited stdout/stderr keep the
+        // write ends open past the child's own exit; the group kills sweep
+        // them. A child that escaped the process group entirely (setsid — an
+        // ssh ControlPersist master, a daemonized helper) survives even
+        // SIGKILL of the group, so as the last resort the readers are
+        // abandoned rather than left to wedge this thread forever. The
+        // abandoned reader exits, and its fd closes, whenever the stray
+        // process finally does.
+        var readersAbandoned = false
         if group.wait(timeout: deadline) == .timedOut {
             timedOut = true
-            killProcessGroup(pid, SIGTERM, fallbackToProcess: !processExited)
-            if !processExited {
-                if exited.wait(timeout: .now() + 5) == .timedOut {
-                    killProcessGroup(pid, SIGKILL, fallbackToProcess: true)
-                    exited.wait()
-                }
-                processExited = true
-            }
-            if group.wait(timeout: .now() + 5) == .timedOut {
+            killProcessGroup(pid, SIGTERM, fallbackToProcess: false)
+            if group.wait(timeout: .now() + killGracePeriod) == .timedOut {
                 killProcessGroup(pid, SIGKILL, fallbackToProcess: false)
-                group.wait()
+                if group.wait(timeout: .now() + killGracePeriod) == .timedOut {
+                    readersAbandoned = true
+                }
             }
-        } else {
-            group.wait()
         }
 
+        let (outData, errData) = buffers.snapshot()
         var stderrText = String(decoding: errData, as: UTF8.self)
         if timedOut {
             if !stderrText.isEmpty, !stderrText.hasSuffix("\n") { stderrText += "\n" }
             stderrText += "command timed out after \(Int(timeout))s: \(displayArgs.joined(separator: " "))"
+            if readersAbandoned {
+                stderrText += "\n(a stray child process still holds the command's output open; its reader was abandoned)"
+            }
         }
         return ShellResult(
             exitCode: timedOut ? -1 : exitCode(fromWaitStatus: waitStatus),
             stdout: String(decoding: outData, as: UTF8.self),
             stderr: stderrText
         )
+    }
+
+    /// Read a pipe until EOF, delivering each chunk as it arrives.
+    /// `availableData` blocks until at least one byte or EOF (empty Data).
+    private static func drain(_ handle: FileHandle, into append: (Data) -> Void) {
+        while true {
+            let chunk = handle.availableData
+            if chunk.isEmpty { return }
+            append(chunk)
+        }
     }
 
     private static func closePipe(_ pipe: [Int32]) {
@@ -297,6 +349,7 @@ enum Shell {
             cwd: nil,
             environment: commandEnvironment(),
             timeout: executableLookupTimeout,
+            killGracePeriod: 1,
             displayArgs: ["/bin/zsh", "-lc", "command -v -- " + escaped]
         )
         guard result.ok else { return nil }
