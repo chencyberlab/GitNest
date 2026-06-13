@@ -24,7 +24,7 @@ extension ContentView {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textMuted).tracking(0.6)
                     Spacer()
-                    Button { model.beginAddAccount() } label: {
+                    Button { model.setupCoordinator.beginAddAccount() } label: {
                         Image(systemName: "plus").font(.system(size: 12, weight: .bold))
                     }
                     .buttonStyle(.plain)
@@ -112,7 +112,7 @@ extension ContentView {
             """)
         }
         .sheet(isPresented: $model.addAccountActive) {
-            AddAccountSheet().environmentObject(model)
+            AddAccountSheet().environmentObject(model.setupCoordinator)
         }
     }
 
@@ -214,7 +214,7 @@ extension ContentView {
                                          help: "Open github.com/\(account.alias) in your browser",
                                          tint: theme.accent,
                                          fill: theme.accentSubtle) {
-                            model.openGitHubProfile(account)
+                            model.accountManager.openGitHubProfile(account)
                         }
                     }
                     .padding(.top, 2)

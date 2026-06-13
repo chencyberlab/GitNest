@@ -44,7 +44,7 @@ struct CopyableField: View {
 /// choose a folder, create a dedicated SSH key, guide the key onto GitHub, then
 /// write the local config (with backups) and verify.
 struct AddAccountSheet: View {
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var setupCoordinator: SetupCoordinator
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -52,7 +52,7 @@ struct AddAccountSheet: View {
             header
             Divider().overlay(theme.border)
             stepContent
-            if let error = model.addAccountError {
+            if let error = setupCoordinator.addAccountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(theme.error)
@@ -64,7 +64,7 @@ struct AddAccountSheet: View {
         .padding(22)
         .frame(width: 560)
         .background(theme.surface)
-        .interactiveDismissDisabled(model.addAccountBusy && model.addAccountStep == .finish)
+        .interactiveDismissDisabled(setupCoordinator.addAccountBusy && setupCoordinator.addAccountStep == .finish)
     }
 
     // MARK: Header / step indicator
@@ -79,7 +79,7 @@ struct AddAccountSheet: View {
     }
 
     private var stepLabel: String {
-        switch model.addAccountStep {
+        switch setupCoordinator.addAccountStep {
         case .signIn: return "Step 1 of 4 — Sign in to GitHub"
         case .folder:  return "Step 2 of 4 — Choose the local folder"
         case .sshKey:  return "Step 3 of 4 — Add the SSH key to GitHub"
@@ -91,7 +91,7 @@ struct AddAccountSheet: View {
 
     @ViewBuilder
     private var stepContent: some View {
-        switch model.addAccountStep {
+        switch setupCoordinator.addAccountStep {
         case .signIn: signInStep
         case .folder:  folderStep
         case .sshKey:  sshKeyStep
@@ -104,11 +104,11 @@ struct AddAccountSheet: View {
             Text("Sign in to the GitHub account you want to add. Your browser opens to github.com/login/device — enter the one-time code shown below.")
                 .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            if let code = model.addAccountDeviceCode {
+            if let code = setupCoordinator.addAccountDeviceCode {
                 Text("One-time code").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 CopyableField(value: code)
             }
-            if model.addAccountBusy {
+            if setupCoordinator.addAccountBusy {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Waiting for sign-in to complete…")
@@ -120,7 +120,7 @@ struct AddAccountSheet: View {
 
     private var folderStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let id = model.addAccountIdentity {
+            if let id = setupCoordinator.addAccountIdentity {
                 Label("Signed in as \(id.login)", systemImage: "checkmark.circle.fill")
                     .font(.system(size: 12, weight: .semibold)).foregroundStyle(theme.success)
             }
@@ -130,7 +130,7 @@ struct AddAccountSheet: View {
             HStack(spacing: 10) {
                 Button { chooseFolder() } label: { Label("Choose Folder…", systemImage: "folder") }
                     .buttonStyle(SubtleButtonStyle())
-                if let folder = model.addAccountFolder {
+                if let folder = setupCoordinator.addAccountFolder {
                     Text(folder)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(theme.textMuted)
@@ -139,7 +139,7 @@ struct AddAccountSheet: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Commit email").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
-                TextField("email", text: $model.addAccountEmail)
+                TextField("email", text: $setupCoordinator.addAccountEmail)
                     .textFieldStyle(.roundedBorder).font(.system(size: 12))
                 Text("Defaults to GitHub's private no-reply address — keeps your real email off commits.")
                     .font(.system(size: 10)).foregroundStyle(theme.textTertiary)
@@ -154,12 +154,12 @@ struct AddAccountSheet: View {
 
     private var sshKeyStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.addAccountKeyCreated
+            Text(setupCoordinator.addAccountKeyCreated
                  ? "A dedicated SSH key was created for this account. Add its public key to GitHub:"
                  : "This account already has a dedicated SSH key. Make sure its public key is on GitHub:")
                 .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
-            if let pub = model.addAccountPublicKey {
+            if let pub = setupCoordinator.addAccountPublicKey {
                 Text("Public key").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 CopyableField(value: pub)
             }
@@ -175,14 +175,14 @@ struct AddAccountSheet: View {
 
     private var finishStep: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if model.addAccountBusy {
+            if setupCoordinator.addAccountBusy {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Writing config (with backups) & verifying…")
                         .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 }
             } else {
-                if let verification = model.addAccountVerification {
+                if let verification = setupCoordinator.addAccountVerification {
                     Label(sshVerificationText(verification),
                           systemImage: verification.sshOK ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                         .font(.system(size: 12, weight: .medium))
@@ -198,8 +198,8 @@ struct AddAccountSheet: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(theme.warning)
                 }
-                if model.addAccountVerification?.ok != true {
-                    Button { Task { await model.addAccountReverify() } } label: {
+                if setupCoordinator.addAccountVerification?.ok != true {
+                    Button { Task { await setupCoordinator.addAccountReverify() } } label: {
                         Label("Re-check", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(SubtleButtonStyle())
@@ -215,9 +215,9 @@ struct AddAccountSheet: View {
 
     private var footer: some View {
         HStack {
-            Button(model.addAccountStep == .finish ? "Close" : "Cancel") { model.cancelAddAccount() }
+            Button(setupCoordinator.addAccountStep == .finish ? "Close" : "Cancel") { setupCoordinator.cancelAddAccount() }
                 .buttonStyle(SubtleButtonStyle())
-                .disabled(model.addAccountBusy && model.addAccountStep == .finish)
+                .disabled(setupCoordinator.addAccountBusy && setupCoordinator.addAccountStep == .finish)
             Spacer()
             primaryButton
         }
@@ -225,35 +225,35 @@ struct AddAccountSheet: View {
 
     @ViewBuilder
     private var primaryButton: some View {
-        switch model.addAccountStep {
+        switch setupCoordinator.addAccountStep {
         case .signIn:
-            Button { Task { await model.addAccountSignIn() } } label: {
+            Button { Task { await setupCoordinator.addAccountSignIn() } } label: {
                 Label("Sign in to GitHub", systemImage: "person.badge.key")
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(model.addAccountBusy)
+            .disabled(setupCoordinator.addAccountBusy)
         case .folder:
-            Button { Task { await model.addAccountGenerateKey() } } label: {
+            Button { Task { await setupCoordinator.addAccountGenerateKey() } } label: {
                 Label("Next", systemImage: "arrow.right")
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(model.addAccountBusy || model.addAccountFolder == nil)
+            .disabled(setupCoordinator.addAccountBusy || setupCoordinator.addAccountFolder == nil)
         case .sshKey:
             Button {
-                model.addAccountStep = .finish
-                model.addAccountBusy = true     // avoid a one-frame "not verified" flash
-                Task { await model.addAccountFinish() }
+                setupCoordinator.addAccountStep = .finish
+                setupCoordinator.addAccountBusy = true     // avoid a one-frame "not verified" flash
+                Task { await setupCoordinator.addAccountFinish() }
             } label: {
                 Label("I've added it — continue", systemImage: "checkmark")
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(model.addAccountBusy)
+            .disabled(setupCoordinator.addAccountBusy)
         case .finish:
-            Button { model.completeAddAccount() } label: {
+            Button { setupCoordinator.completeAddAccount() } label: {
                 Label("Done", systemImage: "checkmark")
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(model.addAccountBusy || model.addAccountVerification?.ok != true)
+            .disabled(setupCoordinator.addAccountBusy || setupCoordinator.addAccountVerification?.ok != true)
         }
     }
 
@@ -291,16 +291,16 @@ struct AddAccountSheet: View {
         panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())   // device-portable default
         if panel.runModal() == .OK, let url = panel.url {
             let chosen = url.path
-            if let overlap = model.accounts.first(where: { AccountSetup.foldersOverlap(chosen, $0.folder) }) {
-                model.addAccountError = "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
+            if let overlap = setupCoordinator.accounts.first(where: { AccountSetup.foldersOverlap(chosen, $0.folder) }) {
+                setupCoordinator.addAccountError = "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
             } else {
-                model.setAddAccountFolder(chosen)
+                setupCoordinator.setAddAccountFolder(chosen)
             }
         }
     }
 
     private func copyKeyAndOpenGitHub() {
-        if let pub = model.addAccountPublicKey {
+        if let pub = setupCoordinator.addAccountPublicKey {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(pub, forType: .string)
         }

@@ -1,11 +1,43 @@
 import SwiftUI
 import AppKit
 
-extension AppModel {
-    // MARK: Add-account wizard
+@MainActor
+final class SetupCoordinator: ObservableObject {
+    @Published var addAccountActive = false
+    @Published var addAccountStep: AddAccountStep = .signIn
+    @Published var addAccountBusy = false
+    @Published var addAccountError: String?
+    @Published var addAccountDeviceCode: String?
+    @Published var addAccountIdentity: AccountSetup.Identity?
+    @Published var addAccountEmail: String = ""
+    @Published var addAccountFolder: String?
+    @Published var addAccountPublicKey: String?
+    @Published var addAccountKeyCreated = false
+    @Published var addAccountVerification: AccountSetup.Verification?
+
+    private let ghChain: GhChain
+    private let logStore: LogStore
+    private let accountManager: AccountManager
+    private let authProcessController: AuthProcessController
+
+    var addAccountSessionID = UUID()
+    var currentAuthFlowCode: String?
 
     /// Alias for the in-progress account (GitHub login, lowercased).
     var addAccountAlias: String? { addAccountIdentity?.alias }
+
+    /// Existing accounts, exposed so the add-account sheet can check for folder overlaps.
+    var accounts: [Account] { accountManager.accounts }
+
+    init(ghChain: GhChain,
+         logStore: LogStore,
+         accountManager: AccountManager,
+         authProcessController: AuthProcessController) {
+        self.ghChain = ghChain
+        self.logStore = logStore
+        self.accountManager = accountManager
+        self.authProcessController = authProcessController
+    }
 
     func beginAddAccount() {
         addAccountSessionID = UUID()
@@ -28,12 +60,11 @@ extension AppModel {
         let wroteConfig = addAccountVerification != nil
         // Kill any in-flight `gh auth login` poll so it doesn't keep the serialized
         // gh chain busy (blocking repo refreshes/account checks) for up to ~10 min.
-        activeAuthProcess?.cancel()
-        activeAuthProcess = nil
+        authProcessController.cancel()
         addAccountSessionID = UUID()
         addAccountActive = false
         addAccountBusy = false
-        if wroteConfig { refreshAll() }
+        if wroteConfig { accountManager.refreshAll() }
     }
 
     func isCurrentAddAccountSession(_ session: UUID) -> Bool {
@@ -48,20 +79,20 @@ extension AppModel {
         addAccountBusy = true
         addAccountError = nil
         addAccountDeviceCode = nil
-        appendLog("Add account: starting GitHub sign-in…")
+        logStore.append("Add account: starting GitHub sign-in…")
         if let url = URL(string: "https://github.com/login/device") {
             NSWorkspace.shared.open(url)
         }
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let watcher = Task { await watchClipboardForAddAccountCode(session: session,
                                                                    after: startingClipboardChangeCount) }
-        let authProcess = startAuthProcess()
-        let result = await ghSerialized { () -> AddAccountLoginResult in
+        let authProcess = authProcessController.start()
+        let result = await ghChain.serialized { () -> AppModel.AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
-            guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
-            return AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
+            guard login.ok else { return AppModel.AddAccountLoginResult(login: login, identity: nil) }
+            return AppModel.AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
         }
-        finishAuthProcess(authProcess)
+        authProcessController.finish(authProcess)
         watcher.cancel()
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -78,14 +109,14 @@ extension AppModel {
         }
         switch identity {
         case .success(let id):
-            if accounts.contains(where: { $0.alias.caseInsensitiveCompare(id.alias) == .orderedSame }) {
+            if accountManager.accounts.contains(where: { $0.alias.caseInsensitiveCompare(id.alias) == .orderedSame }) {
                 addAccountError = "\(id.login) is already set up in this app."
                 addAccountBusy = false
                 return
             }
             addAccountIdentity = id
             addAccountEmail = id.noreplyEmail
-            appendLog("Add account: signed in as \(id.login).")
+            logStore.append("Add account: signed in as \(id.login).")
             addAccountStep = .folder
         case .failure(let e):
             addAccountError = "Could not read account: \(e.message)"
@@ -103,15 +134,15 @@ extension AppModel {
         addAccountError = nil
         let alias = id.alias
         let comment = addAccountEmail.isEmpty ? alias : addAccountEmail
-        let result = await run({ AccountSetup.ensureKey(alias: alias, comment: comment) })
+        let result = await runBlocking { AccountSetup.ensureKey(alias: alias, comment: comment) }
         guard isCurrentAddAccountSession(session) else { return }
         switch result {
         case .success(let r):
             addAccountPublicKey = r.publicKey
             addAccountKeyCreated = r.created
-            appendLog(r.created
-                      ? "Add account: generated SSH key id_\(alias)."
-                      : "Add account: reusing existing SSH key id_\(alias).")
+            logStore.append(r.created
+                          ? "Add account: generated SSH key id_\(alias)."
+                          : "Add account: reusing existing SSH key id_\(alias).")
             addAccountStep = .sshKey
         case .failure(let e):
             addAccountError = "SSH key error: \(e.message)"
@@ -127,33 +158,33 @@ extension AppModel {
         addAccountBusy = true
         addAccountError = nil
         let alias = id.alias
-        appendLog("Add account: writing config for \(alias) (backups first)…")
+        logStore.append("Add account: writing config for \(alias) (backups first)…")
 
-        let sshWrite = await run({ AccountSetup.ensureSSHConfig(alias: alias) })
+        let sshWrite = await runBlocking { AccountSetup.ensureSSHConfig(alias: alias) }
         guard isCurrentAddAccountSession(session) else { return }
         switch sshWrite {
         case .success(let result):
-            if let backup = result.backupPath { appendLog("Add account: backed up ~/.ssh/config -> \(backup).") }
-            if result.wroteBlock { appendLog("Add account: added ~/.ssh/config host github-\(alias).") }
+            if let backup = result.backupPath { logStore.append("Add account: backed up ~/.ssh/config -> \(backup).") }
+            if result.wroteBlock { logStore.append("Add account: added ~/.ssh/config host github-\(alias).") }
         case .failure(let e):
             addAccountError = e.message; addAccountBusy = false; return
         }
 
         let name = id.displayName
         let email = addAccountEmail
-        let write = await run { AccountSetup.writeGitConfig(alias: alias, name: name, email: email, folder: folder) }
+        let write = await runBlocking { AccountSetup.writeGitConfig(alias: alias, name: name, email: email, folder: folder) }
         guard isCurrentAddAccountSession(session) else { return }
         if case .failure(let e) = write {
             addAccountError = e.message; addAccountBusy = false; return
         }
         if case .success(let result) = write {
-            if let backup = result.accountGitconfigBackupPath { appendLog("Add account: backed up account gitconfig -> \(backup).") }
-            if let backup = result.globalGitconfigBackupPath { appendLog("Add account: backed up ~/.gitconfig -> \(backup).") }
+            if let backup = result.accountGitconfigBackupPath { logStore.append("Add account: backed up account gitconfig -> \(backup).") }
+            if let backup = result.globalGitconfigBackupPath { logStore.append("Add account: backed up ~/.gitconfig -> \(backup).") }
         }
-        appendLog("Add account: wrote gitconfig + includeIf, created \(folder).")
+        logStore.append("Add account: wrote gitconfig + includeIf, created \(folder).")
 
         await addAccountReverify()
-        accounts = orderedAccounts(GitConfig.loadAccounts())
+        accountManager.accounts = accountManager.orderedAccounts(GitConfig.loadAccounts())
         addAccountBusy = false
     }
 
@@ -162,12 +193,12 @@ extension AppModel {
     func addAccountReverify() async {
         guard let alias = addAccountAlias else { return }
         let session = addAccountSessionID
-        let result = await ghSerialized { AccountSetup.verify(alias: alias) }
+        let result = await ghChain.serialized { AccountSetup.verify(alias: alias) }
         guard isCurrentAddAccountSession(session) else { return }
         addAccountVerification = result
         let sshText = result.sshOK ? "OK" : (result.sshLogin.map { "as \($0), expected \(alias)" } ?? "not ready")
         let ghText = result.ghOK ? "OK" : (result.ghLogin.map { "as \($0), expected \(alias)" } ?? "unknown")
-        appendLog("Add account: verify — SSH \(sshText), gh \(ghText).")
+        logStore.append("Add account: verify — SSH \(sshText), gh \(ghText).")
     }
 
     /// Close the wizard, refresh everything, and select the new account.
@@ -175,9 +206,9 @@ extension AppModel {
         let newAlias = addAccountAlias
         addAccountSessionID = UUID()
         addAccountActive = false
-        refreshAll()
-        if let newAlias, let acct = accounts.first(where: { $0.alias.caseInsensitiveCompare(newAlias) == .orderedSame }) {
-            selectAccount(acct)
+        accountManager.refreshAll()
+        if let newAlias, let acct = accountManager.accounts.first(where: { $0.alias.caseInsensitiveCompare(newAlias) == .orderedSame }) {
+            accountManager.selectAccount(acct)
         }
     }
 
@@ -200,5 +231,4 @@ extension AppModel {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
-
 }

@@ -39,15 +39,6 @@ struct ContentView: View {
     @State var cardFrames: [String: CGRect] = [:]
     static let accountListSpace = "accountListSpace"
 
-    /// Drives the fade of the collapsed Output status line. The full log in the
-    /// expanded panel is unaffected — only this one-line summary fades out.
-    @State var statusLineVisible = false
-    @State var statusFadeTask: Task<Void, Never>?
-    /// Seconds the status line stays before fading. Errors/warnings never fade.
-    static let statusFadeDelay: Duration = .seconds(4)
-    /// Identity of the invisible tail view the Output log auto-scrolls to.
-    static let logBottomAnchor = "logBottom"
-
     /// Persisted appearance choice: "system" | "light" | "dark".
     @AppStorage("appearancePreference") var appearancePreference: String = "system"
 

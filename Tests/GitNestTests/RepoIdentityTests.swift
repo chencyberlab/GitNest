@@ -8,7 +8,7 @@ final class RepoIdentityTests: XCTestCase {
         let mine = repo(owner: "me", name: "tools")
         let shared = repo(owner: "friend", name: "tools")
 
-        model.clonedRepos = [mine.id]
+        model.repoManager.clonedRepos = [mine.id]
 
         XCTAssertTrue(model.isCloned(mine))
         XCTAssertFalse(model.isCloned(shared))
@@ -33,8 +33,8 @@ final class RepoIdentityTests: XCTestCase {
         ], cwd: localRepo.path).ok)
 
         let model = AppModel()
-        model.selectedAccount = account
-        model.repos = [mine, shared]
+        model.accountManager.selectedAccount = account
+        model.repoManager.repos = [mine, shared]
 
         await model.refreshClonedStatus(for: account)
 
@@ -71,9 +71,9 @@ final class RepoIdentityTests: XCTestCase {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
 
         let model = AppModel()
-        model.selectedAccount = account
-        model.repos = [mine, shared]
-        model.clonedRepos = [mine.id, shared.id]
+        model.accountManager.selectedAccount = account
+        model.repoManager.repos = [mine, shared]
+        model.repoManager.clonedRepos = [mine.id, shared.id]
 
         let task = Task { await model.commit(mine, message: "Initial commit") }
         var attempts = 0
@@ -119,11 +119,11 @@ final class RepoIdentityTests: XCTestCase {
                                      encoding: .utf8)
 
         let model = AppModel()
-        model.accounts = [accountA, accountB]
-        model.selectedAccount = accountB
-        model.repos = [target]
-        model.repoCache[accountA.alias] = [target]
-        model.clonedReposCache[accountA.alias] = [target.id]
+        model.accountManager.accounts = [accountA, accountB]
+        model.accountManager.selectedAccount = accountB
+        model.repoManager.repos = [target]
+        model.repoManager.repoCache[accountA.alias] = [target]
+        model.repoManager.clonedReposCache[accountA.alias] = [target.id]
 
         await model.commit(target, message: "Commit in account A", in: accountA)
 
