@@ -3,7 +3,9 @@ import XCTest
 
 final class SearchTests: XCTestCase {
     func testWildcardMatcherMatchesSubstringGlobAndSubsequence() {
-        let haystacks = ["MultiGitManager", "owner/tools", "A compact repo dashboard"]
+        // WildcardMatcher expects pre-lowercased haystacks; callers (Repo/Account)
+        // cache them to avoid re-lowercasing on every keystroke.
+        let haystacks = ["multigitmanager", "owner/tools", "a compact repo dashboard"]
 
         XCTAssertTrue(WildcardMatcher.matches(query: "git", haystacks: haystacks))
         XCTAssertTrue(WildcardMatcher.matches(query: "m*g*manager", haystacks: haystacks))

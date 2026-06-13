@@ -93,4 +93,63 @@ final class GitChangesTests: XCTestCase {
         XCTAssertEqual(groups[0].title, "Other")
         XCTAssertEqual(groups[0].files.count, 2)
     }
+
+    // MARK: - Edge cases
+
+    func testParseHandlesRenameWithSpacesInPath() {
+        // -z keeps the full new path as one token, followed by the original path token.
+        let changes = GitChanges.parse(porcelainZ: "R  new/app name.swift\u{0}old/app name.swift\u{0}")
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].status, .renamed)
+        XCTAssertEqual(changes[0].path, "new/app name.swift")
+        XCTAssertEqual(changes[0].originalPath, "old/app name.swift")
+    }
+
+    func testParseHandlesMixedConflictedAndUntracked() {
+        let changes = GitChanges.parse(porcelainZ: "UU both.txt\u{0}?? ignored-for-now.md\u{0}AA added.txt\u{0}")
+
+        XCTAssertEqual(changes.map(\.status), [.conflicted, .untracked, .conflicted])
+        XCTAssertEqual(changes.map(\.path), ["both.txt", "ignored-for-now.md", "added.txt"])
+    }
+
+    func testParseTreatsIgnoredAsOther() {
+        // `git status --porcelain` does not show ignored files unless --ignored is passed,
+        // but if it ever does we should classify it as .other rather than unknown.
+        let changes = GitChanges.parse(porcelainZ: "!! build/output.app\u{0}")
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].status, .other("!!"))
+        XCTAssertEqual(changes[0].path, "build/output.app")
+    }
+
+    func testParseIgnoresBareStatusCodesWithoutPath() {
+        // Malformed output such as just " M" or a stray newline should be skipped.
+        let changes = GitChanges.parse(porcelainZ: " M\u{0}?? fine.txt\u{0}")
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].path, "fine.txt")
+    }
+
+    func testParseHandlesConsecutiveNULsWithoutDroppingRecords() {
+        let changes = GitChanges.parse(porcelainZ: "\u{0} M a.swift\u{0}\u{0}?? b.swift\u{0}")
+
+        XCTAssertEqual(changes.count, 2)
+        XCTAssertEqual(changes.map(\.path), ["a.swift", "b.swift"])
+    }
+
+    func testParseHandlesCopyAsRename() {
+        let changes = GitChanges.parse(porcelainZ: "C  copied.txt\u{0}original.txt\u{0}")
+
+        XCTAssertEqual(changes.count, 1)
+        XCTAssertEqual(changes[0].status, .renamed)
+        XCTAssertEqual(changes[0].path, "copied.txt")
+        XCTAssertEqual(changes[0].originalPath, "original.txt")
+    }
+
+    func testGroupedSortsOtherLast() {
+        let groups = GitChanges.grouped(GitChanges.parse(porcelainZ: "!! one\u{0} M two\u{0}?? three\u{0}"))
+
+        XCTAssertEqual(groups.map(\.title), ["Modified", "Untracked", "Other"])
+    }
 }

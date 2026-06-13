@@ -8,6 +8,16 @@ struct Account: Identifiable, Hashable, Sendable {
     let email: String   // git user.email
     let folder: String  // absolute path to this account's repo folder
     var sshHost: String { "github-\(alias)" }
+    /// Pre-lowercased fields used by the search matcher.
+    let searchableHaystacks: [String]
+
+    init(alias: String, name: String, email: String, folder: String) {
+        self.alias = alias
+        self.name = name
+        self.email = email
+        self.folder = folder
+        self.searchableHaystacks = [alias, name, email, folder].map { $0.lowercased() }
+    }
 }
 
 /// Discovers accounts by reading ~/.gitconfig `includeIf "gitdir:…"` rules and the
@@ -31,8 +41,8 @@ enum GitConfig {
         var pendingFolder: String?
 
         for raw in text.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix(";") else { continue }
+            let line = strippedLine(raw)
+            guard !line.isEmpty else { continue }
             if let folder = matchGitdir(line) {
                 pendingFolder = folder
             } else if line.hasPrefix("[") {
@@ -70,7 +80,7 @@ enum GitConfig {
         var name = "", email = "", alias = ""
 
         for raw in text.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
+            let line = strippedLine(raw)
             let configKey = key(line)
             if configKey?.caseInsensitiveCompare("name") == .orderedSame, let v = value(line) {
                 name = v
@@ -101,6 +111,31 @@ enum GitConfig {
             value.removeLast()
         }
         return value
+    }
+
+    /// Remove inline comments (`#` or `;`) only outside quoted strings, then trim.
+    /// Git config treats `#` and `;` as comment starters, but values like
+    /// `insteadOf = https://github.com/` must keep any `#` inside quoted URLs.
+    private static func strippedLine(_ raw: String) -> String {
+        var result = ""
+        var inQuotes = false
+        var escaped = false
+        for char in raw {
+            if escaped {
+                result.append(char)
+                escaped = false
+                continue
+            }
+            if char == "\\" {
+                result.append(char)
+                escaped = true
+                continue
+            }
+            if char == "\"" { inQuotes.toggle() }
+            if !inQuotes && (char == "#" || char == ";") { break }
+            result.append(char)
+        }
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     // .../github-<alias>/ or .../github_<alias>/  ->  <alias>

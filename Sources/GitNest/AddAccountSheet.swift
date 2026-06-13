@@ -31,7 +31,6 @@ struct CopyableField: View {
                     .foregroundStyle(copied ? theme.success : theme.accent)
             }
             .buttonStyle(.plain)
-            .focusable(false)
         }
         .padding(8)
         .background(theme.surfaceMuted)

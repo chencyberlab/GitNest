@@ -607,32 +607,20 @@ final class AppModel: ObservableObject {
 /// using `*` (any run) and `?` (single char).
 enum RepoSearch {
     static func matches(query: String, repo: Repo) -> Bool {
-        WildcardMatcher.matches(
-            query: query,
-            haystacks: [repo.name, repo.nameWithOwner, repo.description ?? ""]
-        )
+        WildcardMatcher.matches(query: query, haystacks: repo.searchableHaystacks)
     }
 }
 
 /// Same forgiving matcher as repo search, applied to account card fields.
 enum AccountSearch {
     static func matches(query: String, account: Account) -> Bool {
-        WildcardMatcher.matches(
-            query: query,
-            haystacks: [
-                account.alias,
-                account.name,
-                account.email,
-                account.folder,
-                account.sshHost
-            ]
-        )
+        WildcardMatcher.matches(query: query, haystacks: account.searchableHaystacks)
     }
 }
 
 enum WildcardMatcher {
-    static func matches(query: String, haystacks rawHaystacks: [String]) -> Bool {
-        let haystacks = rawHaystacks.map { $0.lowercased() }
+    /// `haystacks` are expected to already be lowercased by the caller.
+    static func matches(query: String, haystacks: [String]) -> Bool {
         let tokens = query.lowercased()
             .split(whereSeparator: { $0 == " " || $0 == "\t" })
             .map(String.init)

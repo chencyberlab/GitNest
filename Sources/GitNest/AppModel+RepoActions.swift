@@ -73,6 +73,22 @@ extension AppModel {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+
+        let dirty = await run { GitHub.hasUncommittedChanges(at: path) }
+        if dirty {
+            appendLog("⚠ Pull blocked for \(repo.name): uncommitted or untracked changes.")
+            pullWarning = PullWarning(
+                repoName: repo.name,
+                message: """
+                \(repo.name) has uncommitted or untracked changes.
+
+                Pulling now could overwrite or merge into your local work. Commit, stash, or discard your changes before pulling.
+                """
+            )
+            await refreshStatuses(for: account)
+            return
+        }
+
         appendLog("Pulling \(repo.name)…")
         let res = await run { GitHub.pull(at: path) }
         report(res, ok: "pulled \(repo.name)")

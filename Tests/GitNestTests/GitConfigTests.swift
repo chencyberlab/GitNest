@@ -53,4 +53,117 @@ final class GitConfigTests: XCTestCase {
         XCTAssertEqual(requestedPaths, ["/tmp/.gitconfig-bob"])
         XCTAssertEqual(accounts.map(\.alias), ["bob"])
     }
+
+    // MARK: - Edge cases
+
+    func testLoadAccountsStripsInlineComments() {
+        let global = """
+        [includeIf "gitdir:/tmp/github_carol/"] ; inline comment
+            path = /tmp/.gitconfig-carol # another comment
+        """
+        let accountConfig = """
+        [user]
+            name = Carol
+            email = carol@example.com
+        [url "git@github-carol:"]
+            insteadOf = https://github.com/
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { path in
+            path == "/tmp/.gitconfig-carol" ? accountConfig : nil
+        }
+
+        XCTAssertEqual(accounts.map(\.alias), ["carol"])
+    }
+
+    func testLoadAccountsUnquotesPathValue() {
+        let global = """
+        [includeIf "gitdir:/tmp/github_dave/"]
+            path = "/tmp/.gitconfig-dave"
+        """
+        let accountConfig = """
+        [user]
+            name = Dave
+            email = dave@example.com
+        [url "git@github-dave:"]
+            insteadOf = https://github.com/
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { path in
+            path == "/tmp/.gitconfig-dave" ? accountConfig : nil
+        }
+
+        XCTAssertEqual(accounts.map(\.alias), ["dave"])
+    }
+
+    func testLoadAccountsFallsBackToFolderAlias() {
+        let global = """
+        [includeIf "gitdir:/tmp/github_eve/"]
+            path = /tmp/.gitconfig-eve
+        """
+        let accountConfig = """
+        [user]
+            name = Eve
+            email = eve@example.com
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { path in
+            path == "/tmp/.gitconfig-eve" ? accountConfig : nil
+        }
+
+        XCTAssertEqual(accounts.map(\.alias), ["eve"])
+        XCTAssertEqual(accounts.first?.folder, "/tmp/github_eve")
+    }
+
+    func testLoadAccountsReturnsEmptyWhenAccountFileMissing() {
+        let global = """
+        [includeIf "gitdir:/tmp/github_ghost/"]
+            path = /tmp/missing
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { _ in nil }
+
+        XCTAssertTrue(accounts.isEmpty)
+    }
+
+    func testLoadAccountsHandlesUnderscoreFolderConvention() {
+        let global = """
+        [includeIf "gitdir:/Users/dev/github_work/"]
+            path = /tmp/.gitconfig-work
+        """
+        let accountConfig = """
+        [user]
+            name = Work
+            email = work@example.com
+        [url "git@github-work:"]
+            insteadOf = https://github.com/
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { path in
+            path == "/tmp/.gitconfig-work" ? accountConfig : nil
+        }
+
+        XCTAssertEqual(accounts.map(\.alias), ["work"])
+    }
+
+    func testLoadAccountsIgnoresDuplicateAliasFromMultipleFolders() {
+        let global = """
+        [includeIf "gitdir:/tmp/github_alice/"]
+            path = /tmp/.gitconfig-alice
+        [includeIf "gitdir:/tmp/github_alice2/"]
+            path = /tmp/.gitconfig-alice
+        """
+        let accountConfig = """
+        [user]
+            name = Alice
+            email = alice@example.com
+        [url "git@github-alice:"]
+            insteadOf = https://github.com/
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { _ in accountConfig }
+
+        XCTAssertEqual(accounts.count, 1)
+        XCTAssertEqual(accounts.first?.folder, "/tmp/github_alice")
+    }
 }

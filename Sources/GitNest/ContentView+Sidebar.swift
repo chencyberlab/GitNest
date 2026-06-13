@@ -28,7 +28,6 @@ extension ContentView {
                         Image(systemName: "plus").font(.system(size: 12, weight: .bold))
                     }
                     .buttonStyle(.plain)
-                    .focusable(false)
                     .foregroundStyle(theme.accent)
                     .tooltip("Add a GitHub account")
                     appearanceMenu

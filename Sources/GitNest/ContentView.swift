@@ -226,7 +226,6 @@ struct ContentView: View {
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
-        .focusable(false)   // don't take the window's initial keyboard focus (kills the focus ring)
         .tooltip("Appearance: \(appearancePreference.capitalized) — click to change")
     }
 
@@ -237,7 +236,6 @@ struct ContentView: View {
             Image(systemName: "gearshape").font(.system(size: 12, weight: .semibold))
         }
         .buttonStyle(.plain)
-        .focusable(false)
         .foregroundStyle(theme.accent)
         .tooltip("Settings — account status, repo auto-refresh, and open actions")
         .popover(isPresented: $showSettings, arrowEdge: .bottom) {
@@ -247,9 +245,19 @@ struct ContentView: View {
 
     var settingsPopover: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Settings")
-                .font(Theme.title(15))
-                .foregroundStyle(theme.text)
+            HStack {
+                Text("Settings")
+                    .font(Theme.title(15))
+                    .foregroundStyle(theme.text)
+                Spacer()
+                Button { showSettings = false } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(theme.textTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close settings")
+            }
 
             settingsSection(title: "Account Status", help: accountStatusLoadMode.help) {
                 Picker("Account status loading", selection: $accountStatusLoadModeRaw) {

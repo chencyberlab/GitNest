@@ -5,6 +5,7 @@ final class RepoListTests: XCTestCase {
     func testListReposFailsClosedWhenAccountCannotBeVerified() {
         var ownedReposCalled = false
         var collaboratorReposCalled = false
+        var organizationMemberReposCalled = false
 
         let result = GitHub.listRepos(
             owner: "me",
@@ -18,6 +19,10 @@ final class RepoListTests: XCTestCase {
             collaboratorRepos: {
                 collaboratorReposCalled = true
                 return []
+            },
+            organizationMemberRepos: {
+                organizationMemberReposCalled = true
+                return []
             }
         )
 
@@ -27,23 +32,26 @@ final class RepoListTests: XCTestCase {
         XCTAssertEqual(error.message, "switch failed")
         XCTAssertFalse(ownedReposCalled)
         XCTAssertFalse(collaboratorReposCalled)
+        XCTAssertFalse(organizationMemberReposCalled)
     }
 
-    func testListReposMergesOwnedAndCollaboratorReposByID() {
+    func testListReposMergesOwnedCollaboratorAndOrganizationReposByID() {
         let mine = repo(owner: "me", name: "tools", updatedAt: "2026-01-01T00:00:00Z")
         let shared = repo(owner: "friend", name: "tools", updatedAt: "2026-02-01T00:00:00Z")
+        let org = repo(owner: "acme", name: "shared", updatedAt: "2026-03-01T00:00:00Z")
 
         let result = GitHub.listRepos(
             owner: "me",
             ensureActive: { _ in ShellResult(exitCode: 0, stdout: "gh active account: me", stderr: "") },
             ownedRepos: { .success([mine]) },
-            collaboratorRepos: { [shared, mine] }
+            collaboratorRepos: { [shared, mine] },
+            organizationMemberRepos: { [org, mine] }
         )
 
         guard case .success(let repos) = result else {
             return XCTFail("Expected merged repo list")
         }
-        XCTAssertEqual(repos.map(\.id), [shared.id, mine.id])
+        XCTAssertEqual(repos.map(\.id), [org.id, shared.id, mine.id])
     }
 
     func testDecodeSlurpedRestReposHandlesPaginatedOutput() {

@@ -715,18 +715,7 @@ extension ContentView {
     func openPopoverButton(_ title: String,
                                    systemImage: String,
                                    action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(theme.text)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .background(theme.surfaceMuted.opacity(0.001))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        OpenPopoverRow(title: title, systemImage: systemImage, action: action)
     }
 
     func openPopoverDisabledRow(_ title: String, systemImage: String) -> some View {
@@ -954,5 +943,31 @@ extension ContentView {
             guard !Task.isCancelled else { return }
             statusLineVisible = false
         }
+    }
+}
+
+/// A single tappable row in the "Open" popover menu. Uses a proper hover state
+/// instead of a near-transparent background hack to create the hover area.
+private struct OpenPopoverRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(isHovering ? theme.surfaceMuted : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .onHover { isHovering = $0 }
     }
 }

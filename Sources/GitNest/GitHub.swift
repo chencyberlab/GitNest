@@ -9,6 +9,34 @@ struct Repo: Identifiable, Hashable, Sendable, Decodable {
     let updatedAt: String?
     let url: String
     var id: String { nameWithOwner }
+    /// Pre-lowercased fields used by the search matcher so the search loop doesn't
+    /// reallocate lowercased strings on every keystroke.
+    let searchableHaystacks: [String]
+
+    init(name: String, nameWithOwner: String, description: String?, visibility: String, updatedAt: String?, url: String) {
+        self.name = name
+        self.nameWithOwner = nameWithOwner
+        self.description = description
+        self.visibility = visibility
+        self.updatedAt = updatedAt
+        self.url = url
+        self.searchableHaystacks = [name, nameWithOwner, description ?? ""].map { $0.lowercased() }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decode(String.self, forKey: .name)
+        nameWithOwner = try container.decode(String.self, forKey: .nameWithOwner)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        visibility = try container.decode(String.self, forKey: .visibility)
+        updatedAt = try container.decodeIfPresent(String.self, forKey: .updatedAt)
+        url = try container.decode(String.self, forKey: .url)
+        searchableHaystacks = [name, nameWithOwner, description ?? ""].map { $0.lowercased() }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, nameWithOwner, description, visibility, updatedAt, url
+    }
 
     /// Owner login parsed from `nameWithOwner` (the part before the slash).
     var owner: String { String(nameWithOwner.prefix { $0 != "/" }) }
@@ -379,13 +407,15 @@ enum GitHub {
         listRepos(owner: owner,
                   ensureActive: ensureActiveAccount,
                   ownedRepos: ownedRepos,
-                  collaboratorRepos: collaboratorRepos)
+                  collaboratorRepos: collaboratorRepos,
+                  organizationMemberRepos: organizationMemberRepos)
     }
 
     static func listRepos(owner: String,
                           ensureActive: (String) -> ShellResult,
                           ownedRepos: () -> Result<[Repo], CommandError>,
-                          collaboratorRepos: () -> [Repo]) -> Result<[Repo], CommandError> {
+                          collaboratorRepos: () -> [Repo],
+                          organizationMemberRepos: () -> [Repo]) -> Result<[Repo], CommandError> {
         let accountCheck = ensureActive(owner)
         guard accountCheck.ok else {
             let detail = (accountCheck.stderr.isEmpty ? accountCheck.stdout : accountCheck.stderr)
@@ -404,11 +434,12 @@ enum GitHub {
             return .failure(error)
         }
 
-        // Best-effort: fold in collaborator repos. A failure here must not break
-        // the owned list, so we just ignore errors and return what we have.
+        // Best-effort: fold in collaborator and organization-member repos. A
+        // failure here must not break the owned list, so errors are ignored.
         var byID: [String: Repo] = [:]
         for repo in owned { byID[repo.id] = repo }
         for repo in collaboratorRepos() where byID[repo.id] == nil { byID[repo.id] = repo }
+        for repo in organizationMemberRepos() where byID[repo.id] == nil { byID[repo.id] = repo }
 
         let merged = byID.values.sorted { ($0.updatedAt ?? "") > ($1.updatedAt ?? "") }
         return .success(merged)
@@ -437,6 +468,17 @@ enum GitHub {
     private static func collaboratorRepos() -> [Repo] {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=collaborator&per_page=100",
+            "--paginate", "--slurp",
+        ])
+        guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
+        return repos
+    }
+
+    /// Repos the active account has access to through organization membership.
+    /// Best-effort: returns [] on any error.
+    private static func organizationMemberRepos() -> [Repo] {
+        let res = Shell.run([
+            "gh", "api", "user/repos?affiliation=organization_member&per_page=100",
             "--paginate", "--slurp",
         ])
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
@@ -638,6 +680,16 @@ enum GitHub {
 
     static func pull(at path: String) -> ShellResult {
         Shell.run(["git", "-C", path, "pull"])
+    }
+
+    /// True when the working tree has any uncommitted or untracked changes.
+    /// Network-free; returns `false` when the path is not a usable git repo.
+    static func hasUncommittedChanges(at path: String) -> Bool {
+        let res = Shell.run([
+            "git", "--no-optional-locks", "-C", path, "status", "--porcelain"
+        ])
+        guard res.ok else { return false }
+        return !res.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Dirty count + ahead/behind. With `refreshRemote`, first fetches the branch's

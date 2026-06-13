@@ -21,13 +21,16 @@ final class TooltipController: ObservableObject {
     private var visibleID: UUID?
     private var showTask: Task<Void, Never>?
 
-    func hover(id: UUID, text: String, anchor: CGRect) {
+    func hover(id: UUID, text: String, anchor: CGRect, reduceMotion: Bool = false) {
         self.anchor = anchor
         if visibleID == id || pendingID == id { return }
         pendingID = id
         showTask?.cancel()
+        let delaySeconds = reduceMotion ? 0.0 : Self.showDelay
         showTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.showDelay * 1_000_000_000))
+            if delaySeconds > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+            }
             guard !Task.isCancelled, let self, self.pendingID == id else { return }
             self.pendingID = nil
             self.visibleID = id
@@ -61,6 +64,7 @@ private struct TooltipSizeKey: PreferenceKey {
 private struct TooltipModifier: ViewModifier {
     let text: String
     @EnvironmentObject private var tip: TooltipController
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var id = UUID()
     @State private var anchor: CGRect = .zero
     @State private var hovering = false
@@ -79,7 +83,7 @@ private struct TooltipModifier: ViewModifier {
             }
             .onHover { isHovering in
                 hovering = isHovering
-                if isHovering { tip.hover(id: id, text: text, anchor: anchor) }
+                if isHovering { tip.hover(id: id, text: text, anchor: anchor, reduceMotion: reduceMotion) }
                 else { tip.endHover(id: id) }
             }
             // If the hovered control is removed (e.g. a badge dropped by the 10s
