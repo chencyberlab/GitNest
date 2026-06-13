@@ -20,23 +20,32 @@ enum GitConfig {
     static func loadAccounts() -> [Account] {
         let gitconfig = expand("~/.gitconfig")
         guard let text = try? String(contentsOfFile: gitconfig, encoding: .utf8) else { return [] }
+        return loadAccounts(from: text) { path in
+            try? String(contentsOfFile: path, encoding: .utf8)
+        }
+    }
 
+    static func loadAccounts(from text: String, accountConfig: (String) -> String?) -> [Account] {
         var accounts: [Account] = []
         var seenAliases: Set<String> = []
         var pendingFolder: String?
 
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix(";") else { continue }
             if let folder = matchGitdir(line) {
                 pendingFolder = folder
-            } else if line.lowercased().hasPrefix("path"),
+            } else if line.hasPrefix("[") {
+                pendingFolder = nil
+            } else if key(line)?.caseInsensitiveCompare("path") == .orderedSame,
                       let folder = pendingFolder,
                       let cfgPath = value(line) {
                 // Two `includeIf` rules can point at the same per-account config (one
                 // account, two folders), which yields the same alias twice. The app
                 // keys everything — Account.id, repoCache, ForEach — on alias, so a
                 // duplicate would collide caches and trap ForEach. Keep the first.
-                if let account = loadAccountFile(expand(cfgPath), folder: expand(folder)),
+                if let accountText = accountConfig(expand(cfgPath)),
+                   let account = loadAccount(from: accountText, folder: expand(folder)),
                    seenAliases.insert(account.alias).inserted {
                     accounts.append(account)
                 }
@@ -48,25 +57,27 @@ enum GitConfig {
 
     // [includeIf "gitdir:~/path/"] — also the case-insensitive [includeIf "gitdir/i:…"]
     private static func matchGitdir(_ line: String) -> String? {
-        guard line.hasPrefix("[includeIf") else { return nil }
+        guard line.range(of: "[includeIf", options: [.caseInsensitive, .anchored]) != nil else { return nil }
         // Check `gitdir/i:` first since it's a longer, more specific marker.
-        guard let r = line.range(of: "gitdir/i:") ?? line.range(of: "gitdir:") else { return nil }
+        guard let r = line.range(of: "gitdir/i:", options: .caseInsensitive)
+                ?? line.range(of: "gitdir:", options: .caseInsensitive) else { return nil }
         let after = line[r.upperBound...]
         guard let endQuote = after.firstIndex(of: "\"") else { return nil }
         return String(after[..<endQuote])
     }
 
-    private static func loadAccountFile(_ path: String, folder: String) -> Account? {
-        guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
+    private static func loadAccount(from text: String, folder: String) -> Account? {
         var name = "", email = "", alias = ""
 
         for raw in text.components(separatedBy: .newlines) {
             let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.lowercased().hasPrefix("name"), let v = value(line) {
+            let configKey = key(line)
+            if configKey?.caseInsensitiveCompare("name") == .orderedSame, let v = value(line) {
                 name = v
-            } else if line.lowercased().hasPrefix("email"), let v = value(line) {
+            } else if configKey?.caseInsensitiveCompare("email") == .orderedSame, let v = value(line) {
                 email = v
-            } else if line.hasPrefix("[url"), let r = line.range(of: "git@github-") {
+            } else if line.range(of: "[url", options: [.caseInsensitive, .anchored]) != nil,
+                      let r = line.range(of: "git@github-", options: .caseInsensitive) {
                 let after = line[r.upperBound...]
                 if let colon = after.firstIndex(of: ":") { alias = String(after[..<colon]) }
             }
@@ -77,9 +88,19 @@ enum GitConfig {
         return Account(alias: alias, name: name, email: email, folder: folder)
     }
 
+    private static func key(_ line: String) -> String? {
+        guard let eq = line.firstIndex(of: "=") else { return nil }
+        return String(line[..<eq]).trimmingCharacters(in: .whitespaces)
+    }
+
     private static func value(_ line: String) -> String? {
         guard let eq = line.firstIndex(of: "=") else { return nil }
-        return String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        if value.count >= 2, value.first == "\"", value.last == "\"" {
+            value.removeFirst()
+            value.removeLast()
+        }
+        return value
     }
 
     // .../github_<alias>/  ->  <alias>

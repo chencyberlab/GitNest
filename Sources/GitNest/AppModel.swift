@@ -165,9 +165,8 @@ final class AppModel: ObservableObject {
     @Published var repoRefreshMessage: String?
     @Published var isInitializingProject = false
     @Published var isForkingProject = false
-    /// Repos with a mutating git action (pull/push/commit/clone) in flight, so the
-    /// row can disable its buttons and a double-click can't run two `git pull`s on
-    /// the same repo and trip over `index.lock`.
+    /// Repos with a mutating local action in flight, so the row can disable its
+    /// buttons and a double-click can't run two operations on the same repo.
     @Published private(set) var busyRepos: Set<Repo.ID> = []
     @Published var log: String = ""
     /// Whether the most recently appended log line was a failure/warning. The
@@ -1035,7 +1034,8 @@ final class AppModel: ObservableObject {
 
     /// Move the local clone to Trash (does NOT touch the GitHub repo).
     func deleteLocalFolder(_ repo: Repo) async {
-        guard let account = selectedAccount else { return }
+        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
+        defer { busyRepos.remove(repo.id) }
         let path = localPath(repo, in: account)
         appendLog("Moving \(repo.name) folder to Trash…")
         let res = await run { FileOps.moveToTrash(path) }
@@ -1384,6 +1384,8 @@ final class AppModel: ObservableObject {
         while name.contains("--") {
             name = name.replacingOccurrences(of: "--", with: "-")
         }
+        name = name.trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
+        if name.count > 100 { name = String(name.prefix(100)) }
         name = name.trimmingCharacters(in: CharacterSet(charactersIn: ".-_"))
         return name.isEmpty ? "new-repo" : name
     }

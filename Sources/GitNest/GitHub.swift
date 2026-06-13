@@ -450,6 +450,11 @@ enum GitHub {
         if FileManager.default.fileExists(atPath: dest) {
             return ShellResult(exitCode: 1, stdout: "", stderr: "already exists: \(dest)")
         }
+        do {
+            try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        } catch {
+            return ShellResult(exitCode: 1, stdout: "", stderr: "could not create folder: \(error.localizedDescription)")
+        }
         return Shell.run(["git", "clone", url, dest])
     }
 
@@ -849,7 +854,12 @@ enum GitHub {
     }
 
     private static func isGitHubSSHHost(_ host: String) -> Bool {
-        host == "github.com" || host.hasPrefix("github-")
+        if host == "github.com" { return true }
+        guard host.hasPrefix("github-") else { return false }
+        let alias = host.dropFirst("github-".count)
+        guard !alias.isEmpty else { return false }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        return alias.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 
     private static func ownerRepoPair(fromPath path: String) -> (owner: String, repo: String)? {
