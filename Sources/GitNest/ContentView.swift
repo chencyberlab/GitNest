@@ -98,7 +98,7 @@ struct ContentView: View {
     let authBadgeWidth: CGFloat = 78
     var appVersionLabel: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return "Beta \((version?.isEmpty == false) ? version! : "0.0.1")"
+        return "Beta \((version?.isEmpty == false) ? version! : "1.0.0")"
     }
 
     enum AccountSummaryStatus {

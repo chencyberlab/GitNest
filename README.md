@@ -229,8 +229,8 @@ Attach a zip to a GitHub release, not the raw `.app` folder:
 
 ```bash
 BUILD_ARCH=universal SCRATCH_PATH=/tmp/gitnest-build ./build.sh
-ditto -c -k --keepParent GitNest.app GitNest-v0.0.1-macos-universal.zip
-shasum -a 256 GitNest-v0.0.1-macos-universal.zip > GitNest-v0.0.1-macos-universal.zip.sha256
+ditto -c -k --keepParent GitNest.app GitNest-v1.0.0-macos-universal.zip
+shasum -a 256 GitNest-v1.0.0-macos-universal.zip > GitNest-v1.0.0-macos-universal.zip.sha256
 ```
 
 The local build is ad-hoc signed. It is fine for local testing and small manual
