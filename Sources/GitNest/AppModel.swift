@@ -166,8 +166,11 @@ final class AppModel: ObservableObject {
     @Published var isInitializingProject = false
     @Published var isForkingProject = false
     /// Repos with a mutating local action in flight, so the row can disable its
-    /// buttons and a double-click can't run two operations on the same repo.
+    /// buttons and a double-click can't run two operations on the same repo. Rows
+    /// that share a local folder are marked busy together; `busyRepoPaths` is the
+    /// backend guard for rows that appear after a refresh while work is in flight.
     @Published private(set) var busyRepos: Set<Repo.ID> = []
+    private var busyRepoPaths: Set<String> = []
     @Published var log: String = ""
     /// Whether the most recently appended log line was a failure/warning. The
     /// collapsed Output status line uses this to stay pinned on problems while
@@ -735,6 +738,13 @@ final class AppModel: ObservableObject {
 
     func isCloned(_ repo: Repo) -> Bool { clonedRepos.contains(repo.id) }
 
+    func isRepoActionBusy(_ repo: Repo) -> Bool {
+        guard let account = selectedAccount else {
+            return busyRepos.contains(repo.id)
+        }
+        return busyRepos.contains(repo.id) || busyRepoPaths.contains(localPath(repo, in: account))
+    }
+
     func folderConflict(_ repo: Repo) -> RepoFolderConflict? {
         repoFolderConflicts[repo.id]
     }
@@ -809,6 +819,9 @@ final class AppModel: ObservableObject {
         let sourcePath = sourceURL.standardizedFileURL.path
         let accountFolder = URL(fileURLWithPath: account.folder).standardizedFileURL.path
         let repoName = sanitizedRepoName(from: (sourcePath as NSString).lastPathComponent)
+        let blockingReason = sourcePath == accountFolder
+            ? "Choose an individual project folder, not the account root folder."
+            : nil
         let inAccountFolder = sourcePath == accountFolder || sourcePath.hasPrefix(accountFolder + "/")
         let workingPath = inAccountFolder
             ? sourcePath
@@ -830,17 +843,41 @@ final class AppModel: ObservableObject {
             workingPath: workingPath,
             repoName: repoName,
             willCopy: !inAccountFolder,
+            blockingReason: blockingReason,
             sourceOrigin: sourceOrigin
         )
     }
 
     // MARK: Per-repo actions
 
+    private struct RepoActionContext {
+        let account: Account
+        let path: String
+        let repoIDs: Set<Repo.ID>
+    }
+
+    private func beginRepoAction(_ repo: Repo) -> RepoActionContext? {
+        guard let account = selectedAccount else { return nil }
+        let path = localPath(repo, in: account)
+        var ids = Set(repos.filter { localPath($0, in: account) == path }.map(\.id))
+        ids.insert(repo.id)
+        guard busyRepos.isDisjoint(with: ids),
+              busyRepoPaths.insert(path).inserted else { return nil }
+        busyRepos.formUnion(ids)
+        return RepoActionContext(account: account, path: path, repoIDs: ids)
+    }
+
+    private func finishRepoAction(_ context: RepoActionContext) {
+        busyRepos.subtract(context.repoIDs)
+        busyRepoPaths.remove(context.path)
+    }
+
     func clone(_ repo: Repo) async {
-        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
-        defer { busyRepos.remove(repo.id) }
+        guard let context = beginRepoAction(repo) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
         let alias = account.alias
-        let dest = localPath(repo, in: account)
+        let dest = context.path
         // Snapshot this account's sets now, while it's the selected one, so an
         // account switch during the await can't land its result in another
         // account's visible UI (or write that account's dict into this cache).
@@ -873,9 +910,10 @@ final class AppModel: ObservableObject {
     }
 
     func pull(_ repo: Repo) async {
-        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
-        defer { busyRepos.remove(repo.id) }
-        let path = localPath(repo, in: account)
+        guard let context = beginRepoAction(repo) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
         appendLog("Pulling \(repo.name)…")
         let res = await run { GitHub.pull(at: path) }
         report(res, ok: "pulled \(repo.name)")
@@ -889,9 +927,10 @@ final class AppModel: ObservableObject {
     }
 
     func push(_ repo: Repo) async {
-        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
-        defer { busyRepos.remove(repo.id) }
-        let path = localPath(repo, in: account)
+        guard let context = beginRepoAction(repo) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
         appendLog("Pushing \(repo.name)…")
         let res = await run { GitHub.push(at: path) }
         report(res, ok: "pushed \(repo.name)")
@@ -1034,9 +1073,10 @@ final class AppModel: ObservableObject {
 
     /// Move the local clone to Trash (does NOT touch the GitHub repo).
     func deleteLocalFolder(_ repo: Repo) async {
-        guard let account = selectedAccount, busyRepos.insert(repo.id).inserted else { return }
-        defer { busyRepos.remove(repo.id) }
-        let path = localPath(repo, in: account)
+        guard let context = beginRepoAction(repo) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
         appendLog("Moving \(repo.name) folder to Trash…")
         let res = await run { FileOps.moveToTrash(path) }
         report(res, ok: "moved \(repo.name) to Trash")
@@ -1045,11 +1085,11 @@ final class AppModel: ObservableObject {
     }
 
     func commit(_ repo: Repo, message: String) async {
-        guard let account = selectedAccount,
-              !message.trimmingCharacters(in: .whitespaces).isEmpty,
-              busyRepos.insert(repo.id).inserted else { return }
-        defer { busyRepos.remove(repo.id) }
-        let path = localPath(repo, in: account)
+        guard !message.trimmingCharacters(in: .whitespaces).isEmpty,
+              let context = beginRepoAction(repo) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
         appendLog("Committing \(repo.name): “\(message)”…")
         let res = await run { GitHub.commitAll(at: path, message: message) }
         report(res, ok: "committed \(repo.name)")

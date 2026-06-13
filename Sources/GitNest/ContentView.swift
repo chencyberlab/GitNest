@@ -920,7 +920,12 @@ struct ContentView: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
 
-                if plan.willCopy {
+                if let blockingReason = plan.blockingReason {
+                    Label(blockingReason, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(theme.error)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if plan.willCopy {
                     Label("Will copy to \(plan.workingPath)", systemImage: "arrow.turn.down.right")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(theme.textMuted)
@@ -957,13 +962,13 @@ struct ContentView: View {
                 .labelsHidden()
             }
 
-            if plan.willCopy {
+            if plan.blockingReason == nil, plan.willCopy {
                 Toggle("Move original selected folder to Trash after upload", isOn: $moveOriginalToTrash)
                     .font(.system(size: 12, weight: .medium))
                 Text("The copied folder in \(plan.account.alias)'s GitHub folder will remain.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textTertiary)
-            } else {
+            } else if plan.blockingReason == nil {
                 Label("Trash cleanup is unavailable because this folder is already in the account folder.",
                       systemImage: "info.circle")
                     .font(.system(size: 11))
@@ -988,6 +993,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
+                .disabled(plan.blockingReason != nil)
             }
         }
         .padding(22)
@@ -1531,8 +1537,8 @@ struct ContentView: View {
             }
         }
         // A pull/push/commit/clone is already running for this repo — block a second
-        // one rather than let two git processes collide on `index.lock`.
-        .disabled(model.busyRepos.contains(repo.id))
+        // one rather than let two git processes collide on the same local folder.
+        .disabled(model.isRepoActionBusy(repo))
     }
 
     private func iconButton(_ systemName: String, _ help: String,

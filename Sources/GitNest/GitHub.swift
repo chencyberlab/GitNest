@@ -275,6 +275,10 @@ struct ProjectInitPlan: Identifiable, Sendable {
     let workingPath: String
     let repoName: String
     let willCopy: Bool
+    /// Non-nil when the selected source is unsafe or invalid for project init.
+    /// The UI shows this and disables creation; the backend also refuses it so a
+    /// stale sheet cannot initialize the wrong folder.
+    var blockingReason: String? = nil
     /// When the source folder is itself a clone of a *different* repo, its origin
     /// URL. Copying keeps `.git`, so that repo's full history would be re-pushed to
     /// the new repo — surfaced in the confirmation so it isn't a silent surprise.
@@ -697,6 +701,10 @@ enum GitHub {
         let owner = plan.account.alias
         let repoFullName = "\(owner)/\(plan.repoName)"
         let remoteURL = "git@\(plan.account.sshHost):\(repoFullName).git"
+
+        if let reason = plan.blockingReason {
+            return failure(reason, log)
+        }
 
         do {
             try fm.createDirectory(atPath: plan.account.folder, withIntermediateDirectories: true)

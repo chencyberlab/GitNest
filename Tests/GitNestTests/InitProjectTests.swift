@@ -63,6 +63,38 @@ final class InitProjectTests: XCTestCase {
         XCTAssertFalse(plan.willCopy)
     }
 
+    @MainActor
+    func testMakeInitPlanBlocksAccountRootFolder() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+
+        let plan = await AppModel().makeInitPlan(sourceURL: root, account: account)
+
+        XCTAssertEqual(plan.sourcePath, root.standardizedFileURL.path)
+        XCTAssertEqual(plan.workingPath, root.standardizedFileURL.path)
+        XCTAssertNotNil(plan.blockingReason)
+    }
+
+    func testInitAndPushProjectRefusesBlockedPlanBeforeShellingOut() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: root.path,
+            workingPath: root.path,
+            repoName: "blocked",
+            willCopy: false,
+            blockingReason: "blocked for test"
+        )
+
+        let result = GitHub.initAndPushProject(plan, visibility: .private)
+
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.stderr.contains("blocked for test"))
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("GitNestInitProjectTests-\(UUID().uuidString)")
