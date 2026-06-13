@@ -36,4 +36,18 @@ final class GitStatusTests: XCTestCase {
 
         XCTAssertTrue(status.needsAttention)
     }
+
+    func testRepoStatusDetectsGoneUpstream() {
+        // `[gone]` means the upstream is configured but its remote branch was
+        // deleted — it must never read as clean/current, even after a fetch.
+        let status = RepoStatus.parse(
+            porcelainBranch: "## main...origin/main [gone]",
+            remoteState: .checked
+        )
+
+        XCTAssertTrue(status.hasUpstream)
+        XCTAssertEqual(status.remoteState, .upstreamGone)
+        XCTAssertFalse(status.isCleanAndCurrent)
+        XCTAssertTrue(status.needsAttention)
+    }
 }

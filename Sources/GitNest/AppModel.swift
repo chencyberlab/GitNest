@@ -147,12 +147,12 @@ final class AppModel: ObservableObject {
     @Published var addAccountPublicKey: String?
     @Published var addAccountKeyCreated = false
     @Published var addAccountVerification: AccountSetup.Verification?
-    @Published var clonedRepos: Set<String> = []   // repo names present on disk for the selected account
-    @Published var repoStatuses: [String: RepoStatus] = [:]   // repo name -> local/upstream state
+    @Published var clonedRepos: Set<Repo.ID> = []   // repo owner/name values present on disk for the selected account
+    @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]   // repo owner/name -> local/upstream state
     private var currentAuthFlowCode: String?
     private var repoCache: [String: [Repo]] = [:]
-    private var clonedReposCache: [String: Set<String>] = [:]
-    private var repoStatusesCache: [String: [String: RepoStatus]] = [:]
+    private var clonedReposCache: [String: Set<Repo.ID>] = [:]
+    private var repoStatusesCache: [String: [Repo.ID: RepoStatus]] = [:]
     private var repoSearchCache: [String: String] = [:]
     private var selectedRepoCache: [String: Repo.ID] = [:]
     private var repoLoadsInFlight: Set<String> = []
@@ -194,6 +194,23 @@ final class AppModel: ObservableObject {
         }
         ghChain = Task { _ = await task.value }
         return await task.value
+    }
+
+    private func ghSerializedPreservingActiveAccount<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
+        await ghSerialized {
+            let original = GitHub.currentLogin()
+            let result = work()
+            if let original, !original.isEmpty {
+                GitHub.switchTo(original)
+            }
+            return result
+        }
+    }
+
+    deinit {
+        statusTimer?.cancel()
+        repoAutoRefreshTimer?.cancel()
+        repoRefreshMessageDismiss?.cancel()
     }
 
     func configureAccountStatusLoadMode(_ mode: AccountStatusLoadMode) {
@@ -430,7 +447,7 @@ final class AppModel: ObservableObject {
         }
 
         appendLog((silent || hasVisibleRepos) ? "Refreshing repos for \(owner)…" : "Listing repos for \(owner)…")
-        let result = await ghSerialized { GitHub.listRepos(owner: owner) }
+        let result = await ghSerializedPreservingActiveAccount { GitHub.listRepos(owner: owner) }
         repoLastRefreshAt[owner] = Date()
         if selectedAccount?.alias == owner {
             isLoadingRepos = false
@@ -450,7 +467,7 @@ final class AppModel: ObservableObject {
                     selectedRepoCache.removeValue(forKey: owner)
                 }
             }
-            refreshClonedStatus(for: account)
+            await refreshClonedStatus(for: account)
             await refreshStatuses(for: account, refreshRemote: true)
             repoLoadsInFlight.remove(owner)
             if selectedAccount?.alias == owner {
@@ -474,7 +491,7 @@ final class AppModel: ObservableObject {
     /// changes made outside the app (editor/terminal). Runs continuously,
     /// regardless of window focus; each tick waits for the previous scan to finish.
     func startStatusAutoRefresh() {
-        statusTimer?.cancel()
+        guard statusTimer == nil else { return }
         statusTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.statusRefreshSeconds * 1_000_000_000)
@@ -599,18 +616,18 @@ final class AppModel: ObservableObject {
         let sourceRepos = selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])
         let sourceCloned = selectedAccount?.alias == alias ? clonedRepos : (clonedReposCache[alias] ?? [])
         let targets = sourceRepos
-            .filter { sourceCloned.contains($0.name) }
-            .map { (name: $0.name, path: localPath($0, in: account)) }
+            .filter { sourceCloned.contains($0.id) }
+            .map { (id: $0.id, path: localPath($0, in: account)) }
         guard !targets.isEmpty else {
             repoStatusesCache[alias] = [:]
             if selectedAccount?.alias == alias, !repoStatuses.isEmpty { repoStatuses = [:] }
             return
         }
-        let next = await run { () -> [String: RepoStatus] in
-            var out: [String: RepoStatus] = [:]
+        let next = await run { () -> [Repo.ID: RepoStatus] in
+            var out: [Repo.ID: RepoStatus] = [:]
             for target in targets {
                 if let status = GitHub.status(at: target.path, refreshRemote: refreshRemote) {
-                    out[target.name] = status
+                    out[target.id] = status
                 }
             }
             return out
@@ -627,7 +644,7 @@ final class AppModel: ObservableObject {
         (account.folder as NSString).appendingPathComponent(repo.name)
     }
 
-    func isCloned(_ repo: Repo) -> Bool { clonedRepos.contains(repo.name) }
+    func isCloned(_ repo: Repo) -> Bool { clonedRepos.contains(repo.id) }
 
     /// Both per-account connection checks (SSH key greeting + gh auth) have passed.
     /// Used to gate the repo/init actions until the account is confirmed reachable.
@@ -655,14 +672,20 @@ final class AppModel: ObservableObject {
         ghIndicators[account.alias]?.ok == true
     }
 
-    func refreshClonedStatus(for account: Account) {
-        let fm = FileManager.default
-        var present: Set<String> = []
+    func refreshClonedStatus(for account: Account) async {
         let alias = account.alias
         let sourceRepos = selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])
-        for repo in sourceRepos {
-            let git = (localPath(repo, in: account) as NSString).appendingPathComponent(".git")
-            if fm.fileExists(atPath: git) { present.insert(repo.name) }
+        let present = await run { () -> Set<Repo.ID> in
+            let fm = FileManager.default
+            var present: Set<Repo.ID> = []
+            for repo in sourceRepos {
+                let path = (account.folder as NSString).appendingPathComponent(repo.name)
+                let git = (path as NSString).appendingPathComponent(".git")
+                if fm.fileExists(atPath: git), GitHub.origin(at: path, matches: repo) {
+                    present.insert(repo.id)
+                }
+            }
+            return present
         }
         clonedReposCache[alias] = present
         if selectedAccount?.alias == alias { clonedRepos = present }
@@ -694,7 +717,7 @@ final class AppModel: ObservableObject {
         let folder = account.folder
         let res = await run { GitHub.clone(repo: repo, into: folder) }
         report(res, ok: "cloned \(repo.name)")
-        refreshClonedStatus(for: account)
+        await refreshClonedStatus(for: account)
         await refreshStatuses(for: account, refreshRemote: true)
     }
 
@@ -742,11 +765,12 @@ final class AppModel: ObservableObject {
         }
         appendLog("Starting gh auth login (web) for \(account.alias)…")
         currentAuthFlowCode = nil
-        let clipboardWatcher = Task { await watchClipboardForDeviceCode() }
+        let startingClipboardChangeCount = NSPasteboard.general.changeCount
+        let clipboardWatcher = Task { await watchClipboardForDeviceCode(after: startingClipboardChangeCount) }
         let login = await run { GitHub.authLoginWebWithClipboard() }
         clipboardWatcher.cancel()
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let code = extractDeviceCode(from: authOutput) {
+        if let code = DeviceCode.extract(fromGhOutput: authOutput) {
             if currentAuthFlowCode != code {
                 appendLog("One-time code: \(code) (also copied to clipboard)")
                 currentAuthFlowCode = code
@@ -859,7 +883,7 @@ final class AppModel: ObservableObject {
         appendLog("Moving \(repo.name) folder to Trash…")
         let res = await run { FileOps.moveToTrash(path) }
         report(res, ok: "moved \(repo.name) to Trash")
-        refreshClonedStatus(for: account)
+        await refreshClonedStatus(for: account)
         await refreshStatuses(for: account)
     }
 
@@ -878,7 +902,7 @@ final class AppModel: ObservableObject {
                      moveOriginalToTrash: Bool = false) async -> Bool {
         isInitializingProject = true
         appendLog("Initializing \(plan.repoName) for \(plan.account.alias)…")
-        let res = await ghSerialized { GitHub.initAndPushProject(plan, visibility: visibility) }
+        let res = await ghSerializedPreservingActiveAccount { GitHub.initAndPushProject(plan, visibility: visibility) }
         isInitializingProject = false
         report(res, ok: "initialized and pushed \(plan.account.alias)/\(plan.repoName)")
         if res.ok, plan.willCopy, moveOriginalToTrash {
@@ -886,7 +910,7 @@ final class AppModel: ObservableObject {
             let trash = await run { FileOps.moveToTrash(plan.sourcePath) }
             report(trash, ok: "moved original \(plan.sourceName) to Trash")
         }
-        refreshClonedStatus(for: plan.account)
+        await refreshClonedStatus(for: plan.account)
         await refreshStatuses(for: plan.account, refreshRemote: true)
         return res.ok
     }
@@ -899,17 +923,11 @@ final class AppModel: ObservableObject {
             return false
         }
 
-        let dest = (account.folder as NSString).appendingPathComponent(ref.repo)
-        guard !FileManager.default.fileExists(atPath: dest) else {
-            appendLog("✗ A folder named \(ref.repo) already exists in \(account.folder).")
-            return false
-        }
-
         isForkingProject = true
         defer { isForkingProject = false }
         appendLog("Forking \(ref.nameWithOwner) into \(account.alias)'s account…")
 
-        let forkResult = await ghSerialized { GitHub.fork(source: ref, intoAccount: account.alias) }
+        let forkResult = await ghSerializedPreservingActiveAccount { GitHub.fork(source: ref, intoAccount: account.alias) }
         guard case .success(let repo) = forkResult else {
             if case .failure(let error) = forkResult {
                 appendLog("✗ Fork failed: \(error.message)")
@@ -924,11 +942,12 @@ final class AppModel: ObservableObject {
         report(cloneRes, ok: "cloned \(repo.name)")
 
         guard cloneRes.ok else {
-            refreshClonedStatus(for: account)
+            await refreshClonedStatus(for: account)
             await refreshStatuses(for: account, refreshRemote: true)
             return false
         }
 
+        let dest = localPath(repo, in: account)
         let upstream = await run { GitHub.setUpstream(source: ref, at: dest) }
         let upstreamText = (upstream.stdout + upstream.stderr)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -938,7 +957,7 @@ final class AppModel: ObservableObject {
             appendLog("⚠ Cloned, but could not add upstream: \(upstreamText.isEmpty ? "unknown error" : upstreamText)")
         }
 
-        refreshClonedStatus(for: account)
+        await refreshClonedStatus(for: account)
         await refreshStatuses(for: account, refreshRemote: true)
 
         // Also refresh the repo list so the newly forked repo appears as a row.
@@ -993,7 +1012,9 @@ final class AppModel: ObservableObject {
         if let url = URL(string: "https://github.com/login/device") {
             NSWorkspace.shared.open(url)
         }
-        let watcher = Task { await watchClipboardForAddAccountCode(session: session) }
+        let startingClipboardChangeCount = NSPasteboard.general.changeCount
+        let watcher = Task { await watchClipboardForAddAccountCode(session: session,
+                                                                   after: startingClipboardChangeCount) }
         let result = await ghSerialized { () -> AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard()
             guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
@@ -1002,7 +1023,7 @@ final class AppModel: ObservableObject {
         watcher.cancel()
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
-        if let code = extractDeviceCode(from: out) { addAccountDeviceCode = code }
+        if let code = DeviceCode.extract(fromGhOutput: out) { addAccountDeviceCode = code }
         guard result.login.ok else {
             addAccountError = "Sign-in failed: \(out.isEmpty ? "unknown error" : out)"
             addAccountBusy = false
@@ -1118,11 +1139,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func watchClipboardForAddAccountCode(session: UUID) async {
+    private func watchClipboardForAddAccountCode(session: UUID, after startingChangeCount: Int) async {
         for _ in 0..<240 { // ~120s
             if Task.isCancelled || !isCurrentAddAccountSession(session) { return }
+            guard NSPasteboard.general.changeCount != startingChangeCount else {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                continue
+            }
             if let clip = NSPasteboard.general.string(forType: .string),
-               let code = extractDeviceCode(from: clip) {
+               let code = DeviceCode.extract(fromClipboard: clip) {
                 addAccountDeviceCode = code
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
@@ -1161,11 +1186,15 @@ final class AppModel: ObservableObject {
     }
 
     /// Poll clipboard while auth flow runs so the code can be shown immediately.
-    private func watchClipboardForDeviceCode() async {
+    private func watchClipboardForDeviceCode(after startingChangeCount: Int) async {
         for _ in 0..<120 { // up to ~60 seconds
             if Task.isCancelled { return }
+            guard NSPasteboard.general.changeCount != startingChangeCount else {
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                continue
+            }
             if let clip = NSPasteboard.general.string(forType: .string),
-               let code = extractDeviceCode(from: clip),
+               let code = DeviceCode.extract(fromClipboard: clip),
                currentAuthFlowCode != code {
                 appendLog("One-time code: \(code) (also copied to clipboard)")
                 currentAuthFlowCode = code
@@ -1173,20 +1202,6 @@ final class AppModel: ObservableObject {
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
-    }
-
-    /// Extracts the GitHub device code printed by `gh auth login --web`.
-    /// Example line: "First copy your one-time code: 57C6-CEA6"
-    private func extractDeviceCode(from text: String) -> String? {
-        let nsText = text as NSString
-        let pattern = #"([A-Z0-9]{4}-[A-Z0-9]{4})"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-        let range = NSRange(location: 0, length: nsText.length)
-        guard let match = regex.firstMatch(in: text, options: [], range: range),
-              match.numberOfRanges > 1 else { return nil }
-        return nsText.substring(with: match.range(at: 1)).uppercased()
     }
 
     private func sanitizedRepoName(from folderName: String) -> String {
@@ -1216,8 +1231,32 @@ final class AppModel: ObservableObject {
 /// using `*` (any run) and `?` (single char).
 enum RepoSearch {
     static func matches(query: String, repo: Repo) -> Bool {
-        let haystacks = [repo.name, repo.nameWithOwner, repo.description ?? ""]
-            .map { $0.lowercased() }
+        WildcardMatcher.matches(
+            query: query,
+            haystacks: [repo.name, repo.nameWithOwner, repo.description ?? ""]
+        )
+    }
+}
+
+/// Same forgiving matcher as repo search, applied to account card fields.
+enum AccountSearch {
+    static func matches(query: String, account: Account) -> Bool {
+        WildcardMatcher.matches(
+            query: query,
+            haystacks: [
+                account.alias,
+                account.name,
+                account.email,
+                account.folder,
+                account.sshHost
+            ]
+        )
+    }
+}
+
+enum WildcardMatcher {
+    static func matches(query: String, haystacks rawHaystacks: [String]) -> Bool {
+        let haystacks = rawHaystacks.map { $0.lowercased() }
         let tokens = query.lowercased()
             .split(whereSeparator: { $0 == " " || $0 == "\t" })
             .map(String.init)
@@ -1254,65 +1293,6 @@ enum RepoSearch {
     }
 
     /// True when every character of `needle` appears in `hay` in order.
-    private static func isSubsequence(_ needle: String, of hay: String) -> Bool {
-        var idx = hay.startIndex
-        for ch in needle {
-            var found = false
-            while idx < hay.endIndex {
-                let cur = hay[idx]
-                idx = hay.index(after: idx)
-                if cur == ch { found = true; break }
-            }
-            if !found { return false }
-        }
-        return true
-    }
-}
-
-/// Same forgiving matcher as repo search, applied to account card fields.
-enum AccountSearch {
-    static func matches(query: String, account: Account) -> Bool {
-        let haystacks = [
-            account.alias,
-            account.name,
-            account.email,
-            account.folder,
-            account.sshHost
-        ].map { $0.lowercased() }
-        let tokens = query.lowercased()
-            .split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .map(String.init)
-        guard !tokens.isEmpty else { return true }
-        return tokens.allSatisfy { token in
-            haystacks.contains { tokenMatches(token, in: $0) }
-        }
-    }
-
-    private static func tokenMatches(_ token: String, in hay: String) -> Bool {
-        if token.contains("*") || token.contains("?") {
-            return glob(Array(token), Array(hay))
-        }
-        if hay.contains(token) { return true }
-        return isSubsequence(token, of: hay)
-    }
-
-    private static func glob(_ pattern: [Character], _ text: [Character]) -> Bool {
-        var p = 0, t = 0, star = -1, mark = 0
-        while t < text.count {
-            if p < pattern.count, pattern[p] == "?" || pattern[p] == text[t] {
-                p += 1; t += 1
-            } else if p < pattern.count, pattern[p] == "*" {
-                star = p; mark = t; p += 1
-            } else if star != -1 {
-                p = star + 1; mark += 1; t = mark
-            } else {
-                return false
-            }
-        }
-        while p < pattern.count, pattern[p] == "*" { p += 1 }
-        return p == pattern.count
-    }
-
     private static func isSubsequence(_ needle: String, of hay: String) -> Bool {
         var idx = hay.startIndex
         for ch in needle {

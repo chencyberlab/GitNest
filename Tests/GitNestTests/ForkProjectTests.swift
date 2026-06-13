@@ -2,6 +2,37 @@ import XCTest
 @testable import GitNest
 
 final class ForkProjectTests: XCTestCase {
+    func testForkedRepoNameUsesActualCreatedForkFromOutput() {
+        let output = "✓ Created fork me/repo-1\nhttps://github.com/me/repo-1"
+
+        XCTAssertEqual(
+            GitHub.forkedRepoNameWithOwner(from: output, currentUser: "me", fallbackRepo: "repo"),
+            "me/repo-1"
+        )
+    }
+
+    func testForkedRepoNameIgnoresSourceRepoAndFallsBackWhenAbsent() {
+        XCTAssertEqual(
+            GitHub.forkedRepoNameWithOwner(
+                from: "Forking source/repo into your account...",
+                currentUser: "me",
+                fallbackRepo: "repo"
+            ),
+            "me/repo"
+        )
+    }
+
+    func testForkedRepoNameParsesGitURLWithGitSuffix() {
+        XCTAssertEqual(
+            GitHub.forkedRepoNameWithOwner(
+                from: "remote: https://github.com/me/repo-2.git",
+                currentUser: "me",
+                fallbackRepo: "repo"
+            ),
+            "me/repo-2"
+        )
+    }
+
     func testRepoReferenceParsesHTTPSURL() {
         let ref = RepoReference.parse("https://github.com/owner/repo")
         XCTAssertEqual(ref?.owner, "owner")

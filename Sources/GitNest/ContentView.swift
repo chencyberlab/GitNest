@@ -78,7 +78,10 @@ struct ContentView: View {
     /// Fixed width for both profile-card auth pills so they read as a matched pair.
     /// Sized to the longest label ("GitHub") plus its status icon.
     private let authBadgeWidth: CGFloat = 78
-    private let appVersionLabel = "Beta 0.0.1"
+    private var appVersionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return "Beta \((version?.isEmpty == false) ? version! : "0.0.1")"
+    }
 
     private enum AccountSummaryStatus {
         case loading
@@ -148,10 +151,6 @@ struct ContentView: View {
             model.refreshAll(statusMode: accountStatusLoadMode)
             model.startStatusAutoRefresh()
             model.configureRepoAutoRefresh(seconds: repoAutoRefreshSeconds)
-        }
-        .onDisappear {
-            model.stopStatusAutoRefresh()
-            model.stopRepoAutoRefresh()
         }
         .onChange(of: repoAutoRefreshSeconds) { seconds in
             model.configureRepoAutoRefresh(seconds: seconds)
@@ -1186,7 +1185,7 @@ struct ContentView: View {
 
     private func repoRow(_ repo: Repo) -> some View {
         let selected = model.selectedRepo == repo.id
-        let status = model.repoStatuses[repo.name]
+        let status = model.repoStatuses[repo.id]
         let cloned = model.isCloned(repo)
         let attention = status?.needsAttention ?? false
         let shared = isShared(repo)
@@ -1331,6 +1330,9 @@ struct ContentView: View {
         case .noUpstream:
             statusIconPill("questionmark.circle.fill", Theme.textSecondary, Theme.surfaceMuted,
                            help: "No upstream branch configured; cannot compare this clone with GitHub")
+        case .upstreamGone:
+            statusIconPill("exclamationmark.triangle.fill", Theme.amber, Theme.amberSubtle,
+                           help: "The upstream branch no longer exists on the remote (deleted or renamed). Push the branch again or re-set its upstream.")
         case .checked, .unchecked:
             EmptyView()
         }
@@ -1344,7 +1346,7 @@ struct ContentView: View {
             return " (from local tracking data; live remote check failed)"
         case .unchecked:
             return " (from local tracking data)"
-        case .noUpstream:
+        case .noUpstream, .upstreamGone:
             return ""
         }
     }
@@ -1368,6 +1370,8 @@ struct ContentView: View {
             parts.append("remote check failed: \(message)")
         case .noUpstream:
             parts.append("no upstream branch")
+        case .upstreamGone:
+            parts.append("upstream branch no longer exists on the remote")
         case .unchecked where parts.isEmpty:
             parts.append("clean; remote not checked yet")
         case .checked, .unchecked:
