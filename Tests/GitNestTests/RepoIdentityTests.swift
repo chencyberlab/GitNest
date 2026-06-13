@@ -91,6 +91,49 @@ final class RepoIdentityTests: XCTestCase {
         XCTAssertFalse(model.isRepoActionBusy(shared))
     }
 
+    func testRepoActionCanStayScopedToOriginalAccountAfterSelectionChanges() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let accountA = Account(alias: "me",
+                               name: "Me",
+                               email: "me@example.com",
+                               folder: root.appendingPathComponent("me").path)
+        let accountB = Account(alias: "work",
+                               name: "Work",
+                               email: "work@example.com",
+                               folder: root.appendingPathComponent("work").path)
+        let target = repo(owner: "me", name: "tools")
+        let repoA = URL(fileURLWithPath: accountA.folder).appendingPathComponent("tools")
+        let repoB = URL(fileURLWithPath: accountB.folder).appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: repoA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: repoB, withIntermediateDirectories: true)
+
+        for repoURL in [repoA, repoB] {
+            XCTAssertTrue(Shell.run(["git", "init"], cwd: repoURL.path).ok)
+            XCTAssertTrue(Shell.run(["git", "config", "user.name", "Test User"], cwd: repoURL.path).ok)
+            XCTAssertTrue(Shell.run(["git", "config", "user.email", "test@example.com"], cwd: repoURL.path).ok)
+        }
+        try "from account A\n".write(to: repoA.appendingPathComponent("README.md"),
+                                     atomically: true,
+                                     encoding: .utf8)
+
+        let model = AppModel()
+        model.accounts = [accountA, accountB]
+        model.selectedAccount = accountB
+        model.repos = [target]
+        model.repoCache[accountA.alias] = [target]
+        model.clonedReposCache[accountA.alias] = [target.id]
+
+        await model.commit(target, message: "Commit in account A", in: accountA)
+
+        let accountALog = Shell.run(["git", "log", "-1", "--pretty=%s"], cwd: repoA.path)
+        let accountBHead = Shell.run(["git", "rev-parse", "--verify", "HEAD"], cwd: repoB.path)
+        XCTAssertTrue(accountALog.ok)
+        XCTAssertEqual(accountALog.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "Commit in account A")
+        XCTAssertFalse(accountBHead.ok)
+    }
+
     private func repo(owner: String, name: String) -> Repo {
         Repo(
             name: name,

@@ -5,6 +5,7 @@ import SwiftUI
 /// Deliberately not a diff viewer — just "what changed", grouped by status.
 struct ChangeSummaryButton: View {
     let repo: Repo
+    let account: Account
     let count: Int
     @EnvironmentObject private var model: AppModel
     @Environment(\.theme) private var theme
@@ -29,7 +30,7 @@ struct ChangeSummaryButton: View {
         .tooltip("\(count) changed file\(count == 1 ? "" : "s") — click for a summary")
         .accessibilityLabel("\(count) changed files. Show summary.")
         .popover(isPresented: $showing, arrowEdge: .bottom) {
-            ChangeSummaryContent(repo: repo)
+            ChangeSummaryContent(repo: repo, account: account)
                 .environmentObject(model)
         }
     }
@@ -39,6 +40,7 @@ struct ChangeSummaryButton: View {
 /// when it appears, so the interval scan stays cheap (counts only).
 struct ChangeSummaryContent: View {
     let repo: Repo
+    let account: Account
     @EnvironmentObject private var model: AppModel
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
@@ -177,7 +179,7 @@ struct ChangeSummaryContent: View {
 
     private func load() async {
         phase = .loading
-        switch await model.changedFiles(for: repo) {
+        switch await model.changedFiles(for: repo, in: account) {
         case .success(let files):
             phase = files.isEmpty ? .empty : .loaded(GitChanges.grouped(files))
         case .failure(let error):

@@ -304,7 +304,7 @@ extension ContentView {
                         repoListEmptyState
                     } else {
                         LazyVStack(spacing: 2) {
-                            ForEach(model.filteredRepos) { repo in repoRow(repo) }
+                            ForEach(model.filteredRepos) { repo in repoRow(repo, account: account) }
                         }
                         .padding(.vertical, 4)
                     }
@@ -315,37 +315,37 @@ extension ContentView {
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
                 .strokeBorder(theme.border, lineWidth: 1))
             .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
-            .sheet(item: $commitTarget) { repo in commitSheet(repo) }
+            .sheet(item: $commitTarget) { target in commitSheet(target) }
             .confirmationDialog(
                 "Push this repository to GitHub?",
                 isPresented: Binding(get: { pushTarget != nil },
                                      set: { if !$0 { pushTarget = nil } }),
                 presenting: pushTarget
-            ) { repo in
+            ) { target in
                 Button("Push to GitHub") {
-                    let target = repo
+                    let target = target
                     pushTarget = nil
-                    Task { await model.push(target) }
+                    Task { await model.push(target.repo, in: target.account) }
                 }
                 Button("Cancel", role: .cancel) {
                     pushTarget = nil
                 }
-            } message: { repo in
-                Text("This will run git push for “\(repo.name)”. Make sure the local commits and branch are ready to publish.")
+            } message: { target in
+                Text("This will run git push for “\(target.repo.name)” in \(target.account.alias)'s folder. Make sure the local commits and branch are ready to publish.")
             }
             .confirmationDialog(
                 "Move this folder to Trash?",
                 isPresented: Binding(get: { deleteTarget != nil },
                                      set: { if !$0 { deleteTarget = nil } }),
                 presenting: deleteTarget
-            ) { repo in
+            ) { target in
                 Button("Move to Trash", role: .destructive) {
-                    let target = repo; deleteTarget = nil
-                    Task { await model.deleteLocalFolder(target) }
+                    let target = target; deleteTarget = nil
+                    Task { await model.deleteLocalFolder(target.repo, in: target.account) }
                 }
                 Button("Cancel", role: .cancel) { deleteTarget = nil }
-            } message: { repo in
-                Text("“\(repo.name)” will be moved to the Trash (recoverable). The GitHub repository is NOT affected.")
+            } message: { target in
+                Text("“\(target.repo.name)” in \(target.account.alias)'s folder will be moved to the Trash (recoverable). The GitHub repository is NOT affected.")
             }
         }
     }
@@ -434,7 +434,7 @@ extension ContentView {
         .buttonStyle(.plain)
     }
 
-    func repoRow(_ repo: Repo) -> some View {
+    func repoRow(_ repo: Repo, account: Account) -> some View {
         let selected = model.selectedRepo == repo.id
         let status = model.repoStatuses[repo.id]
         let cloned = model.isCloned(repo)
@@ -451,7 +451,7 @@ extension ContentView {
                     Text(repo.name).font(.system(size: 13, weight: .medium))
                     if shared { sharedBadge(repo.owner) }
                     if let conflict { folderConflictBadge(conflict) }
-                    if let status { statusBadges(status, repo: repo) }
+                    if let status { statusBadges(status, repo: repo, account: account) }
                 }
                 if let d = repo.description, !d.isEmpty {
                     Text(d).font(.system(size: 11)).foregroundStyle(theme.textMuted).lineLimit(1)
@@ -464,7 +464,7 @@ extension ContentView {
                 .font(.system(size: 12.5, weight: .medium)).foregroundStyle(theme.textMuted)
                 .lineLimit(1)
                 .frame(width: updatedWidth, alignment: .leading)
-            rowActions(repo).frame(width: actionsWidth, alignment: .trailing)
+            rowActions(repo, account: account).frame(width: actionsWidth, alignment: .trailing)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(selectionBackground(selected))
@@ -550,14 +550,14 @@ extension ContentView {
     /// file summary), purple up-arrow = unpushed commits, amber down-arrow = behind
     /// remote, green check = current after a live upstream fetch.
     @ViewBuilder
-    func statusBadges(_ status: RepoStatus, repo: Repo) -> some View {
+    func statusBadges(_ status: RepoStatus, repo: Repo, account: Account) -> some View {
         HStack(spacing: 4) {
             if status.isDiverged {
                 statusIconPill("exclamationmark.triangle.fill", theme.warning, theme.warningSubtle,
                                help: "Local and remote both have commits. Pull or rebase before pushing.")
             }
             if status.changedFiles > 0 {
-                ChangeSummaryButton(repo: repo, count: status.changedFiles)
+                ChangeSummaryButton(repo: repo, account: account, count: status.changedFiles)
             }
             if status.ahead > 0 {
                 statusPill("arrow.up", status.ahead, theme.accent, theme.accentSubtle,
@@ -662,12 +662,12 @@ extension ContentView {
         "\(n) \(noun)\(n == 1 ? "" : "s")"
     }
 
-    func openMenu(_ repo: Repo) -> some View {
+    func openMenu(_ repo: Repo, account: Account) -> some View {
         ActionPopoverButton(systemName: "folder", help: "Open…") { isPresented in
             VStack(alignment: .leading, spacing: 4) {
                 openPopoverButton("Finder", systemImage: "folder") {
                     isPresented.wrappedValue = false
-                    model.openLocalFolder(repo)
+                    model.openLocalFolder(repo, in: account)
                 }
 
                 openPopoverButton("GitHub", systemImage: "globe") {
@@ -682,7 +682,12 @@ extension ContentView {
                     openPopoverButton(preferredEditor.displayName(customAppName: customEditorName),
                                       systemImage: "chevron.left.forwardslash.chevron.right") {
                         isPresented.wrappedValue = false
-                        Task { await model.openInEditor(repo, editor: preferredEditor, customAppName: customEditorName) }
+                        Task {
+                            await model.openInEditor(repo,
+                                                     in: account,
+                                                     editor: preferredEditor,
+                                                     customAppName: customEditorName)
+                        }
                     }
                 }
 
@@ -692,7 +697,12 @@ extension ContentView {
                     openPopoverButton(preferredTerminal.displayName(customAppName: customTerminalName),
                                       systemImage: "terminal") {
                         isPresented.wrappedValue = false
-                        Task { await model.openInTerminal(repo, terminal: preferredTerminal, customAppName: customTerminalName) }
+                        Task {
+                            await model.openInTerminal(repo,
+                                                       in: account,
+                                                       terminal: preferredTerminal,
+                                                       customAppName: customTerminalName)
+                        }
                     }
                 }
             }
@@ -730,15 +740,22 @@ extension ContentView {
     }
 
     @ViewBuilder
-    func rowActions(_ repo: Repo) -> some View {
+    func rowActions(_ repo: Repo, account: Account) -> some View {
         HStack(spacing: 7) {
             if model.isCloned(repo) {
-                openMenu(repo)
-                iconButton("arrow.down", "Pull (git pull)") { Task { await model.pull(repo) } }
-                iconButton("pencil", "Commit all changes…") { commitMessage = ""; commitTarget = repo }
-                iconButton("arrow.up", "Push (git push)") { pushTarget = repo }
+                openMenu(repo, account: account)
+                iconButton("arrow.down", "Pull (git pull)") { Task { await model.pull(repo, in: account) } }
+                iconButton("pencil", "Commit all changes…") {
+                    commitMessage = ""
+                    commitTarget = RepoActionTarget(repo: repo, account: account)
+                }
+                iconButton("arrow.up", "Push (git push)") {
+                    pushTarget = RepoActionTarget(repo: repo, account: account)
+                }
                 iconButton("trash", "Move local folder to Trash (recoverable)",
-                           tint: theme.error, fill: theme.errorSubtle) { deleteTarget = repo }
+                           tint: theme.error, fill: theme.errorSubtle) {
+                    deleteTarget = RepoActionTarget(repo: repo, account: account)
+                }
             } else if let conflict = model.folderConflict(repo) {
                 disabledIconChip("exclamationmark.triangle.fill",
                                  conflict.shortHelp,
@@ -746,7 +763,7 @@ extension ContentView {
                                  fill: theme.warningSubtle)
             } else {
                 iconButton("square.and.arrow.down", "Clone into the account folder") {
-                    Task { await model.clone(repo) }
+                    Task { await model.clone(repo, in: account) }
                 }
             }
         }
@@ -777,9 +794,14 @@ extension ContentView {
             .accessibilityLabel(help)
     }
 
-    func commitSheet(_ repo: Repo) -> some View {
+    func commitSheet(_ target: RepoActionTarget) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Commit all changes in \(repo.name)").font(Theme.title(16))
+            Text("Commit all changes in \(target.repo.name)").font(Theme.title(16))
+            Text(target.account.folder)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(theme.textMuted)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Text("Runs:  git add -A  &&  git commit -m …")
                 .font(.system(size: 11, design: .monospaced)).foregroundStyle(theme.textMuted)
             TextField("Commit message", text: $commitMessage)
@@ -791,9 +813,9 @@ extension ContentView {
                     .buttonStyle(SubtleButtonStyle())
                 Button("Commit") {
                     let message = commitMessage
-                    let target = repo
+                    let target = target
                     commitTarget = nil
-                    Task { await model.commit(target, message: message) }
+                    Task { await model.commit(target.repo, message: message, in: target.account) }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)

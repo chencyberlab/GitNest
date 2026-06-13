@@ -10,10 +10,15 @@ extension AppModel {
         let repoIDs: Set<Repo.ID>
     }
 
-    func beginRepoAction(_ repo: Repo) -> RepoActionContext? {
-        guard let account = selectedAccount else { return nil }
+    func beginRepoAction(_ repo: Repo, in explicitAccount: Account? = nil) -> RepoActionContext? {
+        guard let account = explicitAccount ?? selectedAccount else { return nil }
+        if !accounts.isEmpty && !accounts.contains(where: { $0.alias == account.alias }) {
+            appendLog("✗ Cannot run action for \(repo.nameWithOwner): account \(account.alias) is no longer configured.")
+            return nil
+        }
         let path = localPath(repo, in: account)
-        var ids = Set(repos.filter { localPath($0, in: account) == path }.map(\.id))
+        let sourceRepos = selectedAccount?.alias == account.alias ? repos : (repoCache[account.alias] ?? [])
+        var ids = Set(sourceRepos.filter { localPath($0, in: account) == path }.map(\.id))
         ids.insert(repo.id)
         guard busyRepos.isDisjoint(with: ids),
               busyRepoPaths.insert(path).inserted else { return nil }
@@ -26,8 +31,8 @@ extension AppModel {
         busyRepoPaths.remove(context.path)
     }
 
-    func clone(_ repo: Repo) async {
-        guard let context = beginRepoAction(repo) else { return }
+    func clone(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let alias = account.alias
@@ -63,8 +68,8 @@ extension AppModel {
         await refreshStatuses(for: account, refreshRemote: true)
     }
 
-    func pull(_ repo: Repo) async {
-        guard let context = beginRepoAction(repo) else { return }
+    func pull(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
@@ -80,8 +85,8 @@ extension AppModel {
         await refreshStatuses(for: account, refreshRemote: true)
     }
 
-    func push(_ repo: Repo) async {
-        guard let context = beginRepoAction(repo) else { return }
+    func push(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
@@ -144,8 +149,8 @@ extension AppModel {
         await logAuthStatus()
     }
 
-    func openLocalFolder(_ repo: Repo) {
-        guard let account = selectedAccount else { return }
+    func openLocalFolder(_ repo: Repo, in explicitAccount: Account? = nil) {
+        guard let account = explicitAccount ?? selectedAccount else { return }
         let path = localPath(repo, in: account)
         guard FileManager.default.fileExists(atPath: path) else {
             appendLog("✗ folder not found: \(path)")
@@ -157,8 +162,11 @@ extension AppModel {
 
     /// Open a cloned repo's folder in the user's chosen GUI editor. Runs `open -a`
     /// off the main actor and logs a friendly message if the editor can't open.
-    func openInEditor(_ repo: Repo, editor: PreferredEditor, customAppName: String) async {
-        guard editor != .none, let account = selectedAccount else { return }
+    func openInEditor(_ repo: Repo,
+                      in explicitAccount: Account? = nil,
+                      editor: PreferredEditor,
+                      customAppName: String) async {
+        guard editor != .none, let account = explicitAccount ?? selectedAccount else { return }
         let path = localPath(repo, in: account)
         guard FileManager.default.fileExists(atPath: path) else {
             appendLog("✗ folder not found: \(path)")
@@ -184,8 +192,11 @@ extension AppModel {
 
     /// Open a cloned repo's folder in the user's chosen GUI terminal. Runs `open -a`
     /// off the main actor and logs a friendly message if the terminal can't open.
-    func openInTerminal(_ repo: Repo, terminal: PreferredTerminal, customAppName: String) async {
-        guard terminal != .none, let account = selectedAccount else { return }
+    func openInTerminal(_ repo: Repo,
+                        in explicitAccount: Account? = nil,
+                        terminal: PreferredTerminal,
+                        customAppName: String) async {
+        guard terminal != .none, let account = explicitAccount ?? selectedAccount else { return }
         let path = localPath(repo, in: account)
         guard FileManager.default.fileExists(atPath: path) else {
             appendLog("✗ folder not found: \(path)")
@@ -212,8 +223,9 @@ extension AppModel {
     /// Load the detailed changed-file list for a repo on demand (for the summary
     /// popover). Kept out of the interval scan, which only tracks counts. Reports a
     /// friendly error when the repo isn't cloned or git fails.
-    func changedFiles(for repo: Repo) async -> Result<[GitFileChange], GitHubError> {
-        guard let account = selectedAccount else {
+    func changedFiles(for repo: Repo,
+                      in explicitAccount: Account? = nil) async -> Result<[GitFileChange], GitHubError> {
+        guard let account = explicitAccount ?? selectedAccount else {
             return .failure(GitHubError(message: "No account selected."))
         }
         let path = localPath(repo, in: account)
@@ -225,8 +237,8 @@ extension AppModel {
     }
 
     /// Move the local clone to Trash (does NOT touch the GitHub repo).
-    func deleteLocalFolder(_ repo: Repo) async {
-        guard let context = beginRepoAction(repo) else { return }
+    func deleteLocalFolder(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
@@ -237,9 +249,9 @@ extension AppModel {
         await refreshStatuses(for: account)
     }
 
-    func commit(_ repo: Repo, message: String) async {
+    func commit(_ repo: Repo, message: String, in account: Account? = nil) async {
         guard !message.trimmingCharacters(in: .whitespaces).isEmpty,
-              let context = beginRepoAction(repo) else { return }
+              let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path

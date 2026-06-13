@@ -4,10 +4,10 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @StateObject var tooltip = TooltipController()
-    @State var commitTarget: Repo?
+    @State var commitTarget: RepoActionTarget?
     @State var commitMessage: String = ""
-    @State var deleteTarget: Repo?
-    @State var pushTarget: Repo?
+    @State var deleteTarget: RepoActionTarget?
+    @State var pushTarget: RepoActionTarget?
     @State var ghLoginTarget: Account?
     @State var initPlan: ProjectInitPlan?
     @State var initVisibility: RepoVisibilityChoice = .private
@@ -17,6 +17,13 @@ struct ContentView: View {
     @State var accountSearch: String = ""
     @State var expandedAccountAliases: Set<String> = []
     @State var showSettings = false
+
+    struct RepoActionTarget: Identifiable {
+        let repo: Repo
+        let account: Account
+
+        var id: String { "\(account.alias)|\(repo.id)" }
+    }
 
     // Drag-to-reorder state for account cards. The model order is left untouched
     // while dragging — the dragged card follows the finger, the other cards part
