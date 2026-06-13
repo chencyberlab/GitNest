@@ -257,6 +257,17 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func startAuthProcess() -> Shell.ProcessHandle {
+        activeAuthProcess?.cancel()
+        let process = Shell.ProcessHandle()
+        activeAuthProcess = process
+        return process
+    }
+
+    private func finishAuthProcess(_ process: Shell.ProcessHandle) {
+        if activeAuthProcess === process { activeAuthProcess = nil }
+    }
+
     deinit {
         statusTimer?.cancel()
         repoAutoRefreshTimer?.cancel()
@@ -498,6 +509,7 @@ final class AppModel: ObservableObject {
         let owner = account.alias
         guard !repoLoadsInFlight.contains(owner) else { return }
         repoLoadsInFlight.insert(owner)
+        defer { repoLoadsInFlight.remove(owner) }
         if userInitiated { repoAutoRefreshAccounts.insert(owner) }
 
         let isVisibleAccount = selectedAccount?.alias == owner
@@ -536,13 +548,11 @@ final class AppModel: ObservableObject {
             }
             await refreshClonedStatus(for: account)
             await refreshStatuses(for: account, refreshRemote: true)
-            repoLoadsInFlight.remove(owner)
             if selectedAccount?.alias == owner {
                 isCheckingRepoRemotes = false
                 setRepoRefreshMessage("Repos and remote status refreshed just now.", autoDismiss: true)
             }
         case .failure(let error):
-            repoLoadsInFlight.remove(owner)
             appendLog("✗ repo list failed: \(error.message)")
             if repoCache[owner]?.isEmpty == false {
                 appendLog("Showing cached repos for \(owner).")
@@ -959,10 +969,9 @@ final class AppModel: ObservableObject {
         currentAuthFlowCode = nil
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let clipboardWatcher = Task { await watchClipboardForDeviceCode(after: startingClipboardChangeCount) }
-        let authProcess = Shell.ProcessHandle()
-        activeAuthProcess = authProcess
+        let authProcess = startAuthProcess()
         let login = await run { GitHub.authLoginWebWithClipboard(handle: authProcess) }
-        if activeAuthProcess === authProcess { activeAuthProcess = nil }
+        finishAuthProcess(authProcess)
         clipboardWatcher.cancel()
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
@@ -1100,9 +1109,9 @@ final class AppModel: ObservableObject {
                      visibility: RepoVisibilityChoice,
                      moveOriginalToTrash: Bool = false) async -> Bool {
         isInitializingProject = true
+        defer { isInitializingProject = false }
         appendLog("Initializing \(plan.repoName) for \(plan.account.alias)…")
         let res = await ghSerializedPreservingActiveAccount { GitHub.initAndPushProject(plan, visibility: visibility) }
-        isInitializingProject = false
         report(res, ok: "initialized and pushed \(plan.account.alias)/\(plan.repoName)")
         if res.ok, plan.willCopy, moveOriginalToTrash {
             appendLog("Moving original folder to Trash…")
@@ -1218,14 +1227,13 @@ final class AppModel: ObservableObject {
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let watcher = Task { await watchClipboardForAddAccountCode(session: session,
                                                                    after: startingClipboardChangeCount) }
-        let authProcess = Shell.ProcessHandle()
-        activeAuthProcess = authProcess
+        let authProcess = startAuthProcess()
         let result = await ghSerialized { () -> AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
             guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
             return AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
         }
-        if activeAuthProcess === authProcess { activeAuthProcess = nil }
+        finishAuthProcess(authProcess)
         watcher.cancel()
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)

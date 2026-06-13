@@ -51,16 +51,16 @@ single window.
   Each account has its own `gh` token and therefore its own ~5,000-request/hour
   budget, so the accounts never share a limit. A failed refresh keeps the cached
   list and simply retries next interval — it never stops on its own. Repo-list
-  refreshes use `gh repo list` plus local `git status`, and for cloned repos they
-  also run a safe `git fetch` against the upstream remote so ahead/behind badges
-  reflect current GitHub state. Fetch updates remote-tracking refs only; it does
-  not merge or touch your working files.
+  refreshes use paginated `gh api user/repos` calls plus local `git status`, and
+  for cloned repos they also run a safe `git fetch` against the upstream remote
+  so ahead/behind badges reflect current GitHub state. Fetch updates
+  remote-tracking refs only; it does not merge or touch your working files.
 - **Search** (above the repo list): a wild-search box filters the loaded repos as
   you type. It matches across the repo name, owner/name, and description and
   supports plain substrings, fuzzy subsequence matches (e.g. `mgm` →
   `multi-git-manager`), and glob wildcards (`*`, `?`, e.g. `m*ger`). Multiple
   space-separated terms are all required. A counter shows matches vs total, and
-  the box clears automatically when you switch accounts or reload.
+  each account keeps its own search text while you switch between accounts.
 - **Remote-only repos**: clone into the selected account folder.
 - **Cloned repos**: use the **Open...** menu to open the local folder in Finder,
   the GitHub repo in your browser, your configured GUI editor, or your configured
@@ -95,7 +95,7 @@ It shells out to tools you already have:
 
 | Action | Command run |
 | --- | --- |
-| List repos | `gh repo list <account> --json ...` after `gh auth switch -u <account>`, merged with `gh api user/repos?affiliation=collaborator` for shared repos — also run automatically on the repo auto-refresh interval |
+| List repos | `gh api user/repos?affiliation=owner&per_page=100 --paginate --slurp` after `gh auth switch -u <account>`, merged with `gh api user/repos?affiliation=collaborator&per_page=100 --paginate --slurp` for shared repos — also run automatically on the repo auto-refresh interval |
 | Auth check | `ssh -T git@github-<account>` |
 | Clone | `git clone https://github.com/OWNER/REPO.git <account-folder>/REPO` |
 | Init project | `gh auth switch -u <account>`, verify active `gh` login, `git init`, `gh repo create`, `git push -u origin <branch>` |
@@ -172,10 +172,11 @@ on fresh data.
 
 A failed background refresh keeps the cached list, logs the error to the **Output**
 pane, and tries again at the next interval; it never stops the timer. Refreshes do
-not merge or edit working files: repo-list loads use `gh repo list`, local
-`git status`, and upstream `git fetch` for cloned repos. The two tuning constants
-live in `AppModel.swift`: `backgroundRefreshFloorSeconds` (the 5-minute floor) and
-the `ceil(repoCount / 500)` size step in `effectiveRefreshInterval`.
+not merge or edit working files: repo-list loads use paginated `gh api user/repos`
+calls, local `git status`, and upstream `git fetch` for cloned repos. The two
+tuning constants live in `AppModel.swift`: `backgroundRefreshFloorSeconds` (the
+5-minute floor) and the `ceil(repoCount / 500)` size step in
+`effectiveRefreshInterval`.
 
 ## Build & run
 

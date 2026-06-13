@@ -14,8 +14,7 @@ struct Repo: Identifiable, Hashable, Sendable, Decodable {
     var owner: String { String(nameWithOwner.prefix { $0 != "/" }) }
 }
 
-/// A repo as returned by the REST `user/repos` endpoint (used for collaborator
-/// repos, which `gh repo list <owner>` does not include). Mapped into `Repo`.
+/// A repo as returned by the REST `user/repos` endpoint. Mapped into `Repo`.
 private struct RestRepo: Decodable {
     let name: String
     let full_name: String
@@ -424,7 +423,7 @@ enum GitHub {
 
     /// Repos the active account collaborates on but does not own. `affiliation=
     /// collaborator` excludes owned and org-member repos, so there is no overlap
-    /// with `gh repo list`. Best-effort: returns [] on any error.
+    /// with the owned REST list. Best-effort: returns [] on any error.
     private static func collaboratorRepos() -> [Repo] {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=collaborator&per_page=100",
