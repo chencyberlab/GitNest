@@ -1,0 +1,204 @@
+import SwiftUI
+import AppKit
+
+extension AppModel {
+    // MARK: Add-account wizard
+
+    /// Alias for the in-progress account (GitHub login, lowercased).
+    var addAccountAlias: String? { addAccountIdentity?.alias }
+
+    func beginAddAccount() {
+        addAccountSessionID = UUID()
+        addAccountStep = .signIn
+        addAccountBusy = false
+        addAccountError = nil
+        addAccountDeviceCode = nil
+        addAccountIdentity = nil
+        addAccountEmail = ""
+        addAccountFolder = nil
+        addAccountPublicKey = nil
+        addAccountKeyCreated = false
+        addAccountVerification = nil
+        addAccountActive = true
+    }
+
+    func cancelAddAccount() {
+        // If verification already ran, the config was written — refresh so the new
+        // account's cards/chips populate, just like the Done path (minus the select).
+        let wroteConfig = addAccountVerification != nil
+        // Kill any in-flight `gh auth login` poll so it doesn't keep the serialized
+        // gh chain busy (blocking repo refreshes/account checks) for up to ~10 min.
+        activeAuthProcess?.cancel()
+        activeAuthProcess = nil
+        addAccountSessionID = UUID()
+        addAccountActive = false
+        addAccountBusy = false
+        if wroteConfig { refreshAll() }
+    }
+
+    func isCurrentAddAccountSession(_ session: UUID) -> Bool {
+        addAccountActive && addAccountSessionID == session
+    }
+
+    /// Step 1 — open GitHub device login, surface the one-time code, then read the
+    /// signed-in identity. gh work runs through the serialized chain so a stray
+    /// background sweep can't flip the active account mid-flow.
+    func addAccountSignIn() async {
+        let session = addAccountSessionID
+        addAccountBusy = true
+        addAccountError = nil
+        addAccountDeviceCode = nil
+        appendLog("Add account: starting GitHub sign-in…")
+        if let url = URL(string: "https://github.com/login/device") {
+            NSWorkspace.shared.open(url)
+        }
+        let startingClipboardChangeCount = NSPasteboard.general.changeCount
+        let watcher = Task { await watchClipboardForAddAccountCode(session: session,
+                                                                   after: startingClipboardChangeCount) }
+        let authProcess = startAuthProcess()
+        let result = await ghSerialized { () -> AddAccountLoginResult in
+            let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
+            guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
+            return AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
+        }
+        finishAuthProcess(authProcess)
+        watcher.cancel()
+        guard isCurrentAddAccountSession(session) else { return }
+        let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let code = DeviceCode.extract(fromGhOutput: out) { addAccountDeviceCode = code }
+        guard result.login.ok else {
+            addAccountError = "Sign-in failed: \(out.isEmpty ? "unknown error" : out)"
+            addAccountBusy = false
+            return
+        }
+        guard let identity = result.identity else {
+            addAccountError = "Could not read account after sign-in."
+            addAccountBusy = false
+            return
+        }
+        switch identity {
+        case .success(let id):
+            if accounts.contains(where: { $0.alias.caseInsensitiveCompare(id.alias) == .orderedSame }) {
+                addAccountError = "\(id.login) is already set up in this app."
+                addAccountBusy = false
+                return
+            }
+            addAccountIdentity = id
+            addAccountEmail = id.noreplyEmail
+            appendLog("Add account: signed in as \(id.login).")
+            addAccountStep = .folder
+        case .failure(let e):
+            addAccountError = "Could not read account: \(e.message)"
+        }
+        addAccountBusy = false
+    }
+
+    func setAddAccountFolder(_ path: String) { addAccountFolder = path }
+
+    /// Step 2 → 3 — generate (or reuse) the dedicated SSH key, then show its pubkey.
+    func addAccountGenerateKey() async {
+        guard let id = addAccountIdentity else { return }
+        let session = addAccountSessionID
+        addAccountBusy = true
+        addAccountError = nil
+        let alias = id.alias
+        let comment = addAccountEmail.isEmpty ? alias : addAccountEmail
+        let result = await run({ AccountSetup.ensureKey(alias: alias, comment: comment) })
+        guard isCurrentAddAccountSession(session) else { return }
+        switch result {
+        case .success(let r):
+            addAccountPublicKey = r.publicKey
+            addAccountKeyCreated = r.created
+            appendLog(r.created
+                      ? "Add account: generated SSH key id_\(alias)."
+                      : "Add account: reusing existing SSH key id_\(alias).")
+            addAccountStep = .sshKey
+        case .failure(let e):
+            addAccountError = "SSH key error: \(e.message)"
+        }
+        addAccountBusy = false
+    }
+
+    /// Step 4 — write config (with backups) and verify. Stays on `.finish`; the
+    /// sheet shows the verify result and a Done button.
+    func addAccountFinish() async {
+        guard let id = addAccountIdentity, let folder = addAccountFolder else { return }
+        let session = addAccountSessionID
+        addAccountBusy = true
+        addAccountError = nil
+        let alias = id.alias
+        appendLog("Add account: writing config for \(alias) (backups first)…")
+
+        let sshWrite = await run({ AccountSetup.ensureSSHConfig(alias: alias) })
+        guard isCurrentAddAccountSession(session) else { return }
+        switch sshWrite {
+        case .success(let result):
+            if let backup = result.backupPath { appendLog("Add account: backed up ~/.ssh/config -> \(backup).") }
+            if result.wroteBlock { appendLog("Add account: added ~/.ssh/config host github-\(alias).") }
+        case .failure(let e):
+            addAccountError = e.message; addAccountBusy = false; return
+        }
+
+        let name = id.displayName
+        let email = addAccountEmail
+        let write = await run { AccountSetup.writeGitConfig(alias: alias, name: name, email: email, folder: folder) }
+        guard isCurrentAddAccountSession(session) else { return }
+        if case .failure(let e) = write {
+            addAccountError = e.message; addAccountBusy = false; return
+        }
+        if case .success(let result) = write {
+            if let backup = result.accountGitconfigBackupPath { appendLog("Add account: backed up account gitconfig -> \(backup).") }
+            if let backup = result.globalGitconfigBackupPath { appendLog("Add account: backed up ~/.gitconfig -> \(backup).") }
+        }
+        appendLog("Add account: wrote gitconfig + includeIf, created \(folder).")
+
+        await addAccountReverify()
+        accounts = orderedAccounts(GitConfig.loadAccounts())
+        addAccountBusy = false
+    }
+
+    /// Re-run SSH/gh verification (handy right after pasting the key, which can take
+    /// a moment to propagate on GitHub's side).
+    func addAccountReverify() async {
+        guard let alias = addAccountAlias else { return }
+        let session = addAccountSessionID
+        let result = await ghSerialized { AccountSetup.verify(alias: alias) }
+        guard isCurrentAddAccountSession(session) else { return }
+        addAccountVerification = result
+        let sshText = result.sshOK ? "OK" : (result.sshLogin.map { "as \($0), expected \(alias)" } ?? "not ready")
+        let ghText = result.ghOK ? "OK" : (result.ghLogin.map { "as \($0), expected \(alias)" } ?? "unknown")
+        appendLog("Add account: verify — SSH \(sshText), gh \(ghText).")
+    }
+
+    /// Close the wizard, refresh everything, and select the new account.
+    func completeAddAccount() {
+        let newAlias = addAccountAlias
+        addAccountSessionID = UUID()
+        addAccountActive = false
+        refreshAll()
+        if let newAlias, let acct = accounts.first(where: { $0.alias.caseInsensitiveCompare(newAlias) == .orderedSame }) {
+            selectAccount(acct)
+        }
+    }
+
+    func watchClipboardForAddAccountCode(session: UUID, after startingChangeCount: Int) async {
+        var lastChangeCount = startingChangeCount
+        for _ in 0..<240 { // ~120s
+            if Task.isCancelled || !isCurrentAddAccountSession(session) { return }
+            // Only read when the pasteboard actually advances — otherwise this would
+            // re-read (and re-assign the code, re-rendering the sheet) every 500ms,
+            // and on macOS 15.4+ each read can surface a pasteboard-privacy alert.
+            let current = NSPasteboard.general.changeCount
+            if current != lastChangeCount {
+                lastChangeCount = current
+                if let clip = NSPasteboard.general.string(forType: .string),
+                   let code = DeviceCode.extract(fromClipboard: clip) {
+                    addAccountDeviceCode = code
+                    return   // captured — stop polling
+                }
+            }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+    }
+
+}
