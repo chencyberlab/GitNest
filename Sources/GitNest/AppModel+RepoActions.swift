@@ -224,14 +224,14 @@ extension AppModel {
     /// popover). Kept out of the interval scan, which only tracks counts. Reports a
     /// friendly error when the repo isn't cloned or git fails.
     func changedFiles(for repo: Repo,
-                      in explicitAccount: Account? = nil) async -> Result<[GitFileChange], GitHubError> {
+                      in explicitAccount: Account? = nil) async -> Result<[GitFileChange], CommandError> {
         guard let account = explicitAccount ?? selectedAccount else {
-            return .failure(GitHubError(message: "No account selected."))
+            return .failure(CommandError(message: "No account selected."))
         }
         let path = localPath(repo, in: account)
         let gitDir = (path as NSString).appendingPathComponent(".git")
         guard FileManager.default.fileExists(atPath: gitDir) else {
-            return .failure(GitHubError(message: "This repository isn't cloned locally."))
+            return .failure(CommandError(message: "This repository isn't cloned locally."))
         }
         return await run { GitHub.changedFiles(at: path) }
     }

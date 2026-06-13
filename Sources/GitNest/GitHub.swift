@@ -67,8 +67,8 @@ struct RepoViewDetails {
     }
 }
 
-/// Error carrying a human-readable message from a failed `gh`/`git` call.
-struct GitHubError: Error, Sendable {
+/// Error carrying a human-readable message from a failed shell command or parser.
+struct CommandError: Error, Sendable {
     let message: String
 }
 
@@ -228,17 +228,27 @@ struct RepoStatus: Sendable, Equatable {
         var status = RepoStatus(remoteState: remoteState)
         for line in output.components(separatedBy: .newlines) {
             if line.hasPrefix("##") {
-                status.hasUpstream = line.contains("...")
-                status.upstreamRemote = upstreamRemote(from: line)
-                if let open = line.lastIndex(of: "["),
-                   let close = line.lastIndex(of: "]"), open < close {
-                    for part in line[line.index(after: open)..<close].split(separator: ",") {
-                        let token = part.trimmingCharacters(in: .whitespaces)
-                        if token.hasPrefix("ahead "), let n = Int(token.dropFirst(6)) { status.ahead = n }
-                        if token.hasPrefix("behind "), let n = Int(token.dropFirst(7)) { status.behind = n }
-                        // "[gone]" — upstream configured but deleted on the remote.
-                        // Without this, a gone branch would read as clean/current.
-                        if token == "gone" { status.remoteState = .upstreamGone }
+                let rest = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
+                status.hasUpstream = rest.contains("...")
+                status.upstreamRemote = upstreamRemote(from: rest)
+                // Tracking info "[ahead N, behind M]" or "[gone]" appears only after
+                // the upstream name. Parse the trailing bracket region only after the
+                // "..." marker so brackets inside branch names are not misread.
+                if let marker = rest.range(of: "...") {
+                    let afterUpstream = rest[marker.upperBound...]
+                    let upstream = afterUpstream.split(whereSeparator: { $0 == " " || $0 == "\t" }).first
+                    let upstreamEnd = upstream?.endIndex ?? afterUpstream.startIndex
+                    let tracking = afterUpstream[upstreamEnd...].trimmingCharacters(in: .whitespaces)
+                    if tracking.hasPrefix("["), tracking.hasSuffix("]") {
+                        let inner = tracking.dropFirst().dropLast()
+                        for part in inner.split(separator: ",") {
+                            let token = part.trimmingCharacters(in: .whitespaces)
+                            if token.hasPrefix("ahead "), let n = Int(token.dropFirst(6)) { status.ahead = n }
+                            if token.hasPrefix("behind "), let n = Int(token.dropFirst(7)) { status.behind = n }
+                            // "[gone]" — upstream configured but deleted on the remote.
+                            // Without this, a gone branch would read as clean/current.
+                            if token == "gone" { status.remoteState = .upstreamGone }
+                        }
                     }
                 }
             } else if !line.trimmingCharacters(in: .whitespaces).isEmpty {
@@ -251,7 +261,7 @@ struct RepoStatus: Sendable, Equatable {
     private static func upstreamRemote(from branchLine: String) -> String? {
         guard let marker = branchLine.range(of: "...") else { return nil }
         let tail = branchLine[marker.upperBound...]
-        guard let upstream = tail.split(whereSeparator: { $0 == " " || $0 == "[" }).first,
+        guard let upstream = tail.split(whereSeparator: { $0 == " " || $0 == "\t" }).first,
               let slash = upstream.firstIndex(of: "/") else { return nil }
         let remote = upstream[..<slash]
         return remote.isEmpty ? nil : String(remote)
@@ -365,7 +375,7 @@ enum GitHub {
     /// List every repo `owner` can see: the repos it owns, plus repos it has been
     /// added to as a collaborator (owned by someone else). Switches to that
     /// account first so private repos are visible.
-    static func listRepos(owner: String) -> Result<[Repo], GitHubError> {
+    static func listRepos(owner: String) -> Result<[Repo], CommandError> {
         listRepos(owner: owner,
                   ensureActive: ensureActiveAccount,
                   ownedRepos: ownedRepos,
@@ -374,13 +384,13 @@ enum GitHub {
 
     static func listRepos(owner: String,
                           ensureActive: (String) -> ShellResult,
-                          ownedRepos: () -> Result<[Repo], GitHubError>,
-                          collaboratorRepos: () -> [Repo]) -> Result<[Repo], GitHubError> {
+                          ownedRepos: () -> Result<[Repo], CommandError>,
+                          collaboratorRepos: () -> [Repo]) -> Result<[Repo], CommandError> {
         let accountCheck = ensureActive(owner)
         guard accountCheck.ok else {
             let detail = (accountCheck.stderr.isEmpty ? accountCheck.stdout : accountCheck.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(GitHubError(message: detail.isEmpty
+            return .failure(CommandError(message: detail.isEmpty
                 ? "Could not switch to account \(owner)"
                 : detail))
         }
@@ -406,17 +416,17 @@ enum GitHub {
 
     /// Repos owned by the active account. Uses the REST endpoint instead of
     /// `gh repo list --limit ...` so it can paginate without a silent cap.
-    private static func ownedRepos() -> Result<[Repo], GitHubError> {
+    private static func ownedRepos() -> Result<[Repo], CommandError> {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=owner&per_page=100",
             "--paginate", "--slurp",
         ])
         guard res.ok else {
             let msg = res.stderr.isEmpty ? res.stdout : res.stderr
-            return .failure(GitHubError(message: msg.trimmingCharacters(in: .whitespacesAndNewlines)))
+            return .failure(CommandError(message: msg.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         guard let repos = decodeSlurpedRestRepos(res.stdout) else {
-            return .failure(GitHubError(message: "could not parse gh repo output"))
+            return .failure(CommandError(message: "could not parse gh repo output"))
         }
         return .success(repos)
     }
@@ -467,16 +477,16 @@ enum GitHub {
     static func fork(source: RepoReference,
                      intoAccount alias: String,
                      defaultBranchOnly: Bool = true,
-                     timeoutSeconds: UInt64 = 60) -> Result<Repo, GitHubError> {
+                     timeoutSeconds: UInt64 = 60) -> Result<Repo, CommandError> {
         let accountCheck = ensureActiveAccount(alias)
         guard accountCheck.ok else {
             let detail = (accountCheck.stdout + accountCheck.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(GitHubError(message: detail.isEmpty ? "Could not switch to account \(alias)" : detail))
+            return .failure(CommandError(message: detail.isEmpty ? "Could not switch to account \(alias)" : detail))
         }
 
         guard let currentUser = currentLogin() else {
-            return .failure(GitHubError(message: "Could not determine the active GitHub user."))
+            return .failure(CommandError(message: "Could not determine the active GitHub user."))
         }
 
         var forkArgs = ["gh", "repo", "fork", source.nameWithOwner, "--clone=false"]
@@ -498,7 +508,7 @@ enum GitHub {
 
             let msg = (forkRes.stderr + forkRes.stdout)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(GitHubError(message: msg.isEmpty ? "fork failed" : msg))
+            return .failure(CommandError(message: msg.isEmpty ? "fork failed" : msg))
         }
 
         let forkedNameWithOwner = forkedRepoNameWithOwner(
@@ -513,7 +523,7 @@ enum GitHub {
     static func forkedRepoNameWithOwner(from output: String,
                                         currentUser: String,
                                         fallbackRepo: String) -> String {
-        forkedRepoNameCandidates(from: output, currentUser: currentUser, fallbackRepo: fallbackRepo)[0]
+        forkedRepoNameCandidates(from: output, currentUser: currentUser, fallbackRepo: fallbackRepo).first ?? "\(currentUser)/\(fallbackRepo)"
     }
 
     static func forkedRepoNameCandidates(from output: String,
@@ -567,7 +577,7 @@ enum GitHub {
 
     /// Poll the GitHub API until the repo exists or the timeout elapses.
     private static func waitForRepo(nameWithOwner: String,
-                                    timeoutSeconds: UInt64) -> Result<Repo, GitHubError> {
+                                    timeoutSeconds: UInt64) -> Result<Repo, CommandError> {
         let deadline = Date().addingTimeInterval(TimeInterval(timeoutSeconds))
         var delay: TimeInterval = 1.0
         let maxDelay: TimeInterval = 8.0
@@ -585,7 +595,7 @@ enum GitHub {
             delay = min(delay * 2, maxDelay)
         }
 
-        return .failure(GitHubError(message: """
+        return .failure(CommandError(message: """
             Fork created, but it didn't become available within \(timeoutSeconds) seconds. \
             You can try cloning \(nameWithOwner) manually once GitHub finishes the fork.
             """))
@@ -801,17 +811,30 @@ enum GitHub {
         return Shell.run(["git", "-C", path, "commit", "-m", message])
     }
 
+    /// Path to the bundled GitHub `known_hosts` file, if the app was assembled
+    /// with one (production builds). Falls back to the user's `~/.ssh/known_hosts`
+    /// when running from `swift run`/tests.
+    private static var pinnedKnownHostsPath: String? {
+        Bundle.main.path(forResource: "known_hosts", ofType: nil)
+    }
+
     /// `ssh -T git@github-<alias>` returns "Hi <name>!" on stderr — the auth check.
-    /// BatchMode forbids interactive prompts (there's no terminal to answer on)
-    /// and ConnectTimeout keeps a dead network from stalling the status sweep.
+    /// BatchMode forbids interactive prompts (there's no terminal to answer on),
+    /// ConnectTimeout keeps a dead network from stalling the status sweep, and
+    /// StrictHostKeyChecking=yes pins GitHub's host key instead of accepting any
+    /// new key silently.
     static func sshGreeting(host: String) -> String {
-        let res = Shell.run([
+        var args = [
             "ssh",
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=accept-new",
-            "-T", "git@\(host)",
-        ])
+            "-o", "StrictHostKeyChecking=yes",
+        ]
+        if let knownHosts = pinnedKnownHostsPath {
+            args += ["-o", "UserKnownHostsFile=\(knownHosts)"]
+        }
+        args += ["-T", "git@\(host)"]
+        let res = Shell.run(args)
         let text = res.stderr + "\n" + res.stdout
         if let line = text.components(separatedBy: .newlines).first(where: { $0.contains("Hi ") }) {
             return line.trimmingCharacters(in: .whitespaces)

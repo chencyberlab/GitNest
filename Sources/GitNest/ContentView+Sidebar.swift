@@ -376,8 +376,8 @@ extension ContentView {
     }
 
     /// Compact status pill: a ✓/✗ icon plus a short label (SSH / GitHub). Both
-    /// pills share `authBadgeWidth` so they read as a matched pair; the full
-    /// status (and the underlying check) live in the tooltip.
+    /// pills share `LayoutMetrics.authBadgeWidth` so they read as a matched pair;
+    /// the full status (and the underlying check) live in the tooltip.
     func authBadge(ok: Bool, label: String, status: String, help: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -390,7 +390,7 @@ extension ContentView {
         .padding(.vertical, 2).padding(.horizontal, 7)
         // Fix the width before the background so the colored pill itself is the
         // same size for both indicators (not just the layout slot).
-        .frame(width: authBadgeWidth, alignment: .leading)
+        .frame(width: LayoutMetrics.authBadgeWidth, alignment: .leading)
         .background(ok ? theme.successSubtle : theme.errorSubtle)
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous))
         .tooltip("\(status) — \(help)")

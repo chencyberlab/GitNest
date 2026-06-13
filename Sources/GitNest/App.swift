@@ -20,6 +20,16 @@ struct GitNestApp: App {
 /// X is clicked instead of leaving it running in the Dock (SwiftUI's default for a
 /// WindowGroup). Multiple windows still work — it only terminates on the *last* close.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Cache GitHub avatar images so the sidebar doesn't re-fetch them on every
+        // appearance. Other network traffic goes through `gh`, not URLSession, so
+        // this only affects avatars.
+        let memoryCapacity = 50 * 1024 * 1024   // 50 MB
+        let diskCapacity = 100 * 1024 * 1024    // 100 MB
+        URLCache.shared = URLCache(memoryCapacity: memoryCapacity,
+                                   diskCapacity: diskCapacity)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
     }

@@ -62,14 +62,14 @@ extension AppModel {
     }
 
     /// Re-scan cloned-repo status on a fixed interval so the row badges pick up
-    /// changes made outside the app (editor/terminal). Runs continuously,
-    /// regardless of window focus; each tick waits for the previous scan to finish.
+    /// changes made outside the app (editor/terminal). Paused while the app is in
+    /// the background; each tick waits for the previous scan to finish.
     func startStatusAutoRefresh() {
-        guard statusTimer == nil else { return }
+        guard statusTimer == nil, appIsActive else { return }
         statusTimer = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.statusRefreshSeconds * 1_000_000_000)
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.appIsActive else { return }
                 await self.autoRefreshStatusesTick()
             }
         }
@@ -94,10 +94,12 @@ extension AppModel {
 
         repoAutoRefreshTimer?.cancel()
         repoAutoRefreshTimer = nil
-        guard seconds > 0 else {
-            repoAutoRefreshSeconds = 0
-            isRefreshingRepos = false
-            setRepoRefreshMessage(nil)
+        guard seconds > 0, appIsActive else {
+            repoAutoRefreshSeconds = appIsActive ? 0 : UInt64(seconds)
+            if seconds <= 0 {
+                isRefreshingRepos = false
+                setRepoRefreshMessage(nil)
+            }
             return
         }
 
@@ -108,7 +110,7 @@ extension AppModel {
                 // Sleep first, using the captured interval, so `self` isn't held
                 // across the wait — matches startStatusAutoRefresh's pattern.
                 try? await Task.sleep(nanoseconds: interval * 1_000_000_000)
-                guard !Task.isCancelled, let self else { return }
+                guard !Task.isCancelled, let self, self.appIsActive else { return }
                 await self.autoRefreshRepoListTick()
             }
         }

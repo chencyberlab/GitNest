@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Combine
 
 /// Sortable columns in the repo list.
 enum RepoSortField: Sendable { case name, updated }
@@ -109,7 +110,7 @@ final class AppModel: ObservableObject {
 
     struct AddAccountLoginResult: Sendable {
         let login: ShellResult
-        let identity: Result<AccountSetup.Identity, GitHubError>?
+        let identity: Result<AccountSetup.Identity, CommandError>?
     }
 
     @Published var accounts: [Account] = []
@@ -124,24 +125,51 @@ final class AppModel: ObservableObject {
     @Published var repoSortAscending: Bool = false   // updated default: newest first
 
     /// Repos narrowed by the wild-search query, then sorted (cloned on top).
-    var filteredRepos: [Repo] {
-        let query = repoSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = query.isEmpty ? repos : repos.filter { RepoSearch.matches(query: query, repo: $0) }
-        return base.sorted(by: reposInOrder)
+    /// This is a cached derivative of `repos`, `repoSearch`, `repoSortField`,
+    /// `repoSortAscending`, and `clonedRepos`; it is recomputed only when one of
+    /// those inputs changes, avoiding O(n log n) work on every view update.
+    @Published var filteredRepos: [Repo] = []
+    private var filteredReposCancellable: AnyCancellable?
+
+    /// Recompute `filteredRepos` from the current inputs. Exposed so tests can
+    /// verify the cache without relying on the Combine pipeline.
+    func rebuildFilteredRepos() {
+        filteredRepos = Self.filteredRepos(
+            query: repoSearch,
+            repos: repos,
+            clonedRepos: clonedRepos,
+            sortField: repoSortField,
+            sortAscending: repoSortAscending
+        )
+    }
+
+    static func filteredRepos(query: String,
+                              repos: [Repo],
+                              clonedRepos: Set<Repo.ID>,
+                              sortField: RepoSortField,
+                              sortAscending: Bool) -> [Repo] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = trimmed.isEmpty ? repos : repos.filter { RepoSearch.matches(query: trimmed, repo: $0) }
+        return base.sorted { a, b in
+            reposInOrder(a, b, clonedRepos: clonedRepos, sortField: sortField, sortAscending: sortAscending)
+        }
     }
 
     /// Cloned-first, then the selected column/direction, with name as a stable
     /// tie-break so equal dates keep a deterministic order.
-    func reposInOrder(_ a: Repo, _ b: Repo) -> Bool {
-        let ac = isCloned(a), bc = isCloned(b)
+    static func reposInOrder(_ a: Repo, _ b: Repo,
+                             clonedRepos: Set<Repo.ID>,
+                             sortField: RepoSortField,
+                             sortAscending: Bool) -> Bool {
+        let ac = clonedRepos.contains(a.id), bc = clonedRepos.contains(b.id)
         if ac != bc { return ac }   // cloned rows pinned above remote-only rows
-        switch repoSortField {
+        switch sortField {
         case .name:
             let r = a.name.localizedCaseInsensitiveCompare(b.name)
-            if r != .orderedSame { return repoSortAscending == (r == .orderedAscending) }
+            if r != .orderedSame { return sortAscending == (r == .orderedAscending) }
         case .updated:
             let x = a.updatedAt ?? "", y = b.updatedAt ?? ""   // ISO-8601 sorts lexically
-            if x != y { return repoSortAscending == (x < y) }
+            if x != y { return sortAscending == (x < y) }
         }
         return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
     }
@@ -224,6 +252,12 @@ final class AppModel: ObservableObject {
     /// when you actually open them. Bounds background polling cost across accounts.
     static let backgroundRefreshFloorSeconds: UInt64 = 5 * 60
 
+    /// Whether the app is currently the active application. Auto-refresh timers
+    /// are paused while the app is in the background to avoid unnecessary CPU,
+    /// network, and GitHub API usage.
+    @Published var appIsActive = true
+    private var workspaceObservers: [any NSObjectProtocol] = []
+
     /// How long the "Repos refreshed just now." confirmation lingers before it
     /// auto-clears, plus the task that performs that delayed clear.
     static let refreshMessageLingerSeconds: UInt64 = 10
@@ -272,6 +306,25 @@ final class AppModel: ObservableObject {
         statusTimer?.cancel()
         repoAutoRefreshTimer?.cancel()
         repoRefreshMessageDismiss?.cancel()
+        for observer in workspaceObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    init() {
+        bindFilteredRepos()
+        rebuildFilteredRepos()
+    }
+
+    private func bindFilteredRepos() {
+        filteredReposCancellable = Publishers
+            .CombineLatest4($repoSearch, $repos, $repoSortField, $repoSortAscending)
+            .combineLatest($clonedRepos)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.rebuildFilteredRepos()
+                }
+            }
     }
 
     func configureAccountStatusLoadMode(_ mode: AccountStatusLoadMode) {
@@ -280,6 +333,7 @@ final class AppModel: ObservableObject {
 
     func startLifecycle(statusMode: AccountStatusLoadMode, repoAutoRefreshSeconds: Int) {
         configureAccountStatusLoadMode(statusMode)
+        observeAppActivation()
         if !lifecycleStarted {
             lifecycleStarted = true
             refreshAll(statusMode: statusMode)
@@ -288,6 +342,63 @@ final class AppModel: ObservableObject {
             startStatusAutoRefresh()
         }
         configureRepoAutoRefresh(seconds: repoAutoRefreshSeconds)
+    }
+
+    /// Pause/resume auto-refresh timers when the app moves to/from the background.
+    /// Comparing `processIdentifier` avoids relying on the bundle identifier, which
+    /// may differ between a manually assembled .app and `swift run`.
+    private func observeAppActivation() {
+        guard workspaceObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier == NSRunningApplication.current.processIdentifier else { return }
+            Task { @MainActor in
+                self.appIsActive = true
+                self.resumeAutoRefresh()
+            }
+        })
+        workspaceObservers.append(center.addObserver(
+            forName: NSWorkspace.didDeactivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] note in
+            guard let self,
+                  let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                  app.processIdentifier == NSRunningApplication.current.processIdentifier else { return }
+            Task { @MainActor in
+                self.appIsActive = false
+                self.pauseAutoRefresh()
+            }
+        })
+    }
+
+    private func pauseAutoRefresh() {
+        statusTimer?.cancel()
+        statusTimer = nil
+        repoAutoRefreshTimer?.cancel()
+        repoAutoRefreshTimer = nil
+    }
+
+    private func resumeAutoRefresh() {
+        startStatusAutoRefresh()
+        configureRepoAutoRefresh(seconds: Int(repoAutoRefreshSeconds))
+        // Refresh the visible account immediately so the UI is current after
+        // the app returns to the foreground.
+        Task { [weak self] in
+            guard let self, let account = self.selectedAccount else { return }
+            if !self.repos.isEmpty {
+                await self.refreshStatuses(for: account)
+            }
+            if self.shouldAutoRefreshRepos(for: account.alias) {
+                await self.loadRepos(for: account, silent: true, userInitiated: false)
+            }
+        }
     }
 
     func refreshAll(statusMode: AccountStatusLoadMode? = nil, manual: Bool = false) {
@@ -414,20 +525,23 @@ final class AppModel: ObservableObject {
         log = lines.suffix(Self.maxLogLines).joined(separator: "\n") + "\n"
     }
 
-    /// Poll clipboard while auth flow runs so the code can be shown immediately.
+    /// Watch the clipboard for a GitHub device code while an auth flow runs.
+    /// Only reads the pasteboard when its `changeCount` advances, so it does not
+    /// repeatedly trigger macOS clipboard-privacy alerts.
     func watchClipboardForDeviceCode(after startingChangeCount: Int) async {
+        var lastChangeCount = startingChangeCount
         for _ in 0..<120 { // up to ~60 seconds
             if Task.isCancelled { return }
-            guard NSPasteboard.general.changeCount != startingChangeCount else {
-                try? await Task.sleep(nanoseconds: 500_000_000)
-                continue
-            }
-            if let clip = NSPasteboard.general.string(forType: .string),
-               let code = DeviceCode.extract(fromClipboard: clip),
-               currentAuthFlowCode != code {
-                appendLog("One-time code: \(code) (also copied to clipboard)")
-                currentAuthFlowCode = code
-                return
+            let current = NSPasteboard.general.changeCount
+            if current != lastChangeCount {
+                lastChangeCount = current
+                if let clip = NSPasteboard.general.string(forType: .string),
+                   let code = DeviceCode.extract(fromClipboard: clip),
+                   currentAuthFlowCode != code {
+                    appendLog("One-time code: \(code) (also copied to clipboard)")
+                    currentAuthFlowCode = code
+                    return
+                }
             }
             try? await Task.sleep(nanoseconds: 500_000_000)
         }

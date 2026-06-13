@@ -126,7 +126,7 @@ extension GitHub {
     /// Detailed list of changed files for a cloned repo, loaded on demand for the
     /// summary popover. Returns `.success([])` for a clean tree, and `.failure`
     /// only when git itself fails (not a repo, git missing, etc.). Network-free.
-    static func changedFiles(at path: String) -> Result<[GitFileChange], GitHubError> {
+    static func changedFiles(at path: String) -> Result<[GitFileChange], CommandError> {
         // Mirror status(at:): never take .git/index.lock from this read. `-z` gives
         // NUL-terminated, never-quoted records, so non-ASCII / unusual names come
         // back readable and unambiguous (no quotePath dance, no " -> " guessing).
@@ -137,7 +137,7 @@ extension GitHub {
         guard res.ok else {
             let raw = (res.stderr.isEmpty ? res.stdout : res.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return .failure(GitHubError(message: raw.isEmpty ? "git status failed" : raw))
+            return .failure(CommandError(message: raw.isEmpty ? "git status failed" : raw))
         }
         return .success(GitChanges.parse(porcelainZ: res.stdout))
     }

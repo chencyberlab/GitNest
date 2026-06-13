@@ -26,6 +26,45 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-ali", in: config))
     }
 
+    func testContainsHostEntryIgnoresInlineComments() {
+        let config = """
+        Host github-alice # this is a comment
+            HostName github.com
+        Host github-bob # github-alice
+        """
+
+        XCTAssertTrue(AccountSetup.containsHostEntry(host: "github-alice", in: config))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "this", in: config))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host github-bob # github-alice"))
+    }
+
+    func testContainsHostEntryHandlesQuotedHosts() {
+        let config = """
+        Host "github-alice"
+            HostName github.com
+        """
+
+        XCTAssertTrue(AccountSetup.containsHostEntry(host: "github-alice", in: config))
+    }
+
+    func testContainsHostEntryDoesNotMatchWildcardsAsExactHost() {
+        let config = """
+        Host github-*
+            HostName github.com
+        """
+
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: config))
+    }
+
+    func testFoldersOverlapDetectsSameOrNestedPaths() {
+        let home = NSHomeDirectory()
+        XCTAssertTrue(AccountSetup.foldersOverlap("\(home)/a", "\(home)/a"))
+        XCTAssertTrue(AccountSetup.foldersOverlap("\(home)/a/b", "\(home)/a"))
+        XCTAssertTrue(AccountSetup.foldersOverlap("\(home)/a", "\(home)/a/b"))
+        XCTAssertFalse(AccountSetup.foldersOverlap("\(home)/a", "\(home)/ab"))
+        XCTAssertFalse(AccountSetup.foldersOverlap("\(home)/a/b", "\(home)/a/c"))
+    }
+
     func testSSHLoginParsesGitHubGreeting() {
         let greeting = "Hi Octo-Cat! You've successfully authenticated, but GitHub does not provide shell access."
 

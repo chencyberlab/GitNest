@@ -50,4 +50,27 @@ final class GitStatusTests: XCTestCase {
         XCTAssertFalse(status.isCleanAndCurrent)
         XCTAssertTrue(status.needsAttention)
     }
+
+    func testRepoStatusParsesBranchesWithBrackets() {
+        // Branch and upstream names containing brackets must not be mistaken for
+        // the trailing [ahead/behind] tracking info.
+        let output = "## feature/[123]...origin/feature/[123] [ahead 2, behind 1]"
+
+        let status = RepoStatus.parse(porcelainBranch: output)
+
+        XCTAssertEqual(status.ahead, 2)
+        XCTAssertEqual(status.behind, 1)
+        XCTAssertEqual(status.upstreamRemote, "origin")
+    }
+
+    func testRepoStatusDoesNotParseUpstreamBracketsAsTrackingWhenNoTrackingInfo() {
+        let output = "## feature/[123]...origin/feature/[123]"
+
+        let status = RepoStatus.parse(porcelainBranch: output)
+
+        XCTAssertEqual(status.ahead, 0)
+        XCTAssertEqual(status.behind, 0)
+        XCTAssertEqual(status.upstreamRemote, "origin")
+        XCTAssertNotEqual(status.remoteState, .upstreamGone)
+    }
 }

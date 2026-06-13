@@ -92,11 +92,11 @@ extension ColorThemePalette {
 
 private extension ColorThemeTokens {
     static let gitNestLight = ColorThemeTokens(
-        background: "",
-        surface: "",
-        elevatedSurface: "",
+        background: nil,
+        surface: nil,
+        elevatedSurface: nil,
         surfaceMuted: "#F5F3F7",
-        text: "",
+        text: nil,
         textMuted: "#5E5968",
         textTertiary: "#777381",
         border: "#D7D3DDBF",
@@ -119,11 +119,11 @@ private extension ColorThemeTokens {
     )
 
     static let gitNestDark = ColorThemeTokens(
-        background: "",
-        surface: "",
-        elevatedSurface: "",
+        background: nil,
+        surface: nil,
+        elevatedSurface: nil,
         surfaceMuted: "#28262C",
-        text: "",
+        text: nil,
         textMuted: "#CAC6D4",
         textTertiary: "#A29DAD",
         border: "#56515FD9",

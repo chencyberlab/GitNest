@@ -404,10 +404,10 @@ extension ContentView {
             Color.clear.frame(width: 18, height: 18)
             sortHeader("Repository", field: .name)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Color.clear.frame(width: visWidth, height: 1)   // visibility column (icon-only, no title)
+            Color.clear.frame(width: LayoutMetrics.visWidth, height: 1)   // visibility column (icon-only, no title)
             sortHeader("Updated", field: .updated)
-                .frame(width: updatedWidth, alignment: .leading)
-            Text("Actions").frame(width: actionsWidth, alignment: .trailing)
+                .frame(width: LayoutMetrics.updatedWidth, alignment: .leading)
+            Text("Actions").frame(width: LayoutMetrics.actionsWidth, alignment: .trailing)
         }
         .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(theme.textMuted)
         .padding(.horizontal, 12).padding(.vertical, 5)
@@ -459,12 +459,12 @@ extension ContentView {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             visBadge(repo.visibility)
-                .frame(width: visWidth, alignment: .center)
+                .frame(width: LayoutMetrics.visWidth, alignment: .center)
             Text(formattedUpdated(repo.updatedAt))
                 .font(.system(size: 12.5, weight: .medium)).foregroundStyle(theme.textMuted)
                 .lineLimit(1)
-                .frame(width: updatedWidth, alignment: .leading)
-            rowActions(repo, account: account).frame(width: actionsWidth, alignment: .trailing)
+                .frame(width: LayoutMetrics.updatedWidth, alignment: .leading)
+            rowActions(repo, account: account).frame(width: LayoutMetrics.actionsWidth, alignment: .trailing)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(selectionBackground(selected))
@@ -472,7 +472,7 @@ extension ContentView {
             Rectangle()
                 .fill(theme.border.opacity(0.75))
                 .frame(height: 1)
-                .padding(.leading, 30) // keep icon gutter visually clean
+                .padding(.leading, LayoutMetrics.rowDividerLeadingInset) // keep icon gutter visually clean
                 .padding(.trailing, 12)
         }
         .contentShape(Rectangle())

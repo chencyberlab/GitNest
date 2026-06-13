@@ -23,6 +23,14 @@ enum AccountSetup {
         ("~/.gitconfig-\(alias)" as NSString).expandingTildeInPath
     }
 
+    /// True when `a` and `b` are the same folder or one is nested inside the other.
+    /// Uses standardized URLs so symlinks and trailing slashes don't hide overlaps.
+    static func foldersOverlap(_ a: String, _ b: String) -> Bool {
+        let pathA = URL(fileURLWithPath: (a as NSString).expandingTildeInPath).standardizedFileURL.path
+        let pathB = URL(fileURLWithPath: (b as NSString).expandingTildeInPath).standardizedFileURL.path
+        return pathA == pathB || pathA.hasPrefix(pathB + "/") || pathB.hasPrefix(pathA + "/")
+    }
+
     // MARK: Identity (read from gh after sign-in)
 
     struct Identity: Sendable {
@@ -30,7 +38,7 @@ enum AccountSetup {
         let id: Int
         let name: String?
         var alias: String { login.lowercased() }
-        var displayName: String { (name?.isEmpty == false) ? name! : login }
+        var displayName: String { name.nilIfEmpty ?? login }
         /// GitHub's private no-reply commit address — safe to commit with.
         var noreplyEmail: String { "\(id)+\(login)@users.noreply.github.com" }
     }
@@ -59,14 +67,14 @@ enum AccountSetup {
     }
 
     /// Read the currently active gh account's login/id/name (call right after sign-in).
-    static func currentIdentity() -> Result<Identity, GitHubError> {
+    static func currentIdentity() -> Result<Identity, CommandError> {
         let res = Shell.run(["gh", "api", "user", "--jq", "{login: .login, id: .id, name: .name}"])
         guard res.ok, let data = res.stdout.data(using: .utf8) else {
-            return .failure(GitHubError(message: short(res)))
+            return .failure(CommandError(message: short(res)))
         }
         struct U: Decodable { let login: String; let id: Int; let name: String? }
         guard let u = try? JSONDecoder().decode(U.self, from: data) else {
-            return .failure(GitHubError(message: "could not parse gh user info"))
+            return .failure(CommandError(message: "could not parse gh user info"))
         }
         return .success(Identity(login: u.login, id: u.id, name: u.name))
     }
@@ -76,7 +84,7 @@ enum AccountSetup {
     /// Create a dedicated ed25519 key for `alias` if one doesn't already exist.
     /// Returns the public key text and whether it was newly created. Never
     /// overwrites an existing key (it's reused, since it may already be on GitHub).
-    static func ensureKey(alias: String, comment: String) -> Result<(publicKey: String, created: Bool), GitHubError> {
+    static func ensureKey(alias: String, comment: String) -> Result<(publicKey: String, created: Bool), CommandError> {
         let dir = sshDir()
         _ = Shell.run(["mkdir", "-p", dir])
         _ = Shell.run(["chmod", "700", dir])
@@ -88,11 +96,11 @@ enum AccountSetup {
             // so the keychain adds nothing here — a deliberate tradeoff for
             // unattended, per-account git over SSH.
             let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", ""])
-            guard res.ok else { return .failure(GitHubError(message: short(res))) }
+            guard res.ok else { return .failure(CommandError(message: short(res))) }
             created = true
         }
         guard let pub = try? String(contentsOfFile: pubKeyPath(alias: alias), encoding: .utf8) else {
-            return .failure(GitHubError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
+            return .failure(CommandError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
         }
         return .success((pub.trimmingCharacters(in: .whitespacesAndNewlines), created))
     }
@@ -101,7 +109,7 @@ enum AccountSetup {
 
     /// Append a `Host github-<alias>` block to `~/.ssh/config` if absent (backs up
     /// first). Returns the block written, or "" when it was already configured.
-    static func ensureSSHConfig(alias: String) -> Result<SSHConfigResult, GitHubError> {
+    static func ensureSSHConfig(alias: String) -> Result<SSHConfigResult, CommandError> {
         let host = "github-\(alias)"
         let path = sshConfigPath()
         let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
@@ -112,7 +120,7 @@ enum AccountSetup {
         do {
             backupPath = try backup(path)
         } catch {
-            return .failure(GitHubError(message: "could not back up ~/.ssh/config: \(error.localizedDescription)"))
+            return .failure(CommandError(message: "could not back up ~/.ssh/config: \(error.localizedDescription)"))
         }
         let block = """
         Host \(host)
@@ -129,19 +137,19 @@ enum AccountSetup {
             _ = Shell.run(["chmod", "600", path])
             return .success(SSHConfigResult(block: block, backupPath: backupPath))
         } catch {
-            return .failure(GitHubError(message: "could not write ~/.ssh/config: \(error.localizedDescription)"))
+            return .failure(CommandError(message: "could not write ~/.ssh/config: \(error.localizedDescription)"))
         }
     }
 
     /// Write the per-account gitconfig + global `includeIf` rule and create the
     /// folder. Backs up `~/.gitconfig` first; uses `git config` so files stay valid.
-    static func writeGitConfig(alias: String, name: String, email: String, folder: String) -> Result<GitConfigWriteResult, GitHubError> {
+    static func writeGitConfig(alias: String, name: String, email: String, folder: String) -> Result<GitConfigWriteResult, CommandError> {
         let accountCfg = accountGitconfigPath(alias: alias)
         let host = "github-\(alias)"
         let expandedFolder = (folder as NSString).expandingTildeInPath
 
         let mk = Shell.run(["mkdir", "-p", expandedFolder])
-        guard mk.ok else { return .failure(GitHubError(message: short(mk))) }
+        guard mk.ok else { return .failure(CommandError(message: short(mk))) }
 
         let accountBackup: String?
         let globalBackup: String?
@@ -149,12 +157,12 @@ enum AccountSetup {
             accountBackup = try backup(accountCfg)
             globalBackup = try backup(gitconfigPath())
         } catch {
-            return .failure(GitHubError(message: "could not create config backup: \(error.localizedDescription)"))
+            return .failure(CommandError(message: "could not create config backup: \(error.localizedDescription)"))
         }
 
         for kv in [("user.name", name), ("user.email", email)] {
             let r = Shell.run(["git", "config", "--file", accountCfg, kv.0, kv.1])
-            guard r.ok else { return .failure(GitHubError(message: short(r))) }
+            guard r.ok else { return .failure(CommandError(message: short(r))) }
         }
 
         // url."git@github-<alias>:".insteadOf = https://github.com/  and  git@github.com:
@@ -163,7 +171,7 @@ enum AccountSetup {
         _ = Shell.run(["git", "config", "--file", accountCfg, "--unset-all", urlKey])
         for value in ["https://github.com/", "git@github.com:"] {
             let r = Shell.run(["git", "config", "--file", accountCfg, "--add", urlKey, value])
-            guard r.ok else { return .failure(GitHubError(message: short(r))) }
+            guard r.ok else { return .failure(CommandError(message: short(r))) }
         }
 
         // Drop any existing includeIf rules that already point at this account's
@@ -179,7 +187,7 @@ enum AccountSetup {
         if !gitdir.hasSuffix("/") { gitdir += "/" }
         let includeKey = "includeIf.gitdir:\(gitdir).path"
         let inc = Shell.run(["git", "config", "--global", includeKey, portablePath(accountCfg)])
-        guard inc.ok else { return .failure(GitHubError(message: short(inc))) }
+        guard inc.ok else { return .failure(CommandError(message: short(inc))) }
 
         return .success(GitConfigWriteResult(accountGitconfigBackupPath: accountBackup,
                                              globalGitconfigBackupPath: globalBackup))
@@ -218,12 +226,17 @@ enum AccountSetup {
 
     static func containsHostEntry(host: String, in config: String) -> Bool {
         for raw in config.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, !line.hasPrefix("#") else { continue }
+            // Drop inline comments and surrounding whitespace.
+            let uncommented = raw.split(separator: "#", maxSplits: 1).first ?? ""
+            let line = uncommented.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
             let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard parts.first?.caseInsensitiveCompare("Host") == .orderedSame else { continue }
-            if parts.dropFirst().contains(where: { $0.caseInsensitiveCompare(host) == .orderedSame }) {
-                return true
+            for pattern in parts.dropFirst() {
+                let trimmed = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                if trimmed.caseInsensitiveCompare(host) == .orderedSame {
+                    return true
+                }
             }
         }
         return false

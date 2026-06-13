@@ -219,12 +219,15 @@ enum Shell {
         let argv = [executable] + arguments
         let env = environment.map { "\($0.key)=\($0.value)" }
         var pid = pid_t()
-        let spawnResult = executable.withCString { executablePath in
+        guard let spawnResult = executable.withCString({ executablePath in
             withCStringArray(argv) { argvPointer in
                 withCStringArray(env) { envPointer in
                     posix_spawn(&pid, executablePath, &actions, &attrs, argvPointer, envPointer)
                 }
             }
+        }) else {
+            closePipe(outFD); closePipe(errFD)
+            return ShellResult(exitCode: -1, stdout: "", stderr: "out of memory preparing command arguments")
         }
 
         close(outFD[1])
@@ -364,13 +367,22 @@ enum Shell {
     }
 
     private static func withCStringArray<R>(_ strings: [String],
-                                            _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> R) -> R {
-        let cStrings = strings.map { strdup($0)! }
+                                            _ body: (UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> R?) -> R? {
+        var cStrings: [UnsafeMutablePointer<CChar>] = []
+        cStrings.reserveCapacity(strings.count)
+        for s in strings {
+            guard let c = strdup(s) else {
+                cStrings.forEach { free($0) }
+                return nil
+            }
+            cStrings.append(c)
+        }
         defer { cStrings.forEach { free($0) } }
         var pointers = cStrings.map { Optional($0) }
         pointers.append(nil)
         return pointers.withUnsafeMutableBufferPointer { buffer in
-            body(buffer.baseAddress!)
+            guard let base = buffer.baseAddress else { return nil }
+            return body(base)
         }
     }
 

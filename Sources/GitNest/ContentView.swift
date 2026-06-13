@@ -79,12 +79,6 @@ struct ContentView: View {
         Theme(palette: ColorThemePalette.palette(for: colorThemeID) ?? .gitNest)
     }
 
-    // Shared column widths so the header and rows line up.
-    let visWidth: CGFloat = 52
-    let updatedWidth: CGFloat = 150
-    // Fits the Open menu plus pull/commit/push/delete icon actions.
-    let actionsWidth: CGFloat = 178
-
     var preferredEditor: PreferredEditor {
         PreferredEditor(rawValue: preferredEditorRaw) ?? .none
     }
@@ -93,12 +87,9 @@ struct ContentView: View {
         PreferredTerminal(rawValue: preferredTerminalRaw) ?? .none
     }
 
-    /// Fixed width for both profile-card auth pills so they read as a matched pair.
-    /// Sized to the longest label ("GitHub") plus its status icon.
-    let authBadgeWidth: CGFloat = 78
     var appVersionLabel: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return "Beta \((version?.isEmpty == false) ? version! : "1.0.0")"
+        return "Beta \(version.nilIfEmpty ?? "1.0.0")"
     }
 
     enum AccountSummaryStatus {

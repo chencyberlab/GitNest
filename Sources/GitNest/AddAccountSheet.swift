@@ -145,6 +145,11 @@ struct AddAccountSheet: View {
                 Text("Defaults to GitHub's private no-reply address — keeps your real email off commits.")
                     .font(.system(size: 10)).foregroundStyle(theme.textTertiary)
             }
+            Label("The SSH key is created without a passphrase so Git operations can run unattended. It is protected by file permissions only.",
+                  systemImage: "lock.open")
+                .font(.system(size: 11))
+                .foregroundStyle(theme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -286,7 +291,12 @@ struct AddAccountSheet: View {
         panel.canCreateDirectories = true
         panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory())   // device-portable default
         if panel.runModal() == .OK, let url = panel.url {
-            model.setAddAccountFolder(url.path)
+            let chosen = url.path
+            if let overlap = model.accounts.first(where: { AccountSetup.foldersOverlap(chosen, $0.folder) }) {
+                model.addAccountError = "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
+            } else {
+                model.setAddAccountFolder(chosen)
+            }
         }
     }
 

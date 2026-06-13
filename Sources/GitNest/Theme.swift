@@ -2,35 +2,34 @@ import SwiftUI
 
 /// Raw token values for one appearance (light or dark). All colour strings are
 /// HEX (e.g. "#7132F5" or "#7132F580" for 50 % alpha, in #RRGGBBAA order).
-/// An empty string means
-/// "fall back to the system semantic colour" — used by the built-in GitNest
-/// theme for window background, surface and label text so it continues to
-/// follow the OS exactly.
+/// `nil` means "fall back to the system semantic colour" — used by the built-in
+/// GitNest theme for window background, surface and label text so it continues
+/// to follow the OS exactly.
 struct ColorThemeTokens: Codable, Hashable, Sendable {
-    let background: String
-    let surface: String
-    let elevatedSurface: String
-    let surfaceMuted: String
-    let text: String
-    let textMuted: String
-    let textTertiary: String
-    let border: String
-    let primary: String
-    let primaryText: String
-    let primarySubtle: String
-    let accent: String
-    let accentSubtle: String
-    let success: String
-    let successSubtle: String
-    let warning: String
-    let warningSubtle: String
-    let error: String
-    let errorSubtle: String
-    let tooltipBackground: String
-    let tooltipText: String
-    let blue: String
-    let teal: String
-    let pink: String
+    let background: String?
+    let surface: String?
+    let elevatedSurface: String?
+    let surfaceMuted: String?
+    let text: String?
+    let textMuted: String?
+    let textTertiary: String?
+    let border: String?
+    let primary: String?
+    let primaryText: String?
+    let primarySubtle: String?
+    let accent: String?
+    let accentSubtle: String?
+    let success: String?
+    let successSubtle: String?
+    let warning: String?
+    let warningSubtle: String?
+    let error: String?
+    let errorSubtle: String?
+    let tooltipBackground: String?
+    let tooltipText: String?
+    let blue: String?
+    let teal: String?
+    let pink: String?
 }
 
 /// A named colour scheme with separate light and dark token sets.
@@ -100,12 +99,11 @@ struct Theme: EnvironmentKey {
     static func title(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold) }
 
     // MARK: Resolution
-    private func adaptive(_ keyPath: KeyPath<ColorThemeTokens, String>,
+    private func adaptive(_ keyPath: KeyPath<ColorThemeTokens, String?>,
                           system fallback: NSColor = .clear) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let tokens = appearance.isDarkMode ? self.palette.dark : self.palette.light
-            let hex = tokens[keyPath: keyPath]
-            if hex.isEmpty {
+            guard let hex = tokens[keyPath: keyPath] else {
                 switch keyPath {
                 case \.background, \.surface, \.elevatedSurface:
                     return NSColor.windowBackgroundColor
@@ -227,12 +225,12 @@ struct IconChipButtonStyle: ButtonStyle {
 
 extension Color {
     init(hex: String) {
-        let (r, g, b, a) = parseHexColor(hex)
+        let components = parseHexColor(hex) ?? (red: 0, green: 0, blue: 0, alpha: 1)
         self.init(.sRGB,
-                  red: r,
-                  green: g,
-                  blue: b,
-                  opacity: a)
+                  red: components.red,
+                  green: components.green,
+                  blue: components.blue,
+                  opacity: components.alpha)
     }
 
     init(hex: UInt, alpha: Double = 1) {
@@ -248,18 +246,23 @@ extension Color {
 
 private extension NSColor {
     convenience init(hex: String) {
-        let (r, g, b, a) = parseHexColor(hex)
-        self.init(srgbRed: CGFloat(r),
-                  green: CGFloat(g),
-                  blue: CGFloat(b),
-                  alpha: CGFloat(a))
+        let components = parseHexColor(hex) ?? (red: 0, green: 0, blue: 0, alpha: 1)
+        self.init(srgbRed: CGFloat(components.red),
+                  green: CGFloat(components.green),
+                  blue: CGFloat(components.blue),
+                  alpha: CGFloat(components.alpha))
     }
 }
 
-private func parseHexColor(_ hex: String) -> (red: Double, green: Double, blue: Double, alpha: Double) {
+/// Parses a hex colour string in `#RGB`, `#RGBA`, `#RRGGBB`, or `#RRGGBBAA` form.
+/// Returns `nil` when the string is empty or not a recognised hex format.
+private func parseHexColor(_ hex: String) -> (red: Double, green: Double, blue: Double, alpha: Double)? {
     let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    guard !cleaned.isEmpty else { return nil }
     var value: UInt64 = 0
-    Scanner(string: cleaned).scanHexInt64(&value)
+    guard Scanner(string: cleaned).scanHexInt64(&value), [3, 4, 6, 8].contains(cleaned.count) else {
+        return nil
+    }
 
     let r, g, b, a: UInt64
     switch cleaned.count {
@@ -272,10 +275,21 @@ private func parseHexColor(_ hex: String) -> (red: Double, green: Double, blue: 
     case 8:
         (r, g, b, a) = (value >> 24, value >> 16 & 0xFF, value >> 8 & 0xFF, value & 0xFF)
     default:
-        (r, g, b, a) = (0, 0, 0, 255)
+        return nil
     }
 
     return (Double(r) / 255, Double(g) / 255, Double(b) / 255, Double(a) / 255)
+}
+
+extension ColorThemeTokens {
+    /// Names of colour-token fields whose value is non-`nil` but not a valid hex
+    /// colour. `nil` values (system fallbacks) are ignored.
+    var invalidColorTokenNames: [String] {
+        Mirror(reflecting: self).children.compactMap { label, value in
+            guard let label, let hex = value as? String else { return nil }
+            return parseHexColor(hex) == nil ? label : nil
+        }
+    }
 }
 
 private extension NSAppearance {

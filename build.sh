@@ -48,6 +48,15 @@ rm -rf "$BUNDLE"
 mkdir -p "${BUNDLE}/Contents/MacOS" "${BUNDLE}/Contents/Resources"
 cp "$BIN" "${BUNDLE}/Contents/MacOS/${APP_NAME}"
 
+# Pin GitHub's SSH host keys so SSH checks are strict instead of accept-new.
+KNOWN_HOSTS="Resources/known_hosts"
+if [[ -f "$KNOWN_HOSTS" ]]; then
+  cp "$KNOWN_HOSTS" "${BUNDLE}/Contents/Resources/known_hosts"
+  echo "   bundled $KNOWN_HOSTS"
+else
+  echo "   (warning: $KNOWN_HOSTS not found — SSH host-key pinning disabled)"
+fi
+
 ICON_PLIST_ENTRY=""
 if [[ -f "AppIcon.icns" ]]; then
   cp "AppIcon.icns" "${BUNDLE}/Contents/Resources/AppIcon.icns"
