@@ -6,3 +6,6 @@
 
 # Built app bundle (produced by build.sh)
 *.app/
+
+# Local planning documents
+.plan/
