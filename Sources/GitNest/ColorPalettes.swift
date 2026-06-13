@@ -290,24 +290,30 @@ private extension ColorThemeTokens {
         pink: "#B48EAD"
     )
 
+    /// Tokyo Night's official "Day" palette is an editor theme: its background is
+    /// cool and dim, and its foreground is a bright, saturated blue. For a macOS
+    /// app UI that reads as a true light mode, we keep the Tokyo Night identity
+    /// (blue primary, purple accent, cool cast) but lift the background to a clean
+    /// near-white, swap the bright-blue body text for a dark blue-grey, and tighten
+    /// surface contrast and semantic colours.
     static let tokyoNightDay = fromPlanned(
-        background: "#E1E2E7",
-        surface: "#D8DBE2",
-        elevatedSurface: "#C4C8DA",
-        text: "#3760BF",
-        textMuted: "#848CB5",
-        border: "#A8AECB",
+        background: "#F5F6FA",
+        surface: "#EBEEF5",
+        elevatedSurface: "#FFFFFF",
+        text: "#252B47",
+        textMuted: "#5A648C",
+        border: "#D8DCE8",
         primary: "#2E7DE9",
         primaryText: "#FFFFFF",
         accent: "#9854F1",
-        success: "#587539",
-        warning: "#8C6C3E",
-        error: "#F52A65",
-        selection: "#B7C1E3",
-        tooltipBackground: "#C4C8DA",
-        tooltipText: "#3760BF",
+        success: "#3A7A2C",
+        warning: "#9F7428",
+        error: "#D93A5E",
+        selection: "#D4DBF0",
+        tooltipBackground: "#FFFFFF",
+        tooltipText: "#252B47",
         blue: "#2E7DE9",
-        teal: "#118C74",
+        teal: "#0D8A72",
         pink: "#9854F1"
     )
 
