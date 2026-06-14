@@ -106,7 +106,7 @@ struct RepoRowView: View {
 
     private var openMenu: some View {
         ActionPopoverButton(systemName: "folder", help: "Open…") { isPresented in
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 0) {
                 openPopoverButton("Finder", systemImage: "folder") {
                     isPresented.wrappedValue = false
                     model.repoActionCoordinator.openLocalFolder(repo, in: account)

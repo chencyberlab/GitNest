@@ -54,11 +54,14 @@ struct SelectionBackground: View {
 }
 
 /// A single tappable row used inside the cloned-repo Open menu popover.
+/// The row itself has no background; the whole popover shares one surface,
+/// and a subtle accent highlight fades in on hover to show the target item.
 struct OpenPopoverRow: View {
     let title: String
     let systemImage: String
     let action: () -> Void
     @Environment(\.theme) private var theme
+    @State private var isHovering = false
 
     var body: some View {
         Button(action: action) {
@@ -68,11 +71,18 @@ struct OpenPopoverRow: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 6)
                 .padding(.horizontal, 8)
-                .background(theme.surfaceMuted)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous)
+                        .fill(isHovering ? theme.accentSubtle : Color.clear)
+                )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovering = hovering
+            }
+        }
     }
 }
 

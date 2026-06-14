@@ -1,0 +1,934 @@
+-------------------------------------
+Translated Report (Full Report Below)
+-------------------------------------
+
+Process:               GitNest [52592]
+Path:                  /Users/USER/Desktop/*/GitNest.app/Contents/MacOS/GitNest
+Identifier:            local.GitNest
+Version:               1.0.0 (1)
+Code Type:             ARM-64 (Native)
+Parent Process:        launchd [1]
+User ID:               501
+
+Date/Time:             2026-06-14 13:06:04.5573 +0930
+OS Version:            macOS 15.7.7 (24G720)
+Report Version:        12
+Anonymous UUID:        9F324B7A-750C-8534-582D-3167D2C189DC
+
+Sleep/Wake UUID:       4CB07211-319F-4FE4-AD28-9B2642C9889C
+
+Time Awake Since Boot: 140000 seconds
+Time Since Wake:       2560 seconds
+
+System Integrity Protection: enabled
+
+Crashed Thread:        0  Dispatch queue: com.apple.main-thread
+
+Exception Type:        EXC_BAD_ACCESS (SIGSEGV)
+Exception Codes:       KERN_PROTECTION_FAILURE at 0x000000016f3b3ff0
+Exception Codes:       0x0000000000000002, 0x000000016f3b3ff0
+
+Termination Reason:    Namespace SIGNAL, Code 11 Segmentation fault: 11
+Terminating Process:   exc handler [52592]
+
+VM Region Info: 0x16f3b3ff0 is in 0x16bbb0000-0x16f3b4000;  bytes after start: 58736624  bytes before end: 15
+      REGION TYPE                    START - END         [ VSIZE] PRT/MAX SHRMOD  REGION DETAIL
+      mapped file                 158000000-1609d0000    [137.8M] r--/rwx SM=COW  Object_id=41000665
+      GAP OF 0xb1e0000 BYTES
+--->  STACK GUARD                 16bbb0000-16f3b4000    [ 56.0M] ---/rwx SM=NUL  stack guard for thread 0
+      Stack                       16f3b4000-16fbb0000    [ 8176K] rw-/rwx SM=SHM  thread 0
+
+Thread 0 Crashed::  Dispatch queue: com.apple.main-thread
+0   libswiftCore.dylib            	       0x19a958e0c tryCastToConstrainedOpaqueExistential(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool) + 4
+1   libswiftCore.dylib            	       0x19a95698c tryCast(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool) + 1008
+2   libswiftCore.dylib            	       0x19a95628c swift_dynamicCast + 88
+3   Combine                       	       0x19c9c71d0 specialized static Published.access<A>(_:keyPath:storage:) + 168
+4   Combine                       	       0x19c9c6360 static Published.subscript.getter + 308
+5   GitNest                       	       0x10027c49c RepoManager.selectedRepo.getter + 52 [inlined]
+6   GitNest                       	       0x10027c49c closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 136 (AppModel.swift:196)
+7   Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+8   Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+9   Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+10  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+11  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+12  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+13  Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+14  Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+15  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+16  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+17  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+18  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+19  Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+20  Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+21  Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+22  Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+23  GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+24  GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+25  Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+26  Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+27  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+28  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+29  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+30  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+31  Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+32  Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+33  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+34  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+35  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+36  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+37  Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+38  Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+39  Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+40  Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+41  GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+42  GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+43  Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+44  Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+45  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+46  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+47  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+48  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+49  Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+50  Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+51  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+52  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+53  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+54  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+55  Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+56  Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+57  Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+58  Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+59  GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+60  GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+61  Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+62  Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+63  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+64  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+65  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+66  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+67  Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+68  Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+69  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+70  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+71  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+72  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+73  Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+74  Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+75  Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+76  Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+77  GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+78  GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+79  Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+80  Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+81  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+82  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+83  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+84  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+85  Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+86  Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+87  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+88  Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+89  Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+90  Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+91  Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+92  Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+93  Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+94  Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+95  GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+96  GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+97  Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+98  Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+99  Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+100 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+101 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+102 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+103 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+104 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+105 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+106 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+107 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+108 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+109 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+110 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+111 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+112 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+113 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+114 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+115 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+116 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+117 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+118 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+119 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+120 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+121 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+122 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+123 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+124 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+125 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+126 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+127 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+128 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+129 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+130 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+131 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+132 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+133 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+134 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+135 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+136 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+137 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+138 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+139 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+140 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+141 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+142 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+143 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+144 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+145 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+146 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+147 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+148 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+149 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+150 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+151 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+152 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+153 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+154 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+155 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+156 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+157 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+158 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+159 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+160 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+161 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+162 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+163 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+164 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+165 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+166 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+167 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+168 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+169 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+170 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+171 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+172 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+173 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+174 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+175 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+176 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+177 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+178 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+179 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+180 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+181 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+182 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+183 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+184 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+185 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+186 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+187 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+188 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+189 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+190 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+191 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+192 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+193 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+194 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+195 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+196 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+197 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+198 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+199 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+200 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+201 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+202 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+203 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+204 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+205 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+206 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+207 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+208 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+209 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+210 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+211 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+212 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+213 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+214 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+215 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+216 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+217 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+218 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+219 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+220 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+221 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+222 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+223 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+224 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+225 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+226 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+227 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+228 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+229 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+230 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+231 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+232 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+233 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+234 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+235 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+236 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+237 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+238 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+239 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+240 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+241 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+242 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+243 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+244 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+245 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+246 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+247 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+248 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+249 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+250 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+251 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+252 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+253 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+254 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+255 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+256 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+257 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+258 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+259 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+260 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+261 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+262 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+263 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+264 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+265 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+266 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+267 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+268 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+269 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+270 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+271 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+272 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+273 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+274 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+275 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+276 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+277 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+278 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+279 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+280 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+281 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+282 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+283 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+284 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+285 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+286 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+287 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+288 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+289 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+290 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+291 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+292 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+293 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+294 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+295 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+296 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+297 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+298 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+299 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+300 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+301 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+302 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+303 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+304 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+305 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+306 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+307 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+308 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+309 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+310 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+311 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+312 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+313 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+314 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+315 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+316 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+317 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+318 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+319 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+320 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+321 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+322 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+323 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+324 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+325 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+326 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+327 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+328 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+329 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+330 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+331 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+332 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+333 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+334 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+335 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+336 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+337 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+338 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+339 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+340 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+341 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+342 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+343 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+344 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+345 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+346 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+347 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+348 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+349 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+350 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+351 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+352 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+353 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+354 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+355 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+356 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+357 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+358 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+359 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+360 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+361 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+362 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+363 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+364 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+365 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+366 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+367 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+368 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+369 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+370 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+371 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+372 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+373 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+374 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+375 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+376 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+377 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+378 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+379 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+380 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+381 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+382 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+383 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+384 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+385 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+386 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+387 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+388 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+389 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+390 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+391 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+392 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+393 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+394 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+395 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+396 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+397 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+398 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+399 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+400 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+401 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+402 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+403 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+404 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+405 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+406 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+407 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+408 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+409 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+410 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+411 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+412 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+413 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+414 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+415 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+416 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+417 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+418 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+419 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+420 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+421 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+422 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+423 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+424 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+425 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+426 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+427 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+428 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+429 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+430 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+431 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+432 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+433 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+434 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+435 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+436 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+437 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+438 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+439 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+440 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+441 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+442 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+443 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+444 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+445 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+446 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+447 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+448 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+449 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+450 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+451 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+452 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+453 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+454 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+455 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+456 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+457 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+458 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+459 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+460 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+461 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+462 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+463 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+464 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+465 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+466 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+467 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+468 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+469 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+470 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+471 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+472 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+473 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+474 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+475 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+476 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+477 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+478 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+479 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+480 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+481 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+482 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+483 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+484 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+485 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+486 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+487 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+488 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+489 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+490 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+491 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+492 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+493 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+494 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+495 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+496 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+497 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+498 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+499 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+500 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+501 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+502 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+503 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+504 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+505 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+506 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+507 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+508 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+509 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+510 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+511 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+512 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+513 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+514 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+515 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+516 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+517 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+518 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+519 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+520 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+521 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+522 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+523 Combine                       	       0x19c9c6724 closure #1 in static Published.subscript.setter + 428
+524 Combine                       	       0x19c9c75b0 specialized static Published.withMutation<A>(of:keyPath:storage:apply:) + 556
+525 Combine                       	       0x19c9c7648 specialized static Published.subscript.setter + 60
+526 Combine                       	       0x19c9c6500 static Published.subscript.setter + 84
+527 GitNest                       	       0x10027c564 RepoManager.selectedRepo.setter + 20 [inlined]
+528 GitNest                       	       0x10027c564 closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager() + 336 (AppModel.swift:197)
+529 Combine                       	       0x19c993d8c Subscribers.Sink.receive(_:) + 92
+530 Combine                       	       0x19c9945ec protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B> + 24
+531 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+532 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+533 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+534 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+535 Combine                       	       0x19c9c5cdc PublishedSubscriber.receive(_:) + 44
+536 Combine                       	       0x19c9c5d08 protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A> + 16
+537 Combine                       	       0x19c99ff2c PublishedSubject.Conduit.offer(_:) + 788
+538 Combine                       	       0x19c9a1148 <deduplicated_symbol> + 68
+539 Combine                       	       0x19c9e37ec ConduitList.forEach(_:) + 276
+540 Combine                       	       0x19c99f5c4 PublishedSubject.send(_:) + 300
+
+Thread 1:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 2:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 3:: com.apple.NSEventThread
+0   libsystem_kernel.dylib        	       0x188db5c34 mach_msg2_trap + 8
+1   libsystem_kernel.dylib        	       0x188dc8338 mach_msg2_internal + 76
+2   libsystem_kernel.dylib        	       0x188dbe764 mach_msg_overwrite + 484
+3   libsystem_kernel.dylib        	       0x188db5fa8 mach_msg + 24
+4   CoreFoundation                	       0x188ee2c0c __CFRunLoopServiceMachPort + 160
+5   CoreFoundation                	       0x188ee1528 __CFRunLoopRun + 1208
+6   CoreFoundation                	       0x188ee09e8 CFRunLoopRunSpecific + 572
+7   AppKit                        	       0x18cf2578c _NSEventThread + 140
+8   libsystem_pthread.dylib       	       0x188df7bc8 _pthread_start + 136
+9   libsystem_pthread.dylib       	       0x188df2b80 thread_start + 8
+
+Thread 4:: com.apple.NSURLConnectionLoader
+0   libsystem_kernel.dylib        	       0x188db5c34 mach_msg2_trap + 8
+1   libsystem_kernel.dylib        	       0x188dc8338 mach_msg2_internal + 76
+2   libsystem_kernel.dylib        	       0x188dbe764 mach_msg_overwrite + 484
+3   libsystem_kernel.dylib        	       0x188db5fa8 mach_msg + 24
+4   CoreFoundation                	       0x188ee2c0c __CFRunLoopServiceMachPort + 160
+5   CoreFoundation                	       0x188ee1528 __CFRunLoopRun + 1208
+6   CoreFoundation                	       0x188ee09e8 CFRunLoopRunSpecific + 572
+7   CFNetwork                     	       0x18ebe72f4 +[__CFN_CoreSchedulingSetRunnable _run:] + 416
+8   Foundation                    	       0x18a4aaba8 __NSThread__start__ + 732
+9   libsystem_pthread.dylib       	       0x188df7bc8 _pthread_start + 136
+10  libsystem_pthread.dylib       	       0x188df2b80 thread_start + 8
+
+Thread 5:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 6:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 7::  Dispatch queue: com.apple.root.user-interactive-qos
+0   libsystem_kernel.dylib        	       0x188db5c34 mach_msg2_trap + 8
+1   libsystem_kernel.dylib        	       0x188dc8338 mach_msg2_internal + 76
+2   libsystem_kernel.dylib        	       0x188dbe764 mach_msg_overwrite + 484
+3   libsystem_kernel.dylib        	       0x188db5fa8 mach_msg + 24
+4   CoreFoundation                	       0x188ee2c0c __CFRunLoopServiceMachPort + 160
+5   CoreFoundation                	       0x188ee1528 __CFRunLoopRun + 1208
+6   CoreFoundation                	       0x188ee09e8 CFRunLoopRunSpecific + 572
+7   Foundation                    	       0x18a4b0c78 -[NSRunLoop(NSRunLoop) runMode:beforeDate:] + 212
+8   AppKit                        	       0x18d390e54 -[NSAnimation _runBlocking] + 324
+9   libdispatch.dylib             	       0x188c3fb2c _dispatch_call_block_and_release + 32
+10  libdispatch.dylib             	       0x188c5985c _dispatch_client_callout + 16
+11  libdispatch.dylib             	       0x188c76490 <deduplicated_symbol> + 32
+12  libdispatch.dylib             	       0x188c51fa4 _dispatch_root_queue_drain + 736
+13  libdispatch.dylib             	       0x188c525d4 _dispatch_worker_thread2 + 156
+14  libsystem_pthread.dylib       	       0x188df3de4 _pthread_wqthread + 232
+15  libsystem_pthread.dylib       	       0x188df2b74 start_wqthread + 8
+
+Thread 8:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 9:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+Thread 10:
+0   libsystem_pthread.dylib       	       0x188df2b6c start_wqthread + 0
+
+
+Thread 0 crashed with ARM Thread State (64-bit):
+    x0: 0x000000016f3b4120   x1: 0x0000000105015408   x2: 0x000000016f3b4110   x3: 0x00000001003ab5a0
+    x4: 0x000000016f3b40d8   x5: 0x000000016f3b40d0   x6: 0x0000000000000001   x7: 0x0000000000000000
+    x8: 0x000000019a958e08   x9: 0x0000000000000000  x10: 0x0000000001000000  x11: 0x0000000000000002
+   x12: 0x0000000000000000  x13: 0x000f78ff51205f8a  x14: 0x0000000027d4eb2d  x15: 0x0000000000000001
+   x16: 0x000000019a958d5c  x17: 0x00000001f7def798  x18: 0x0000000000000000  x19: 0x000000016f3b4120
+   x20: 0x0000000105015408  x21: 0x00000001003ab5a0  x22: 0x0000000000000001  x23: 0x000000016f3b4110
+   x24: 0x0000000000000000  x25: 0x0000000000000000  x26: 0x000000016f3b40d8  x27: 0x000000019a958e08
+   x28: 0x000000016f3b40d0   fp: 0x000000016f3b40c0   lr: 0x000000019a95698c
+    sp: 0x000000016f3b4050   pc: 0x000000019a958e0c cpsr: 0x20000000
+   far: 0x000000016f3b3ff0  esr: 0x92000047 (Data Abort) byte write Translation fault
+
+Binary Images:
+       0x100250000 -        0x100397fff local.GitNest (1.0.0) <f78119f8-c470-3ab0-a77f-0b673f7d0762> /Users/USER/Desktop/*/GitNest.app/Contents/MacOS/GitNest
+       0x104ba8000 -        0x104bb3fff libobjc-trampolines.dylib (*) <9a87f143-aa9d-3c46-b2e8-b3fb9215e33e> /usr/lib/libobjc-trampolines.dylib
+       0x107100000 -        0x107833fff com.apple.AGXMetalG16X (329.2) <6f5fd9bf-6e58-379d-9dbe-4706eb893e13> /System/Library/Extensions/AGXMetalG16X.bundle/Contents/MacOS/AGXMetalG16X
+       0x19a5c9000 -        0x19ab37f3f libswiftCore.dylib (*) <113161e9-dec6-35c6-afa0-3dabceb8ebed> /usr/lib/swift/libswiftCore.dylib
+       0x19c97a000 -        0x19ca91537 com.apple.combine (1.0) <55af78bf-c16f-3536-98b4-9a320d1e21d2> /System/Library/Frameworks/Combine.framework/Versions/A/Combine
+               0x0 - 0xffffffffffffffff ??? (*) <00000000-0000-0000-0000-000000000000> ???
+       0x188df1000 -        0x188dfda77 libsystem_pthread.dylib (*) <2886f4f3-500b-36c8-a20c-c457eb754e3d> /usr/lib/system/libsystem_pthread.dylib
+       0x188db5000 -        0x188df05f3 libsystem_kernel.dylib (*) <f865e038-8aea-3fb1-a04f-731060311916> /usr/lib/system/libsystem_kernel.dylib
+       0x188e66000 -        0x1893a4fff com.apple.CoreFoundation (6.9) <3c6d108b-7a9e-3020-84e7-823ad9129ae5> /System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation
+       0x18cdc7000 -        0x18e25775f com.apple.AppKit (6.9) <33d86abe-3911-31e8-8574-72d3319c0ee4> /System/Library/Frameworks/AppKit.framework/Versions/C/AppKit
+       0x18e993000 -        0x18ed5ca5f com.apple.CFNetwork (1.0) <2f4b24e0-6706-3c7e-8e83-f3b9260be473> /System/Library/Frameworks/CFNetwork.framework/Versions/A/CFNetwork
+       0x18a457000 -        0x18b24057f com.apple.Foundation (6.9) <6cd7e451-8913-338e-aa36-52c55d53883f> /System/Library/Frameworks/Foundation.framework/Versions/C/Foundation
+       0x188c3e000 -        0x188c8475f libdispatch.dylib (*) <63a54ce1-2ab6-3673-82e4-d8489d811475> /usr/lib/system/libdispatch.dylib
+
+External Modification Summary:
+  Calls made by other processes targeting this process:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+  Calls made by this process:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+  Calls made by all processes on this machine:
+    task_for_pid: 0
+    thread_create: 0
+    thread_set_state: 0
+
+VM Region Summary:
+ReadOnly portion of Libraries: Total=1.6G resident=0K(0%) swapped_out_or_unallocated=1.6G(100%)
+Writable regions: Total=1.9G written=769K(0%) resident=769K(0%) swapped_out=0K(0%) unallocated=1.9G(100%)
+
+                                VIRTUAL   REGION 
+REGION TYPE                        SIZE    COUNT (non-coalesced) 
+===========                     =======  ======= 
+Accelerate framework               128K        1 
+Activity Tracing                   256K        1 
+AttributeGraph Data               1024K        1 
+CG image                          3264K        7 
+ColorSync                          592K       29 
+CoreAnimation                     5888K      298 
+CoreGraphics                       128K        8 
+CoreUI image data                 4192K       31 
+Foundation                          16K        1 
+Image IO                            48K        2 
+Kernel Alloc Once                   32K        1 
+MALLOC                             1.9G      115 
+MALLOC guard page                  480K       30 
+SQLite page cache                  256K        2 
+STACK GUARD                       56.2M       11 
+Stack                             13.3M       11 
+VM_ALLOCATE                       12.2M       16 
+__AUTH                            5360K      683 
+__AUTH_CONST                      75.9M      925 
+__CTF                               824        1 
+__DATA                            25.0M      904 
+__DATA_CONST                      26.8M      935 
+__DATA_DIRTY                      2762K      337 
+__FONT_DATA                        2352        1 
+__INFO_FILTER                         8        1 
+__LINKEDIT                       620.9M        4 
+__OBJC_RO                         61.4M        1 
+__OBJC_RW                         2397K        1 
+__TEXT                             1.0G      955 
+__TPRO_CONST                       128K        2 
+libnetwork                         128K        8 
+mapped file                      259.9M       48 
+page table in kernel               769K        1 
+shared memory                     9584K       18 
+===========                     =======  ======= 
+TOTAL                              4.1G     5390 
+
+
+
+-----------
+Full Report
+-----------
+
+{"app_name":"GitNest","timestamp":"2026-06-14 13:06:05.00 +0930","app_version":"1.0.0","slice_uuid":"f78119f8-c470-3ab0-a77f-0b673f7d0762","build_version":"1","platform":1,"bundleID":"local.GitNest","share_with_app_devs":0,"is_first_party":0,"bug_type":"309","os_version":"macOS 15.7.7 (24G720)","roots_installed":0,"name":"GitNest","incident_id":"E809BF13-58F6-4A94-A79B-DFE0DCBEA461"}
+{
+  "uptime" : 140000,
+  "procRole" : "Foreground",
+  "version" : 2,
+  "userID" : 501,
+  "deployVersion" : 210,
+  "modelCode" : "Mac16,11",
+  "coalitionID" : 20772,
+  "osVersion" : {
+    "train" : "macOS 15.7.7",
+    "build" : "24G720",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2026-06-14 13:06:04.5573 +0930",
+  "codeSigningMonitor" : 2,
+  "incident" : "E809BF13-58F6-4A94-A79B-DFE0DCBEA461",
+  "pid" : 52592,
+  "translated" : false,
+  "cpuType" : "ARM-64",
+  "roots_installed" : 0,
+  "bug_type" : "309",
+  "procLaunch" : "2026-06-14 13:05:19.2743 +0930",
+  "procStartAbsTime" : 3551299332312,
+  "procExitAbsTime" : 3552386054037,
+  "procName" : "GitNest",
+  "procPath" : "\/Users\/USER\/Desktop\/*\/GitNest.app\/Contents\/MacOS\/GitNest",
+  "bundleInfo" : {"CFBundleShortVersionString":"1.0.0","CFBundleVersion":"1","CFBundleIdentifier":"local.GitNest"},
+  "storeInfo" : {"deviceIdentifierForVendor":"0E5D4A91-76BF-5CE4-A9DE-38C044114699","thirdParty":true},
+  "parentProc" : "launchd",
+  "parentPid" : 1,
+  "coalitionName" : "local.GitNest",
+  "crashReporterKey" : "9F324B7A-750C-8534-582D-3167D2C189DC",
+  "appleIntelligenceStatus" : {"state":"unavailable","reasons":["siriAssetIsNotReady","notOptedIn","assetIsNotReady"]},
+  "codeSigningID" : "local.GitNest",
+  "codeSigningTeamID" : "",
+  "codeSigningFlags" : 570425857,
+  "codeSigningValidationCategory" : 10,
+  "codeSigningTrustLevel" : 4294967295,
+  "codeSigningAuxiliaryInfo" : 0,
+  "instructionByteStream" : {"beforePC":"4gMTqvEDCKpRd\/zyMQk\/1yAAgFL9e0Kp9E9BqfZXw6j\/D1\/WfyMD1Q==","atPC":"\/G+6qfpnAan4XwKp9lcDqfRPBKn9ewWp\/UMBkfUDBqrzAwOq9AMCqg=="},
+  "bootSessionUUID" : "5AC04FB1-8F90-4030-A364-89EDF25904B3",
+  "wakeTime" : 2560,
+  "sleepWakeUUID" : "4CB07211-319F-4FE4-AD28-9B2642C9889C",
+  "sip" : "enabled",
+  "vmRegionInfo" : "0x16f3b3ff0 is in 0x16bbb0000-0x16f3b4000;  bytes after start: 58736624  bytes before end: 15\n      REGION TYPE                    START - END         [ VSIZE] PRT\/MAX SHRMOD  REGION DETAIL\n      mapped file                 158000000-1609d0000    [137.8M] r--\/rwx SM=COW  Object_id=41000665\n      GAP OF 0xb1e0000 BYTES\n--->  STACK GUARD                 16bbb0000-16f3b4000    [ 56.0M] ---\/rwx SM=NUL  stack guard for thread 0\n      Stack                       16f3b4000-16fbb0000    [ 8176K] rw-\/rwx SM=SHM  thread 0",
+  "exception" : {"codes":"0x0000000000000002, 0x000000016f3b3ff0","rawCodes":[2,6161121264],"type":"EXC_BAD_ACCESS","signal":"SIGSEGV","subtype":"KERN_PROTECTION_FAILURE at 0x000000016f3b3ff0"},
+  "termination" : {"flags":0,"code":11,"namespace":"SIGNAL","indicator":"Segmentation fault: 11","byProc":"exc handler","byPid":52592},
+  "vmregioninfo" : "0x16f3b3ff0 is in 0x16bbb0000-0x16f3b4000;  bytes after start: 58736624  bytes before end: 15\n      REGION TYPE                    START - END         [ VSIZE] PRT\/MAX SHRMOD  REGION DETAIL\n      mapped file                 158000000-1609d0000    [137.8M] r--\/rwx SM=COW  Object_id=41000665\n      GAP OF 0xb1e0000 BYTES\n--->  STACK GUARD                 16bbb0000-16f3b4000    [ 56.0M] ---\/rwx SM=NUL  stack guard for thread 0\n      Stack                       16f3b4000-16fbb0000    [ 8176K] rw-\/rwx SM=SHM  thread 0",
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 0,
+  "threads" : [{"triggered":true,"id":3131262,"threadState":{"x":[{"value":6161121568},{"value":4378940424},{"value":6161121552},{"value":4298814880,"symbolLocation":0,"symbol":"type metadata for RepoManager"},{"value":6161121496},{"value":6161121488},{"value":1},{"value":0},{"value":6888459784,"symbolLocation":0,"symbol":"tryCastToConstrainedOpaqueExistential(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool)"},{"value":0},{"value":16777216},{"value":2},{"value":0},{"value":4355162623729546},{"value":668265261},{"value":1},{"value":6888459612,"symbolLocation":0,"symbol":"tryCastToUnconstrainedOpaqueExistential(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool)"},{"value":8453552024},{"value":0},{"value":6161121568},{"value":4378940424},{"value":4298814880,"symbolLocation":0,"symbol":"type metadata for RepoManager"},{"value":1},{"value":6161121552},{"value":0},{"value":0},{"value":6161121496},{"value":6888459784,"symbolLocation":0,"symbol":"tryCastToConstrainedOpaqueExistential(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool)"},{"value":6161121488}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6888450444},"cpsr":{"value":536870912},"fp":{"value":6161121472},"sp":{"value":6161121360},"esr":{"value":2449473607,"description":"(Data Abort) byte write Translation fault"},"pc":{"value":6888459788,"matchesCrashFrame":1},"far":{"value":6161121264}},"queue":"com.apple.main-thread","frames":[{"imageOffset":3735052,"symbol":"tryCastToConstrainedOpaqueExistential(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool)","symbolLocation":4,"imageIndex":3},{"imageOffset":3725708,"symbol":"tryCast(swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::OpaqueValue*, swift::TargetMetadata<swift::InProcess> const*, swift::TargetMetadata<swift::InProcess> const*&, swift::TargetMetadata<swift::InProcess> const*&, bool, bool)","symbolLocation":1008,"imageIndex":3},{"imageOffset":3723916,"symbol":"swift_dynamicCast","symbolLocation":88,"imageIndex":3},{"imageOffset":315856,"symbol":"specialized static Published.access<A>(_:keyPath:storage:)","symbolLocation":168,"imageIndex":4},{"imageOffset":312160,"symbol":"static Published.subscript.getter","symbolLocation":308,"imageIndex":4},{"imageOffset":181404,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.getter","imageIndex":0,"symbolLocation":52,"inline":true},{"imageOffset":181404,"sourceLine":196,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":136},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":313124,"symbol":"closure #1 in static Published.subscript.setter","symbolLocation":428,"imageIndex":4},{"imageOffset":316848,"symbol":"specialized static Published.withMutation<A>(of:keyPath:storage:apply:)","symbolLocation":556,"imageIndex":4},{"imageOffset":317000,"symbol":"specialized static Published.subscript.setter","symbolLocation":60,"imageIndex":4},{"imageOffset":312576,"symbol":"static Published.subscript.setter","symbolLocation":84,"imageIndex":4},{"imageOffset":181604,"sourceFile":"\/<compiler-generated>","symbol":"RepoManager.selectedRepo.setter","imageIndex":0,"symbolLocation":20,"inline":true},{"imageOffset":181604,"sourceLine":197,"sourceFile":"AppModel.swift","symbol":"closure #1 in AppModel.bindAppModelSelectedRepoToRepoManager()","imageIndex":0,"symbolLocation":336},{"imageOffset":105868,"symbol":"Subscribers.Sink.receive(_:)","symbolLocation":92,"imageIndex":4},{"imageOffset":108012,"symbol":"protocol witness for Subscriber.receive(_:) in conformance Subscribers.Sink<A, B>","symbolLocation":24,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4},{"imageOffset":310492,"symbol":"PublishedSubscriber.receive(_:)","symbolLocation":44,"imageIndex":4},{"imageOffset":310536,"symbol":"protocol witness for Subscriber.receive(_:) in conformance PublishedSubscriber<A>","symbolLocation":16,"imageIndex":4},{"imageOffset":155436,"symbol":"PublishedSubject.Conduit.offer(_:)","symbolLocation":788,"imageIndex":4},{"imageOffset":160072,"symbol":"<deduplicated_symbol>","symbolLocation":68,"imageIndex":4},{"imageOffset":432108,"symbol":"ConduitList.forEach(_:)","symbolLocation":276,"imageIndex":4},{"imageOffset":153028,"symbol":"PublishedSubject.send(_:)","symbolLocation":300,"imageIndex":4}]},{"id":3131311,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6170046464},{"value":5635},{"value":6169509888},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6170046464},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3131312,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6170619904},{"value":8451},{"value":6170083328},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6170619904},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3131342,"name":"com.apple.NSEventThread","threadState":{"x":[{"value":268451845},{"value":21592279046},{"value":8589934592},{"value":234208861618176},{"value":0},{"value":234208861618176},{"value":2},{"value":4294967295},{"value":0},{"value":17179869184},{"value":0},{"value":2},{"value":0},{"value":0},{"value":54531},{"value":0},{"value":18446744073709551569},{"value":8453577824},{"value":0},{"value":4294967295},{"value":2},{"value":234208861618176},{"value":0},{"value":234208861618176},{"value":6172909704},{"value":8589934592},{"value":21592279046},{"value":18446744073709550527},{"value":4412409862}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6591120184},"cpsr":{"value":0},"fp":{"value":6172909552},"sp":{"value":6172909472},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591044660},"far":{"value":0}},"frames":[{"imageOffset":3124,"symbol":"mach_msg2_trap","symbolLocation":8,"imageIndex":7},{"imageOffset":78648,"symbol":"mach_msg2_internal","symbolLocation":76,"imageIndex":7},{"imageOffset":38756,"symbol":"mach_msg_overwrite","symbolLocation":484,"imageIndex":7},{"imageOffset":4008,"symbol":"mach_msg","symbolLocation":24,"imageIndex":7},{"imageOffset":510988,"symbol":"__CFRunLoopServiceMachPort","symbolLocation":160,"imageIndex":8},{"imageOffset":505128,"symbol":"__CFRunLoopRun","symbolLocation":1208,"imageIndex":8},{"imageOffset":502248,"symbol":"CFRunLoopRunSpecific","symbolLocation":572,"imageIndex":8},{"imageOffset":1435532,"symbol":"_NSEventThread","symbolLocation":140,"imageIndex":9},{"imageOffset":27592,"symbol":"_pthread_start","symbolLocation":136,"imageIndex":6},{"imageOffset":7040,"symbol":"thread_start","symbolLocation":8,"imageIndex":6}]},{"id":3131415,"name":"com.apple.NSURLConnectionLoader","threadState":{"x":[{"value":268451845},{"value":21592279046},{"value":8589934592},{"value":340861489512448},{"value":0},{"value":340861489512448},{"value":2},{"value":4294967295},{"value":0},{"value":17179869184},{"value":0},{"value":2},{"value":0},{"value":0},{"value":79363},{"value":0},{"value":18446744073709551569},{"value":8453577824},{"value":0},{"value":4294967295},{"value":2},{"value":340861489512448},{"value":0},{"value":340861489512448},{"value":6171761992},{"value":8589934592},{"value":21592279046},{"value":18446744073709550527},{"value":4412409862}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6591120184},"cpsr":{"value":0},"fp":{"value":6171761840},"sp":{"value":6171761760},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591044660},"far":{"value":0}},"frames":[{"imageOffset":3124,"symbol":"mach_msg2_trap","symbolLocation":8,"imageIndex":7},{"imageOffset":78648,"symbol":"mach_msg2_internal","symbolLocation":76,"imageIndex":7},{"imageOffset":38756,"symbol":"mach_msg_overwrite","symbolLocation":484,"imageIndex":7},{"imageOffset":4008,"symbol":"mach_msg","symbolLocation":24,"imageIndex":7},{"imageOffset":510988,"symbol":"__CFRunLoopServiceMachPort","symbolLocation":160,"imageIndex":8},{"imageOffset":505128,"symbol":"__CFRunLoopRun","symbolLocation":1208,"imageIndex":8},{"imageOffset":502248,"symbol":"CFRunLoopRunSpecific","symbolLocation":572,"imageIndex":8},{"imageOffset":2441972,"symbol":"+[__CFN_CoreSchedulingSetRunnable _run:]","symbolLocation":416,"imageIndex":10},{"imageOffset":342952,"symbol":"__NSThread__start__","symbolLocation":732,"imageIndex":11},{"imageOffset":27592,"symbol":"_pthread_start","symbolLocation":136,"imageIndex":6},{"imageOffset":7040,"symbol":"thread_start","symbolLocation":8,"imageIndex":6}]},{"id":3131431,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6308786176},{"value":66231},{"value":6308249600},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6308786176},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3131433,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6309359616},{"value":74551},{"value":6308823040},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6309359616},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3132417,"threadState":{"x":[{"value":268451845},{"value":21592279046},{"value":8589934592},{"value":329935092711424},{"value":0},{"value":329935092711424},{"value":2},{"value":4294967295},{"value":0},{"value":17179869184},{"value":0},{"value":2},{"value":0},{"value":0},{"value":76819},{"value":0},{"value":18446744073709551569},{"value":8453577824},{"value":0},{"value":4294967295},{"value":2},{"value":329935092711424},{"value":0},{"value":329935092711424},{"value":6309928696},{"value":8589934592},{"value":21592279046},{"value":18446744073709550527},{"value":4412409862}],"flavor":"ARM_THREAD_STATE64","lr":{"value":6591120184},"cpsr":{"value":0},"fp":{"value":6309928544},"sp":{"value":6309928464},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591044660},"far":{"value":0}},"queue":"com.apple.root.user-interactive-qos","frames":[{"imageOffset":3124,"symbol":"mach_msg2_trap","symbolLocation":8,"imageIndex":7},{"imageOffset":78648,"symbol":"mach_msg2_internal","symbolLocation":76,"imageIndex":7},{"imageOffset":38756,"symbol":"mach_msg_overwrite","symbolLocation":484,"imageIndex":7},{"imageOffset":4008,"symbol":"mach_msg","symbolLocation":24,"imageIndex":7},{"imageOffset":510988,"symbol":"__CFRunLoopServiceMachPort","symbolLocation":160,"imageIndex":8},{"imageOffset":505128,"symbol":"__CFRunLoopRun","symbolLocation":1208,"imageIndex":8},{"imageOffset":502248,"symbol":"CFRunLoopRunSpecific","symbolLocation":572,"imageIndex":8},{"imageOffset":367736,"symbol":"-[NSRunLoop(NSRunLoop) runMode:beforeDate:]","symbolLocation":212,"imageIndex":11},{"imageOffset":6069844,"symbol":"-[NSAnimation _runBlocking]","symbolLocation":324,"imageIndex":9},{"imageOffset":6956,"symbol":"_dispatch_call_block_and_release","symbolLocation":32,"imageIndex":12},{"imageOffset":112732,"symbol":"_dispatch_client_callout","symbolLocation":16,"imageIndex":12},{"imageOffset":230544,"symbol":"<deduplicated_symbol>","symbolLocation":32,"imageIndex":12},{"imageOffset":81828,"symbol":"_dispatch_root_queue_drain","symbolLocation":736,"imageIndex":12},{"imageOffset":83412,"symbol":"_dispatch_worker_thread2","symbolLocation":156,"imageIndex":12},{"imageOffset":11748,"symbol":"_pthread_wqthread","symbolLocation":232,"imageIndex":6},{"imageOffset":7028,"symbol":"start_wqthread","symbolLocation":8,"imageIndex":6}]},{"id":3132723,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6171193344},{"value":92023},{"value":6170656768},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6171193344},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3132725,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6172340224},{"value":111143},{"value":6171803648},{"value":0},{"value":409604},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6172340224},"esr":{"value":1442840704,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}},{"id":3132727,"frames":[{"imageOffset":7020,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":6}],"threadState":{"x":[{"value":6173487104},{"value":0},{"value":6172950528},{"value":0},{"value":278532},{"value":18446744073709551615},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0},{"value":0}],"flavor":"ARM_THREAD_STATE64","lr":{"value":0},"cpsr":{"value":0},"fp":{"value":0},"sp":{"value":6173487104},"esr":{"value":0,"description":" Address size fault"},"pc":{"value":6591294316},"far":{"value":0}}}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "arm64",
+    "base" : 4297392128,
+    "CFBundleShortVersionString" : "1.0.0",
+    "CFBundleIdentifier" : "local.GitNest",
+    "size" : 1343488,
+    "uuid" : "f78119f8-c470-3ab0-a77f-0b673f7d0762",
+    "path" : "\/Users\/USER\/Desktop\/*\/GitNest.app\/Contents\/MacOS\/GitNest",
+    "name" : "GitNest",
+    "CFBundleVersion" : "1"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4374298624,
+    "size" : 49152,
+    "uuid" : "9a87f143-aa9d-3c46-b2e8-b3fb9215e33e",
+    "path" : "\/usr\/lib\/libobjc-trampolines.dylib",
+    "name" : "libobjc-trampolines.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 4413456384,
+    "CFBundleShortVersionString" : "329.2",
+    "CFBundleIdentifier" : "com.apple.AGXMetalG16X",
+    "size" : 7553024,
+    "uuid" : "6f5fd9bf-6e58-379d-9dbe-4706eb893e13",
+    "path" : "\/System\/Library\/Extensions\/AGXMetalG16X.bundle\/Contents\/MacOS\/AGXMetalG16X",
+    "name" : "AGXMetalG16X",
+    "CFBundleVersion" : "329.2"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6884724736,
+    "size" : 5697344,
+    "uuid" : "113161e9-dec6-35c6-afa0-3dabceb8ebed",
+    "path" : "\/usr\/lib\/swift\/libswiftCore.dylib",
+    "name" : "libswiftCore.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6922149888,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.combine",
+    "size" : 1144120,
+    "uuid" : "55af78bf-c16f-3536-98b4-9a320d1e21d2",
+    "path" : "\/System\/Library\/Frameworks\/Combine.framework\/Versions\/A\/Combine",
+    "name" : "Combine",
+    "CFBundleVersion" : "3022"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6591287296,
+    "size" : 51832,
+    "uuid" : "2886f4f3-500b-36c8-a20c-c457eb754e3d",
+    "path" : "\/usr\/lib\/system\/libsystem_pthread.dylib",
+    "name" : "libsystem_pthread.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6591041536,
+    "size" : 243188,
+    "uuid" : "f865e038-8aea-3fb1-a04f-731060311916",
+    "path" : "\/usr\/lib\/system\/libsystem_kernel.dylib",
+    "name" : "libsystem_kernel.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6591766528,
+    "CFBundleShortVersionString" : "6.9",
+    "CFBundleIdentifier" : "com.apple.CoreFoundation",
+    "size" : 5500928,
+    "uuid" : "3c6d108b-7a9e-3020-84e7-823ad9129ae5",
+    "path" : "\/System\/Library\/Frameworks\/CoreFoundation.framework\/Versions\/A\/CoreFoundation",
+    "name" : "CoreFoundation",
+    "CFBundleVersion" : "3603.1.408"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6658224128,
+    "CFBundleShortVersionString" : "6.9",
+    "CFBundleIdentifier" : "com.apple.AppKit",
+    "size" : 21563232,
+    "uuid" : "33d86abe-3911-31e8-8574-72d3319c0ee4",
+    "path" : "\/System\/Library\/Frameworks\/AppKit.framework\/Versions\/C\/AppKit",
+    "name" : "AppKit",
+    "CFBundleVersion" : "2575.70.56"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6687371264,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.CFNetwork",
+    "size" : 3971680,
+    "uuid" : "2f4b24e0-6706-3c7e-8e83-f3b9260be473",
+    "path" : "\/System\/Library\/Frameworks\/CFNetwork.framework\/Versions\/A\/CFNetwork",
+    "name" : "CFNetwork",
+    "CFBundleVersion" : "3826.600.41.1.1"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6614773760,
+    "CFBundleShortVersionString" : "6.9",
+    "CFBundleIdentifier" : "com.apple.Foundation",
+    "size" : 14587264,
+    "uuid" : "6cd7e451-8913-338e-aa36-52c55d53883f",
+    "path" : "\/System\/Library\/Frameworks\/Foundation.framework\/Versions\/C\/Foundation",
+    "name" : "Foundation",
+    "CFBundleVersion" : "3603.1.408"
+  },
+  {
+    "source" : "P",
+    "arch" : "arm64e",
+    "base" : 6589505536,
+    "size" : 288608,
+    "uuid" : "63a54ce1-2ab6-3673-82e4-d8489d811475",
+    "path" : "\/usr\/lib\/system\/libdispatch.dylib",
+    "name" : "libdispatch.dylib"
+  }
+],
+  "sharedCache" : {
+  "base" : 6586646528,
+  "size" : 5039865856,
+  "uuid" : "f75ce6c3-8d70-3692-9993-825c3a021d47"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=1.6G resident=0K(0%) swapped_out_or_unallocated=1.6G(100%)\nWritable regions: Total=1.9G written=769K(0%) resident=769K(0%) swapped_out=0K(0%) unallocated=1.9G(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nAccelerate framework               128K        1 \nActivity Tracing                   256K        1 \nAttributeGraph Data               1024K        1 \nCG image                          3264K        7 \nColorSync                          592K       29 \nCoreAnimation                     5888K      298 \nCoreGraphics                       128K        8 \nCoreUI image data                 4192K       31 \nFoundation                          16K        1 \nImage IO                            48K        2 \nKernel Alloc Once                   32K        1 \nMALLOC                             1.9G      115 \nMALLOC guard page                  480K       30 \nSQLite page cache                  256K        2 \nSTACK GUARD                       56.2M       11 \nStack                             13.3M       11 \nVM_ALLOCATE                       12.2M       16 \n__AUTH                            5360K      683 \n__AUTH_CONST                      75.9M      925 \n__CTF                               824        1 \n__DATA                            25.0M      904 \n__DATA_CONST                      26.8M      935 \n__DATA_DIRTY                      2762K      337 \n__FONT_DATA                        2352        1 \n__INFO_FILTER                         8        1 \n__LINKEDIT                       620.9M        4 \n__OBJC_RO                         61.4M        1 \n__OBJC_RW                         2397K        1 \n__TEXT                             1.0G      955 \n__TPRO_CONST                       128K        2 \nlibnetwork                         128K        8 \nmapped file                      259.9M       48 \npage table in kernel               769K        1 \nshared memory                     9584K       18 \n===========                     =======  ======= \nTOTAL                              4.1G     5390 \n",
