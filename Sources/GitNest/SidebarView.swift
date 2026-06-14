@@ -1,10 +1,56 @@
 import SwiftUI
 import AppKit
 
-extension ContentView {
-    // MARK: Sidebar — accounts (custom selection, no system blue)
+/// Account list sidebar: search, cards, drag-to-reorder, add-account,
+/// appearance/settings controls, and refresh.
+struct SidebarView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.theme) private var theme
 
-    var sidebar: some View {
+    @Binding var accountSearch: String
+    @Binding var expandedAccountAliases: Set<String>
+    @Binding var ghLoginTarget: Account?
+    @Binding var showSettings: Bool
+
+    @Binding var appearancePreference: String
+    @Binding var colorThemeID: String
+    @Binding var repoAutoRefreshSeconds: Int
+    @Binding var accountStatusLoadModeRaw: String
+    @Binding var preferredEditorRaw: String
+    @Binding var customEditorName: String
+    @Binding var preferredTerminalRaw: String
+    @Binding var customTerminalName: String
+
+    // Drag-to-reorder state for account cards. The model order is left untouched
+    // while dragging — the dragged card follows the finger, the other cards part
+    // to open a gap, and the actual reorder is committed once on drop. Frames are
+    // measured in the `accountListSpace` coordinate space so the math works with
+    // both collapsed and expanded (variable-height) cards.
+    @State private var draggingAlias: String?
+    @State private var dragTranslation: CGFloat = 0
+    @State private var dragStartMidY: CGFloat = 0
+    @State private var dragTargetIndex: Int?
+    @State private var dragStartOrder: [String] = []
+    @State private var dragStartFrames: [String: CGRect] = [:]
+    @State private var cardFrames: [String: CGRect] = [:]
+    private static let accountListSpace = "accountListSpace"
+
+    private var accountStatusLoadMode: AccountStatusLoadMode {
+        AccountStatusLoadMode(rawValue: accountStatusLoadModeRaw) ?? .smart
+    }
+
+    private var appVersionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        return "Beta \(version.nilIfEmpty ?? "1.0.0")"
+    }
+
+    private var filteredAccounts: [Account] {
+        let query = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return model.accounts }
+        return model.accounts.filter { AccountSearch.matches(query: query, account: $0) }
+    }
+
+    var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -30,6 +76,7 @@ extension ContentView {
                     .buttonStyle(.plain)
                     .foregroundStyle(theme.accent)
                     .tooltip("Add a GitHub account")
+
                     appearanceMenu
                     settingsButton
                 }
@@ -99,7 +146,7 @@ extension ContentView {
             Button("Continue and open login page") {
                 let target = account
                 ghLoginTarget = nil
-                Task { await model.reauthenticateGh(for: target) }
+                Task { await model.accountManager.reauthenticateGh(for: target) }
             }
             Button("Cancel", role: .cancel) {
                 ghLoginTarget = nil
@@ -112,11 +159,13 @@ extension ContentView {
             """)
         }
         .sheet(isPresented: $model.addAccountActive) {
-            AddAccountSheet().environmentObject(model.setupCoordinator)
+            AddAccountSheet().environmentObject(model)
         }
     }
 
-    var accountSearchBar: some View {
+    // MARK: Search
+
+    private var accountSearchBar: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
@@ -144,18 +193,20 @@ extension ContentView {
             .strokeBorder(theme.border, lineWidth: 1))
     }
 
-    func accountCard(_ account: Account) -> some View {
+    // MARK: Account card
+
+    private func accountCard(_ account: Account) -> some View {
         let showsReorderControls = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && model.accounts.count > 1
         return accountRow(account, showsReorderControls: showsReorderControls)
-            .background(selectionBackground(model.selectedAccount == account))
+            .background(SelectionBackground(selected: model.selectedAccount == account))
             .contentShape(Rectangle())
             .onTapGesture {
                 model.selectAccount(account)
             }
     }
 
-    func accountRow(_ account: Account, showsReorderControls: Bool) -> some View {
+    private func accountRow(_ account: Account, showsReorderControls: Bool) -> some View {
         let expanded = expandedAccountAliases.contains(account.alias)
         return HStack(alignment: expanded ? .top : .center, spacing: 9) {
             if showsReorderControls {
@@ -184,7 +235,7 @@ extension ContentView {
                     Text(account.email).font(.system(size: 11)).foregroundStyle(theme.textMuted)
                     Text(account.sshHost).font(.system(size: 10)).foregroundStyle(theme.textTertiary)
                     if let greeting = model.sshGreetings[account.alias] {
-                        let ok = model.accountSSHReady(account)
+                        let ok = model.accountManager.accountSSHReady(account)
                         authBadge(
                             ok: ok,
                             label: "SSH",
@@ -227,7 +278,7 @@ extension ContentView {
         .animation(.easeInOut(duration: 0.16), value: expanded)
     }
 
-    func toggleAccountDetails(_ account: Account) {
+    private func toggleAccountDetails(_ account: Account) {
         withAnimation(.easeInOut(duration: 0.16)) {
             if expandedAccountAliases.contains(account.alias) {
                 expandedAccountAliases.remove(account.alias)
@@ -238,7 +289,7 @@ extension ContentView {
     }
 
     @ViewBuilder
-    func accountSummaryIndicator(_ account: Account) -> some View {
+    private func accountSummaryIndicator(_ account: Account) -> some View {
         let status = accountSummaryStatus(account)
         switch status {
         case .loading:
@@ -267,7 +318,7 @@ extension ContentView {
         }
     }
 
-    func accountSummaryImage(systemName: String, tint: Color, help: String) -> some View {
+    private func accountSummaryImage(systemName: String, tint: Color, help: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: 11, weight: .bold))
             .foregroundStyle(tint)
@@ -276,15 +327,15 @@ extension ContentView {
             .accessibilityLabel(help)
     }
 
-    func accountSummaryStatus(_ account: Account) -> AccountSummaryStatus {
-        if model.accountChecking(account) {
+    private func accountSummaryStatus(_ account: Account) -> AccountSummaryStatus {
+        if model.accountManager.accountChecking(account) {
             return .loading
         }
-        guard model.accountStatusKnown(account) else {
+        guard model.accountManager.accountStatusKnown(account) else {
             return .notLoaded
         }
-        let sshReady = model.accountSSHReady(account)
-        let ghReady = model.accountGhReady(account)
+        let sshReady = model.accountManager.accountSSHReady(account)
+        let ghReady = model.accountManager.accountGhReady(account)
         if sshReady && ghReady {
             return .ready
         }
@@ -294,9 +345,11 @@ extension ContentView {
         return .partial
     }
 
+    // MARK: Drag-to-reorder
+
     /// Drag handle — grab it and drag to reorder the account. Only this rail starts
     /// a reorder, so dragging anywhere else on the card still scrolls the list.
-    func accountReorderControls(_ account: Account) -> some View {
+    private func accountReorderControls(_ account: Account) -> some View {
         Image(systemName: "line.3.horizontal")
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(draggingAlias == account.alias ? theme.accent : theme.textTertiary)
@@ -307,9 +360,7 @@ extension ContentView {
             .accessibilityLabel("Drag to reorder \(account.alias)")
     }
 
-    // MARK: Drag-to-reorder
-
-    func reorderDragGesture(_ account: Account) -> some Gesture {
+    private func reorderDragGesture(_ account: Account) -> some Gesture {
         DragGesture(minimumDistance: 5, coordinateSpace: .named(Self.accountListSpace))
             .onChanged { value in
                 if draggingAlias == nil {
@@ -328,7 +379,7 @@ extension ContentView {
     /// Where a card sits relative to its model slot while a drag is in progress.
     /// The dragged card tracks the finger directly; the others shift by the dragged
     /// card's height to open a gap at the drop slot. Everything is 0 when idle.
-    func dragOffset(for account: Account) -> CGFloat {
+    private func dragOffset(for account: Account) -> CGFloat {
         guard let alias = draggingAlias else { return 0 }
         if account.alias == alias { return dragTranslation }
         guard let target = dragTargetIndex,
@@ -344,7 +395,7 @@ extension ContentView {
     /// Pick the drop slot from the finger's projected center against the cards'
     /// original positions: the target index is how many *other* cards start above
     /// the finger. Robust to variable card heights and computed fresh each move.
-    func updateDragTarget() {
+    private func updateDragTarget() {
         guard let alias = draggingAlias else { return }
         let projectedCenter = dragStartMidY + dragTranslation
         let target = dragStartOrder
@@ -354,7 +405,7 @@ extension ContentView {
         if dragTargetIndex != target { dragTargetIndex = target }
     }
 
-    func endDragReorder() {
+    private func endDragReorder() {
         guard let alias = draggingAlias, let target = dragTargetIndex else {
             resetDragState()
             return
@@ -365,7 +416,7 @@ extension ContentView {
         }
     }
 
-    func resetDragState() {
+    private func resetDragState() {
         draggingAlias = nil
         dragTranslation = 0
         dragStartMidY = 0
@@ -374,10 +425,61 @@ extension ContentView {
         dragStartFrames = [:]
     }
 
+    // MARK: Appearance and settings
+
+    private var appearanceMenu: some View {
+        Menu {
+            Picker("Appearance", selection: $appearancePreference) {
+                Label("System", systemImage: "circle.lefthalf.filled").tag("system")
+                Label("Light", systemImage: "sun.max").tag("light")
+                Label("Dark", systemImage: "moon").tag("dark")
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: appearanceIcon).foregroundStyle(theme.accent)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .tooltip("Appearance: \(appearancePreference.capitalized) — click to change")
+    }
+
+    private var appearanceIcon: String {
+        switch appearancePreference {
+        case "light": return "sun.max.fill"
+        case "dark": return "moon.fill"
+        default: return "circle.lefthalf.filled"
+        }
+    }
+
+    private var settingsButton: some View {
+        Button { showSettings.toggle() } label: {
+            Image(systemName: "gearshape").font(.system(size: 12, weight: .semibold))
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.accent)
+        .tooltip("Settings — account status, repo auto-refresh, and open actions")
+        .popover(isPresented: $showSettings, arrowEdge: .bottom) {
+            SettingsPopoverView(
+                showSettings: $showSettings,
+                appearancePreference: $appearancePreference,
+                colorThemeID: $colorThemeID,
+                repoAutoRefreshSeconds: $repoAutoRefreshSeconds,
+                accountStatusLoadModeRaw: $accountStatusLoadModeRaw,
+                preferredEditorRaw: $preferredEditorRaw,
+                customEditorName: $customEditorName,
+                preferredTerminalRaw: $preferredTerminalRaw,
+                customTerminalName: $customTerminalName
+            )
+        }
+    }
+
+    // MARK: Auth badges
+
     /// Compact status pill: a ✓/✗ icon plus a short label (SSH / GitHub). Both
     /// pills share `LayoutMetrics.authBadgeWidth` so they read as a matched pair;
     /// the full status (and the underlying check) live in the tooltip.
-    func authBadge(ok: Bool, label: String, status: String, help: String) -> some View {
+    private func authBadge(ok: Bool, label: String, status: String, help: String) -> some View {
         HStack(spacing: 4) {
             Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
                 .font(.system(size: 10, weight: .bold))
@@ -395,7 +497,7 @@ extension ContentView {
         .tooltip("\(status) — \(help)")
     }
 
-    func sshStatusText(account: Account, greeting: String) -> String {
+    private func sshStatusText(account: Account, greeting: String) -> String {
         if let login = AccountSetup.sshLogin(from: greeting) {
             return "SSH authenticated as \(login), expected \(account.alias)"
         }
@@ -403,7 +505,7 @@ extension ContentView {
     }
 
     // GitHub serves each user's avatar at https://github.com/<login>.png .
-    func avatar(for account: Account, size: CGFloat = 40) -> some View {
+    private func avatar(for account: Account, size: CGFloat = 40) -> some View {
         AsyncImage(url: URL(string: "https://github.com/\(account.alias).png?size=80")) { phase in
             if let image = phase.image {
                 image.resizable().scaledToFill()
@@ -415,5 +517,4 @@ extension ContentView {
         .clipShape(Circle())
         .overlay(Circle().strokeBorder(theme.border, lineWidth: 1))
     }
-
 }

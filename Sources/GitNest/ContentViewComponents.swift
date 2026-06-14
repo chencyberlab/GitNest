@@ -35,6 +35,48 @@ struct ActionIconButton: View {
     }
 }
 
+/// Brand selection background (replaces the system blue highlight).
+struct SelectionBackground: View {
+    let selected: Bool
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+            .fill(selected ? theme.accentSubtle : Color.clear)
+            .overlay(alignment: .leading) {
+                if selected {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(theme.accent)
+                        .frame(width: 3)
+                        .padding(.vertical, 4)
+                }
+            }
+    }
+}
+
+/// A single tappable row used inside the cloned-repo Open menu popover.
+struct OpenPopoverRow: View {
+    let title: String
+    let systemImage: String
+    let action: () -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .background(theme.surfaceMuted)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ActionPopoverButton<PopoverContent: View>: View {
     let systemName: String
     let help: String

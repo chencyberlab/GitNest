@@ -87,10 +87,10 @@ final class SetupCoordinator: ObservableObject {
         let watcher = Task { await watchClipboardForAddAccountCode(session: session,
                                                                    after: startingClipboardChangeCount) }
         let authProcess = authProcessController.start()
-        let result = await ghChain.serialized { () -> AppModel.AddAccountLoginResult in
+        let result = await ghChain.serialized { () -> AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
-            guard login.ok else { return AppModel.AddAccountLoginResult(login: login, identity: nil) }
-            return AppModel.AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
+            guard login.ok else { return AddAccountLoginResult(login: login, identity: nil) }
+            return AddAccountLoginResult(login: login, identity: AccountSetup.currentIdentity())
         }
         authProcessController.finish(authProcess)
         watcher.cancel()

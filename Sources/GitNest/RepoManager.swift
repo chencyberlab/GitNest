@@ -21,7 +21,7 @@ final class RepoManager: ObservableObject {
 
     @Published var clonedRepos: Set<Repo.ID> = []
     @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]
-    @Published var repoFolderConflicts: [Repo.ID: AppModel.RepoFolderConflict] = [:]
+    @Published var repoFolderConflicts: [Repo.ID: RepoFolderConflict] = [:]
 
     @Published var isLoadingRepos = false
     @Published var isRefreshingRepos = false
@@ -31,7 +31,7 @@ final class RepoManager: ObservableObject {
     var repoCache: [String: [Repo]] = [:]
     var clonedReposCache: [String: Set<Repo.ID>] = [:]
     var repoStatusesCache: [String: [Repo.ID: RepoStatus]] = [:]
-    var repoFolderConflictsCache: [String: [Repo.ID: AppModel.RepoFolderConflict]] = [:]
+    var repoFolderConflictsCache: [String: [Repo.ID: RepoFolderConflict]] = [:]
     var repoSearchCache: [String: String] = [:]
     var selectedRepoCache: [String: Repo.ID] = [:]
     var repoLoadsInFlight: Set<String> = []
@@ -386,16 +386,16 @@ final class RepoManager: ObservableObject {
 
     func isCloned(_ repo: Repo) -> Bool { clonedRepos.contains(repo.id) }
 
-    func folderConflict(_ repo: Repo) -> AppModel.RepoFolderConflict? {
+    func folderConflict(_ repo: Repo) -> RepoFolderConflict? {
         repoFolderConflicts[repo.id]
     }
 
     func refreshClonedStatus(for account: Account) async {
         let alias = account.alias
         let sourceRepos = accountManager.selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])
-        let scan = await runBlocking { () -> (present: Set<Repo.ID>, conflicts: [Repo.ID: AppModel.RepoFolderConflict]) in
+        let scan = await runBlocking { () -> (present: Set<Repo.ID>, conflicts: [Repo.ID: RepoFolderConflict]) in
             var present: Set<Repo.ID> = []
-            var conflicts: [Repo.ID: AppModel.RepoFolderConflict] = [:]
+            var conflicts: [Repo.ID: RepoFolderConflict] = [:]
             for repo in sourceRepos {
                 let path = (account.folder as NSString).appendingPathComponent(repo.name)
                 switch AppModel.localFolderState(for: repo, path: path) {
@@ -420,7 +420,7 @@ final class RepoManager: ObservableObject {
     /// Persist a cloned/conflict update to `alias`'s cache, mirroring it into the
     /// visible sets only while that account is still the selected one.
     func commitCloneState(_ cloned: Set<Repo.ID>,
-                          _ conflicts: [Repo.ID: AppModel.RepoFolderConflict],
+                          _ conflicts: [Repo.ID: RepoFolderConflict],
                           for alias: String) {
         clonedReposCache[alias] = cloned
         repoFolderConflictsCache[alias] = conflicts

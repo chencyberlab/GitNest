@@ -40,48 +40,6 @@ enum AccountStatusLoadMode: String, CaseIterable, Identifiable, Sendable {
 final class AppModel: ObservableObject {
     typealias PullWarning = AlertStore.PullWarning
 
-    struct RepoFolderConflict: Sendable, Equatable {
-        let path: String
-        let origin: String?
-
-        var message: String {
-            if let origin, !origin.isEmpty {
-                return """
-                Target folder already contains a different Git repo:
-                \(path)
-
-                origin: \(origin)
-
-                Move or rename that folder before cloning this repository.
-                """
-            }
-            return """
-            Target path already exists, but it is not this GitHub repository:
-            \(path)
-
-            Move or rename that folder before cloning this repository.
-            """
-        }
-
-        var shortHelp: String {
-            if let origin, !origin.isEmpty {
-                return "Folder occupied by a different repo: \(origin)"
-            }
-            return "Folder occupied by something that is not this repo"
-        }
-    }
-
-    enum LocalRepoFolderState: Sendable, Equatable {
-        case absent
-        case cloned
-        case occupied(RepoFolderConflict)
-    }
-
-    struct AddAccountLoginResult: Sendable {
-        let login: ShellResult
-        let identity: Result<AccountSetup.Identity, CommandError>?
-    }
-
     @Published var accounts: [Account] = []
     @Published var selectedAccount: Account?
     @Published var sshGreetings: [String: String] = [:]
@@ -279,6 +237,7 @@ final class AppModel: ObservableObject {
                   app.processIdentifier == NSRunningApplication.current.processIdentifier else { return }
             Task { @MainActor in
                 self.appIsActive = true
+                self.repoManager.appIsActive = true
                 self.resumeAutoRefresh()
             }
         })
@@ -292,6 +251,7 @@ final class AppModel: ObservableObject {
                   app.processIdentifier == NSRunningApplication.current.processIdentifier else { return }
             Task { @MainActor in
                 self.appIsActive = false
+                self.repoManager.appIsActive = false
                 self.pauseAutoRefresh()
             }
         })

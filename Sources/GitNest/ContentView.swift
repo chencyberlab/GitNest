@@ -4,40 +4,25 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @StateObject var tooltip = TooltipController()
-    @State var commitTarget: RepoActionTarget?
-    @State var commitMessage: String = ""
-    @State var deleteTarget: RepoActionTarget?
-    @State var pushTarget: RepoActionTarget?
-    @State var ghLoginTarget: Account?
+
+    // Project sheets
     @State var initPlan: ProjectInitPlan?
     @State var initVisibility: RepoVisibilityChoice = .private
     @State var moveOriginalToTrash = false
     @State var showForkSheet = false
     @State var forkAddress: String = ""
+
+    // Repo action confirmation targets
+    @State var commitTarget: RepoActionTarget?
+    @State var commitMessage: String = ""
+    @State var deleteTarget: RepoActionTarget?
+    @State var pushTarget: RepoActionTarget?
+
+    // Sidebar state
+    @State var ghLoginTarget: Account?
     @State var accountSearch: String = ""
     @State var expandedAccountAliases: Set<String> = []
     @State var showSettings = false
-
-    struct RepoActionTarget: Identifiable {
-        let repo: Repo
-        let account: Account
-
-        var id: String { "\(account.alias)|\(repo.id)" }
-    }
-
-    // Drag-to-reorder state for account cards. The model order is left untouched
-    // while dragging — the dragged card follows the finger, the other cards part
-    // to open a gap, and the actual reorder is committed once on drop. Frames are
-    // measured in the `accountListSpace` coordinate space so the math works with
-    // both collapsed and expanded (variable-height) cards.
-    @State var draggingAlias: String?
-    @State var dragTranslation: CGFloat = 0
-    @State var dragStartMidY: CGFloat = 0
-    @State var dragTargetIndex: Int?
-    @State var dragStartOrder: [String] = []
-    @State var dragStartFrames: [String: CGRect] = [:]
-    @State var cardFrames: [String: CGRect] = [:]
-    static let accountListSpace = "accountListSpace"
 
     /// Persisted appearance choice: "system" | "light" | "dark".
     @AppStorage("appearancePreference") var appearancePreference: String = "system"
@@ -64,80 +49,65 @@ struct ContentView: View {
     @AppStorage("preferredTerminal") var preferredTerminalRaw: String = PreferredTerminal.none.rawValue
     @AppStorage("customTerminalAppName") var customTerminalName: String = ""
 
+    private var accountStatusLoadMode: AccountStatusLoadMode {
+        AccountStatusLoadMode(rawValue: accountStatusLoadModeRaw) ?? .smart
+    }
+
+    private var preferredEditor: PreferredEditor {
+        PreferredEditor(rawValue: preferredEditorRaw) ?? .none
+    }
+
+    private var preferredTerminal: PreferredTerminal {
+        PreferredTerminal(rawValue: preferredTerminalRaw) ?? .none
+    }
+
     /// Resolved theme for this view. Injected into the environment so sheets,
     /// popovers and reusable button styles all see the same palette.
     var theme: Theme {
         Theme(palette: ColorThemePalette.palette(for: colorThemeID) ?? .gitNest)
     }
 
-    var preferredEditor: PreferredEditor {
-        PreferredEditor(rawValue: preferredEditorRaw) ?? .none
-    }
-
-    var preferredTerminal: PreferredTerminal {
-        PreferredTerminal(rawValue: preferredTerminalRaw) ?? .none
-    }
-
-    var appVersionLabel: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-        return "Beta \(version.nilIfEmpty ?? "1.0.0")"
-    }
-
-    enum AccountSummaryStatus {
-        case loading
-        case notLoaded
-        case ready
-        case partial
-        case failed
-
-        var help: String {
-            switch self {
-            case .loading: return "Loading SSH and GitHub status"
-            case .notLoaded: return "Connection status not loaded"
-            case .ready: return "SSH and GitHub are ready"
-            case .partial: return "SSH or GitHub needs attention"
-            case .failed: return "SSH and GitHub checks failed"
-            }
+    var resolvedScheme: ColorScheme? {
+        switch appearancePreference {
+        case "light": return .light
+        case "dark": return .dark
+        default: return nil          // follow system
         }
-    }
-
-    /// Parses the ISO-8601 timestamps returned by `gh` (e.g. 2026-06-02T16:40:31Z).
-    static let isoParser: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
-    }()
-
-    /// Locale-aware date+time display. The pattern (field order, separators,
-    /// 12/24-hour clock) is derived from the machine's current locale, and the
-    /// value is shown in the local time zone.
-    static let updatedDisplayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.timeZone = .autoupdatingCurrent
-        f.setLocalizedDateFormatFromTemplate("yMd jm")
-        return f
-    }()
-
-    func formattedUpdated(_ raw: String?) -> String {
-        guard let raw, !raw.isEmpty else { return "—" }
-        guard let date = Self.isoParser.date(from: raw) else {
-            return String(raw.prefix(10))
-        }
-        return Self.updatedDisplayFormatter.string(from: date)
-    }
-
-    var filteredAccounts: [Account] {
-        let query = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.accounts }
-        return model.accounts.filter { AccountSearch.matches(query: query, account: $0) }
     }
 
     var body: some View {
         NavigationSplitView {
-            sidebar
+            SidebarView(
+                accountSearch: $accountSearch,
+                expandedAccountAliases: $expandedAccountAliases,
+                ghLoginTarget: $ghLoginTarget,
+                showSettings: $showSettings,
+                appearancePreference: $appearancePreference,
+                colorThemeID: $colorThemeID,
+                repoAutoRefreshSeconds: $repoAutoRefreshSeconds,
+                accountStatusLoadModeRaw: $accountStatusLoadModeRaw,
+                preferredEditorRaw: $preferredEditorRaw,
+                customEditorName: $customEditorName,
+                preferredTerminalRaw: $preferredTerminalRaw,
+                customTerminalName: $customTerminalName
+            )
         } detail: {
-            detail
+            DetailView(
+                commitTarget: $commitTarget,
+                commitMessage: $commitMessage,
+                pushTarget: $pushTarget,
+                deleteTarget: $deleteTarget,
+                initPlan: $initPlan,
+                initVisibility: $initVisibility,
+                moveOriginalToTrash: $moveOriginalToTrash,
+                showForkSheet: $showForkSheet,
+                forkAddress: $forkAddress,
+                outputExpanded: $outputExpanded,
+                preferredEditor: preferredEditor,
+                preferredTerminal: preferredTerminal,
+                customEditorName: customEditorName,
+                customTerminalName: customTerminalName
+            )
         }
         .frame(minWidth: 920, minHeight: 580)
         .navigationTitle("GitNest")
@@ -159,10 +129,18 @@ struct ContentView: View {
             model.refreshAll(statusMode: accountStatusLoadMode)
         }
         .sheet(item: $initPlan) { plan in
-            initProjectSheet(plan)
+            InitProjectSheet(
+                plan: plan,
+                initVisibility: $initVisibility,
+                moveOriginalToTrash: $moveOriginalToTrash,
+                initPlan: $initPlan
+            )
         }
         .sheet(isPresented: $showForkSheet) {
-            forkProjectSheet
+            ForkProjectSheet(
+                forkAddress: $forkAddress,
+                showForkSheet: $showForkSheet
+            )
         }
         .alert(
             pullAlertTitle,
@@ -184,190 +162,203 @@ struct ContentView: View {
         }
         return "Pull couldn't complete — \(name)"
     }
+}
 
-    // MARK: Appearance
+/// Detail pane: selected-account header + repo list + output log.
+private struct DetailView: View {
+    @EnvironmentObject var model: AppModel
+    @Environment(\.theme) private var theme
 
-    var resolvedScheme: ColorScheme? {
-        switch appearancePreference {
-        case "light": return .light
-        case "dark": return .dark
-        default: return nil          // follow system
-        }
-    }
+    @Binding var commitTarget: RepoActionTarget?
+    @Binding var commitMessage: String
+    @Binding var pushTarget: RepoActionTarget?
+    @Binding var deleteTarget: RepoActionTarget?
 
-    var appearanceIcon: String {
-        switch appearancePreference {
-        case "light": return "sun.max.fill"
-        case "dark": return "moon.fill"
-        default: return "circle.lefthalf.filled"
-        }
-    }
+    @Binding var initPlan: ProjectInitPlan?
+    @Binding var initVisibility: RepoVisibilityChoice
+    @Binding var moveOriginalToTrash: Bool
+    @Binding var showForkSheet: Bool
+    @Binding var forkAddress: String
 
-    var appearanceMenu: some View {
-        Menu {
-            Picker("Appearance", selection: $appearancePreference) {
-                Label("System", systemImage: "circle.lefthalf.filled").tag("system")
-                Label("Light", systemImage: "sun.max").tag("light")
-                Label("Dark", systemImage: "moon").tag("dark")
-            }
-            .pickerStyle(.inline)
-        } label: {
-            Image(systemName: appearanceIcon).foregroundStyle(theme.accent)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .tooltip("Appearance: \(appearancePreference.capitalized) — click to change")
-    }
+    @Binding var outputExpanded: Bool
 
-    // MARK: Settings (gear → popover)
+    let preferredEditor: PreferredEditor
+    let preferredTerminal: PreferredTerminal
+    let customEditorName: String
+    let customTerminalName: String
 
-    var settingsButton: some View {
-        Button { showSettings.toggle() } label: {
-            Image(systemName: "gearshape").font(.system(size: 12, weight: .semibold))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.accent)
-        .tooltip("Settings — account status, repo auto-refresh, and open actions")
-        .popover(isPresented: $showSettings, arrowEdge: .bottom) {
-            settingsPopover
-        }
-    }
-
-    var settingsPopover: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Settings")
-                    .font(Theme.title(15))
-                    .foregroundStyle(theme.text)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let account = model.selectedAccount {
+                header(account)
+                Divider().overlay(theme.border)
+                if !model.isLoadingRepos && !model.repos.isEmpty {
+                    repoSearchBar
+                }
+                RepoListView(
+                    account: account,
+                    commitTarget: $commitTarget,
+                    commitMessage: $commitMessage,
+                    pushTarget: $pushTarget,
+                    deleteTarget: $deleteTarget,
+                    preferredEditor: preferredEditor,
+                    preferredTerminal: preferredTerminal,
+                    customEditorName: customEditorName,
+                    customTerminalName: customTerminalName
+                )
+                cloneBar
+            } else {
                 Spacer()
-                Button { showSettings = false } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
+                Text("Select an account on the left.")
+                    .font(.system(size: 14)).foregroundStyle(theme.textMuted)
+                    .frame(maxWidth: .infinity)
+                Spacer()
+            }
+            Divider().overlay(theme.border)
+            LogOutputView(outputExpanded: $outputExpanded)
+        }
+        .padding(18)
+        .background(theme.surface)
+    }
+
+    // MARK: Header
+
+    private func header(_ account: Account) -> some View {
+        let ready = model.accountManager.accountReady(account)
+        let gateHint = connectionGateHint(account)
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(account.name).font(Theme.display(22))
+                Label(account.folder, systemImage: "folder")
+                    .font(.system(size: 11)).foregroundStyle(theme.textMuted)
+            }
+            Spacer()
+            HStack(spacing: 10) {
+                Button {
+                    chooseInitFolder(for: account)
+                } label: {
+                    Label("Init project", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .tooltip(gateHint ?? "Choose a local project folder, create a GitHub repo, and push it")
+                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
+
+                Button {
+                    showForkSheet = true
+                    forkAddress = ""
+                } label: {
+                    Label("Fork project", systemImage: "tuningfork")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .tooltip(gateHint ?? "Fork a GitHub repository into this account and clone it")
+                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
+
+                Button {
+                    Task { await model.repoManager.loadRepos(for: account) }
+                } label: {
+                    Label("Load repos", systemImage: "tray.and.arrow.down")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .tooltip(gateHint ?? "List every repo \(account.alias) owns (via gh)")
+                .disabled(!ready || model.isLoadingRepos || model.isInitializingProject || model.isForkingProject)
+            }
+        }
+    }
+
+    /// Why the action buttons are greyed out (nil once the account is ready) —
+    /// surfaced as the buttons' tooltip so the disabled state isn't a mystery.
+    private func connectionGateHint(_ account: Account) -> String? {
+        if model.accountManager.accountReady(account) { return nil }
+        if model.accountManager.accountChecking(account) {
+            return "Checking SSH and GitHub connection for \(account.alias)…"
+        }
+        if !model.accountManager.accountStatusKnown(account) {
+            return "Connection status has not been checked for \(account.alias) yet. Select the card or press Refresh."
+        }
+        return "SSH or GitHub isn't ready for \(account.alias). Fix it on the account card (SSH / GitHub login), then Refresh."
+    }
+
+    private func chooseInitFolder(for account: Account) {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Project Folder"
+        panel.message = "Select the project folder to initialize and push to \(account.alias)."
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        initVisibility = .private
+        moveOriginalToTrash = false
+        Task { initPlan = await model.projectWorkflow.makeInitPlan(sourceURL: url, account: account) }
+    }
+
+    // MARK: Search
+
+    private var repoSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.textMuted)
+            TextField("Wild search repos…  (part of a name, glob like m*ger, or fuzzy “mgm”)",
+                      text: $model.repoSearch)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+            if !model.repoSearch.isEmpty {
+                Text("\(model.filteredRepos.count)/\(model.repos.count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textTertiary)
+                Button { model.repoSearch = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
                         .foregroundStyle(theme.textTertiary)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Close settings")
-            }
-
-            settingsSection(title: "Account Status", help: accountStatusLoadMode.help) {
-                Picker("Account status loading", selection: $accountStatusLoadModeRaw) {
-                    ForEach(AccountStatusLoadMode.allCases) { mode in
-                        Text(mode.title).tag(mode.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            settingsSection(
-                title: "Colour scheme",
-                help: "Choose the accent and surface colours used throughout the app."
-            ) {
-                Picker("Colour scheme", selection: $colorThemeID) {
-                    ForEach(allPalettes) { palette in
-                        Text(palette.displayName).tag(palette.id)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            settingsSection(
-                title: "Repo auto-refresh",
-                help: "Auto-refreshes the accounts you've loaded. The account you're viewing uses this interval; background accounts and large repo lists back off automatically to stay light on the GitHub API."
-            ) {
-                Picker("Repo auto-refresh", selection: $repoAutoRefreshSeconds) {
-                    Text("Off").tag(0)
-                    Text("30 sec").tag(30)
-                    Text("2 min").tag(120)
-                    Text("5 min").tag(300)
-                    Text("10 min").tag(600)
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            settingsSection(
-                title: "Open in Editor",
-                help: "Adds an editor option to each cloned repo's Open menu. Open in Finder always stays available."
-            ) {
-                Picker("Preferred editor", selection: $preferredEditorRaw) {
-                    ForEach(PreferredEditor.allCases) { editor in
-                        Text(editor.menuTitle).tag(editor.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if preferredEditor == .custom {
-                    TextField("GUI app name (e.g. Sublime Text)", text: $customEditorName)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                }
-            }
-
-            settingsSection(
-                title: "Open in Terminal",
-                help: "Adds a terminal option to each cloned repo's Open menu. Terminal apps are opened with the repo folder as the target."
-            ) {
-                Picker("Preferred terminal", selection: $preferredTerminalRaw) {
-                    ForEach(PreferredTerminal.allCases) { terminal in
-                        Text(terminal.menuTitle).tag(terminal.rawValue)
-                    }
-                }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if preferredTerminal == .custom {
-                    TextField("GUI app name (e.g. WezTerm)", text: $customTerminalName)
-                        .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12))
-                }
+                .tooltip("Clear search")
             }
         }
-        .padding(18)
-        .frame(width: 320)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(theme.surfaceMuted)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+            .strokeBorder(theme.border, lineWidth: 1))
+    }
+
+    // MARK: Clone bar
+
+    private var cloneBar: some View {
+        HStack(spacing: 16) {
+            Label("Remote only", systemImage: "cloud").foregroundStyle(theme.textMuted)
+            Label("Cloned locally", systemImage: "internaldrive.fill").foregroundStyle(theme.accent)
+            Spacer()
+            repoRefreshStatus
+            Text(model.repoSearch.isEmpty
+                 ? "\(model.repos.count) repo(s)"
+                 : "\(model.filteredRepos.count) of \(model.repos.count) repo(s)")
+                .foregroundStyle(theme.textMuted)
+        }
+        .font(.system(size: 11, weight: .medium))
     }
 
     @ViewBuilder
-    func settingsSection<Content: View>(title: String,
-                                                help: String,
-                                                @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(theme.text)
-            content()
-            Text(help)
-                .font(.system(size: 10))
-                .foregroundStyle(theme.textTertiary)
-                .fixedSize(horizontal: false, vertical: true)
+    private var repoRefreshStatus: some View {
+        if model.isLoadingRepos || model.isRefreshingRepos {
+            Label("Refreshing repos…", systemImage: "arrow.clockwise")
+                .foregroundStyle(theme.warning)
+                .lineLimit(1)
+                .tooltip("Refreshing GitHub repo list")
+        } else if model.isCheckingRepoRemotes {
+            Label("Checking cloned remotes…", systemImage: "arrow.triangle.2.circlepath")
+                .foregroundStyle(theme.warning)
+                .lineLimit(1)
+                .tooltip("Fetching upstream remotes for cloned repos")
+        } else if let message = model.repoRefreshMessage, !message.isEmpty {
+            let failed = message.localizedCaseInsensitiveContains("failed")
+            Label(message, systemImage: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(failed ? theme.error : theme.success)
+                .lineLimit(1)
+                .tooltip(message)
         }
     }
-
-    var accountStatusLoadMode: AccountStatusLoadMode {
-        AccountStatusLoadMode(rawValue: accountStatusLoadModeRaw) ?? .smart
-    }
-
-    /// Brand selection background (replaces the system blue highlight).
-    @ViewBuilder
-    func selectionBackground(_ selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .fill(selected ? theme.accentSubtle : Color.clear)
-            .overlay(alignment: .leading) {
-                if selected {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(theme.accent)
-                        .frame(width: 3)
-                        .padding(.vertical, 4)
-                }
-            }
-    }
-
 }
