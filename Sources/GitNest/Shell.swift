@@ -137,8 +137,15 @@ enum Shell {
         )
     }
 
-    private static func commandEnvironment() -> [String: String] {
-        var environment = ProcessInfo.processInfo.environment
+    static func sanitizedEnvironment(from base: [String: String]) -> [String: String] {
+        var environment = base
+        for key in gitEnvironmentKeysToScrub {
+            environment.removeValue(forKey: key)
+        }
+        for key in Array(environment.keys) where gitEnvironmentPrefixesToScrub.contains(where: { key.hasPrefix($0) }) {
+            environment.removeValue(forKey: key)
+        }
+
         let currentPath = environment["PATH"] ?? ""
         environment["PATH"] = developerPath + (currentPath.isEmpty ? "" : ":\(currentPath)")
         // There is no terminal to answer a username/password prompt on, so make
@@ -146,6 +153,32 @@ enum Shell {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         return environment
     }
+
+    private static func commandEnvironment() -> [String: String] {
+        sanitizedEnvironment(from: ProcessInfo.processInfo.environment)
+    }
+
+    private static let gitEnvironmentKeysToScrub: Set<String> = [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+        "GIT_NAMESPACE",
+        "GIT_CONFIG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_NOSYSTEM",
+        "GIT_CONFIG_COUNT",
+        "GIT_SSH",
+        "GIT_SSH_COMMAND"
+    ]
+
+    private static let gitEnvironmentPrefixesToScrub = [
+        "GIT_CONFIG_KEY_",
+        "GIT_CONFIG_VALUE_"
+    ]
 
     private static func runExecutable(executable: String,
                                       arguments: [String],

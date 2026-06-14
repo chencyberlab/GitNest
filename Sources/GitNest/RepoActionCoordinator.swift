@@ -72,7 +72,9 @@ final class RepoActionCoordinator: ObservableObject {
         // account's visible UI (or write that account's dict into this cache).
         var cloned = repoManager.clonedRepos
         var conflicts = repoManager.repoFolderConflicts
-        let state = await runBlocking { AppModel.localFolderState(for: repo, path: dest) }
+        let state = await runBlocking {
+            AppModel.localFolderState(for: repo, path: dest, expectedSSHHost: account.sshHost)
+        }
         switch state {
         case .cloned:
             cloned.insert(repo.id)

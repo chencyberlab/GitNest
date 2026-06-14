@@ -343,6 +343,37 @@ struct ProjectInitPlan: Identifiable, Sendable {
         (sourcePath as NSString).lastPathComponent
     }
 
+    static func pathBlockingReason(sourcePath: String, accountFolder: String) -> String? {
+        let source = normalizedPath(sourcePath)
+        let accountRoot = normalizedPath(accountFolder)
+        if source == accountRoot {
+            return "Choose an individual project folder, not the account root folder."
+        }
+        if path(accountRoot, isInside: source) {
+            return "Choose an individual project folder, not a parent folder that contains the account root folder."
+        }
+        return nil
+    }
+
+    static func copyBlockingReason(sourcePath: String, workingPath: String, willCopy: Bool) -> String? {
+        guard willCopy else { return nil }
+        let source = normalizedPath(sourcePath)
+        let destination = normalizedPath(workingPath)
+        guard path(destination, isInside: source) else { return nil }
+        return "The copy destination is inside the selected source folder. Choose a more specific project folder."
+    }
+
+    private static func normalizedPath(_ path: String) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).standardizedFileURL.path
+    }
+
+    private static func path(_ child: String, isInside parent: String) -> Bool {
+        guard child != parent else { return false }
+        if parent == "/" { return child.hasPrefix("/") }
+        return child.hasPrefix(parent + "/")
+    }
+
     var warningText: String {
         if willCopy {
             return """
@@ -775,9 +806,12 @@ enum GitHub {
         Shell.run(["git", "-C", path, "push"])
     }
 
-    static func origin(at path: String, matches repo: Repo) -> Bool {
+    static func origin(at path: String, matches repo: Repo, expectedSSHHost: String? = nil) -> Bool {
         guard let existing = originURL(at: path) else { return false }
-        return remoteLooksLike(existing, owner: repo.owner, repoName: repo.name)
+        return remoteLooksLike(existing,
+                               owner: repo.owner,
+                               repoName: repo.name,
+                               expectedSSHHost: expectedSSHHost)
     }
 
     static func originURL(at path: String) -> String? {
@@ -794,7 +828,12 @@ enum GitHub {
         let repoFullName = "\(owner)/\(plan.repoName)"
         let remoteURL = "git@\(plan.account.sshHost):\(repoFullName).git"
 
-        if let reason = plan.blockingReason {
+        if let reason = plan.blockingReason
+            ?? ProjectInitPlan.pathBlockingReason(sourcePath: plan.sourcePath,
+                                                  accountFolder: plan.account.folder)
+            ?? ProjectInitPlan.copyBlockingReason(sourcePath: plan.sourcePath,
+                                                  workingPath: plan.workingPath,
+                                                  willCopy: plan.willCopy) {
             return failure(reason, log)
         }
 
@@ -820,7 +859,10 @@ enum GitHub {
         let origin = Shell.run(["git", "-C", plan.workingPath, "remote", "get-url", "origin"])
         if origin.ok, !plan.willCopy {
             let existing = origin.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard remoteLooksLike(existing, owner: owner, repoName: plan.repoName) else {
+            guard remoteLooksLike(existing,
+                                  owner: owner,
+                                  repoName: plan.repoName,
+                                  expectedSSHHost: plan.account.sshHost) else {
                 return failure("origin already points somewhere else: \(existing)", log)
             }
         }
@@ -937,13 +979,22 @@ enum GitHub {
     /// GitHub, across https/ssh/host-alias forms. Internal for tests. Only a
     /// *trailing* ".git" is stripped — removing every occurrence would mangle
     /// names like "user.github.io" and reject their own correct origin.
-    static func remoteLooksLike(_ remote: String, owner: String, repoName: String) -> Bool {
+    static func remoteLooksLike(_ remote: String,
+                                owner: String,
+                                repoName: String,
+                                expectedSSHHost: String? = nil) -> Bool {
         guard let parsed = githubRemoteOwnerRepo(remote) else { return false }
+        if let expectedSSHHost,
+           let sshHost = parsed.sshHost,
+           sshHost != "github.com",
+           sshHost.caseInsensitiveCompare(expectedSSHHost) != .orderedSame {
+            return false
+        }
         return parsed.owner.caseInsensitiveCompare(owner) == .orderedSame
             && parsed.repo.caseInsensitiveCompare(repoName) == .orderedSame
     }
 
-    private static func githubRemoteOwnerRepo(_ remote: String) -> (owner: String, repo: String)? {
+    private static func githubRemoteOwnerRepo(_ remote: String) -> (owner: String, repo: String, sshHost: String?)? {
         let trimmed = remote.trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else { return nil }
@@ -953,17 +1004,23 @@ enum GitHub {
            at < colon {
             let host = String(trimmed[trimmed.index(after: at)..<colon]).lowercased()
             guard isGitHubSSHHost(host) else { return nil }
-            return ownerRepoPair(fromPath: String(trimmed[trimmed.index(after: colon)...]))
+            guard let pair = ownerRepoPair(fromPath: String(trimmed[trimmed.index(after: colon)...])) else {
+                return nil
+            }
+            return (pair.owner, pair.repo, host)
         }
 
         guard let components = URLComponents(string: trimmed),
               let host = components.host?.lowercased() else { return nil }
         if components.scheme?.lowercased() == "ssh" {
             guard isGitHubSSHHost(host) else { return nil }
+            guard let pair = ownerRepoPair(fromPath: components.path) else { return nil }
+            return (pair.owner, pair.repo, host)
         } else {
             guard host == "github.com" else { return nil }
         }
-        return ownerRepoPair(fromPath: components.path)
+        guard let pair = ownerRepoPair(fromPath: components.path) else { return nil }
+        return (pair.owner, pair.repo, nil)
     }
 
     private static func isGitHubSSHHost(_ host: String) -> Bool {

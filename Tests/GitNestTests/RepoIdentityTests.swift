@@ -44,6 +44,33 @@ final class RepoIdentityTests: XCTestCase {
         XCTAssertNil(model.folderConflict(shared))
     }
 
+    func testRefreshClonedStatusReportsWrongAccountSSHAliasAsConflict() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let account = Account(alias: "me",
+                              name: "Me",
+                              email: "me@example.com",
+                              folder: root.path)
+        let target = repo(owner: "me", name: "tools")
+        let localRepo = root.appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: localRepo, withIntermediateDirectories: true)
+
+        XCTAssertTrue(Shell.run(["git", "init"], cwd: localRepo.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "git@github-work:me/tools.git"
+        ], cwd: localRepo.path).ok)
+
+        let model = AppModel()
+        model.accountManager.selectedAccount = account
+        model.repoManager.repos = [target]
+
+        await model.refreshClonedStatus(for: account)
+
+        XCTAssertFalse(model.isCloned(target))
+        XCTAssertEqual(model.folderConflict(target)?.origin, "git@github-work:me/tools.git")
+    }
+
     func testBusyRepoActionCoversRowsSharingTheSameLocalPath() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

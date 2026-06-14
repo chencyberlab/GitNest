@@ -85,6 +85,34 @@ final class ShellTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
     }
 
+    func testSanitizedEnvironmentScrubsGitOverrides() {
+        let env = Shell.sanitizedEnvironment(from: [
+            "PATH": "/custom/bin",
+            "HOME": "/Users/test",
+            "GH_TOKEN": "keep-me",
+            "GIT_DIR": "/tmp/wrong.git",
+            "GIT_WORK_TREE": "/tmp/wrong-worktree",
+            "GIT_INDEX_FILE": "/tmp/wrong-index",
+            "GIT_CONFIG_GLOBAL": "/tmp/wrong-gitconfig",
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "user.name",
+            "GIT_CONFIG_VALUE_0": "Wrong User",
+            "GIT_SSH_COMMAND": "ssh -F /tmp/wrong-config"
+        ])
+
+        XCTAssertNil(env["GIT_DIR"])
+        XCTAssertNil(env["GIT_WORK_TREE"])
+        XCTAssertNil(env["GIT_INDEX_FILE"])
+        XCTAssertNil(env["GIT_CONFIG_GLOBAL"])
+        XCTAssertNil(env["GIT_CONFIG_COUNT"])
+        XCTAssertNil(env["GIT_CONFIG_KEY_0"])
+        XCTAssertNil(env["GIT_CONFIG_VALUE_0"])
+        XCTAssertNil(env["GIT_SSH_COMMAND"])
+        XCTAssertEqual(env["GH_TOKEN"], "keep-me")
+        XCTAssertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        XCTAssertTrue(env["PATH"]?.hasSuffix(":/custom/bin") == true)
+    }
+
     func testChildInheritsOnlyStandardDescriptors() {
         // The test runner has many fds open; CLOEXEC_DEFAULT must keep them
         // out of the child. /dev/fd shows the child shell's own table: stdio

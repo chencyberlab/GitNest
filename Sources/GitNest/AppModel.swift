@@ -183,7 +183,16 @@ final class AppModel: ObservableObject {
 
     /// Two-way binding for the add-account sheet: reads the mirror, writes the source.
     var addAccountActiveBinding: Binding<Bool> {
-        Binding(get: { self.addAccountActive }, set: { self.setupCoordinator.addAccountActive = $0 })
+        Binding(
+            get: { self.addAccountActive },
+            set: { isPresented in
+                if isPresented {
+                    self.setupCoordinator.addAccountActive = true
+                } else if self.setupCoordinator.addAccountActive {
+                    self.setupCoordinator.cancelAddAccount()
+                }
+            }
+        )
     }
 
     private func bindAutoRefreshGate() {
@@ -326,7 +335,9 @@ final class AppModel: ObservableObject {
         logStore.append(s)
     }
 
-    nonisolated static func localFolderState(for repo: Repo, path: String) -> LocalRepoFolderState {
+    nonisolated static func localFolderState(for repo: Repo,
+                                             path: String,
+                                             expectedSSHHost: String? = nil) -> LocalRepoFolderState {
         let fm = FileManager.default
         guard fm.fileExists(atPath: path) else { return .absent }
 
@@ -336,7 +347,11 @@ final class AppModel: ObservableObject {
         }
 
         let origin = GitHub.originURL(at: path)
-        if let origin, GitHub.remoteLooksLike(origin, owner: repo.owner, repoName: repo.name) {
+        if let origin,
+           GitHub.remoteLooksLike(origin,
+                                  owner: repo.owner,
+                                  repoName: repo.name,
+                                  expectedSSHHost: expectedSSHHost) {
             return .cloned
         }
         return .occupied(RepoFolderConflict(path: path, origin: origin))

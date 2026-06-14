@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import GitNest
 
 @MainActor
@@ -67,6 +68,19 @@ final class CoordinatorTests: XCTestCase {
         model.repoActionCoordinator.busyRepos.removeAll()
         await Task.yield()
         XCTAssertTrue(model.busyRepos.isEmpty)
+    }
+
+    func testAddAccountSheetDismissalRoutesThroughCancel() {
+        let model = AppModel()
+        model.setupCoordinator.beginAddAccount()
+        model.setupCoordinator.addAccountBusy = true
+        let session = model.setupCoordinator.addAccountSessionID
+
+        model.addAccountActiveBinding.wrappedValue = false
+
+        XCTAssertFalse(model.setupCoordinator.addAccountActive)
+        XCTAssertFalse(model.setupCoordinator.addAccountBusy)
+        XCTAssertNotEqual(model.setupCoordinator.addAccountSessionID, session)
     }
 
     // MARK: AlertStore

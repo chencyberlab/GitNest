@@ -401,7 +401,9 @@ final class RepoManager: ObservableObject {
             var conflicts: [Repo.ID: RepoFolderConflict] = [:]
             for repo in sourceRepos {
                 let path = (account.folder as NSString).appendingPathComponent(repo.name)
-                switch AppModel.localFolderState(for: repo, path: path) {
+                switch AppModel.localFolderState(for: repo,
+                                                 path: path,
+                                                 expectedSSHHost: account.sshHost) {
                 case .cloned:
                     present.insert(repo.id)
                 case .occupied(let conflict):

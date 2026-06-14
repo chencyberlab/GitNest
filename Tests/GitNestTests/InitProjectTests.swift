@@ -47,6 +47,27 @@ final class InitProjectTests: XCTestCase {
         ))
     }
 
+    func testRemoteLooksLikeCanRequireTheExpectedSSHHostAlias() {
+        XCTAssertTrue(GitHub.remoteLooksLike(
+            "git@github-work:owner/repo.git",
+            owner: "owner",
+            repoName: "repo",
+            expectedSSHHost: "github-work"
+        ))
+        XCTAssertFalse(GitHub.remoteLooksLike(
+            "git@github-work:owner/repo.git",
+            owner: "owner",
+            repoName: "repo",
+            expectedSSHHost: "github-personal"
+        ))
+        XCTAssertTrue(GitHub.remoteLooksLike(
+            "git@github.com:owner/repo.git",
+            owner: "owner",
+            repoName: "repo",
+            expectedSSHHost: "github-personal"
+        ))
+    }
+
     @MainActor
     func testMakeInitPlanCapsLongSanitizedRepoName() async throws {
         let root = try makeTempDirectory()
@@ -76,6 +97,20 @@ final class InitProjectTests: XCTestCase {
         XCTAssertNotNil(plan.blockingReason)
     }
 
+    @MainActor
+    func testMakeInitPlanBlocksParentOfAccountRootFolder() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let accountFolder = root.appendingPathComponent("github-me")
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
+
+        let plan = await AppModel().makeInitPlan(sourceURL: root, account: account)
+
+        XCTAssertEqual(plan.sourcePath, root.standardizedFileURL.path)
+        XCTAssertNotNil(plan.blockingReason)
+        XCTAssertTrue(plan.blockingReason?.contains("parent folder") == true)
+    }
+
     func testInitAndPushProjectRefusesBlockedPlanBeforeShellingOut() throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -93,6 +128,26 @@ final class InitProjectTests: XCTestCase {
 
         XCTAssertFalse(result.ok)
         XCTAssertTrue(result.stderr.contains("blocked for test"))
+    }
+
+    func testInitAndPushProjectRefusesSourceContainingAccountRootBeforeCopying() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let accountFolder = root.appendingPathComponent("github-me")
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: root.path,
+            workingPath: accountFolder.appendingPathComponent(root.lastPathComponent).path,
+            repoName: "unsafe-parent",
+            willCopy: true
+        )
+
+        let result = GitHub.initAndPushProject(plan, visibility: .private)
+
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.stderr.contains("parent folder"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: accountFolder.path))
     }
 
     private func makeTempDirectory() throws -> URL {

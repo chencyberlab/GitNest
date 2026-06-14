@@ -42,9 +42,8 @@ final class ProjectWorkflow: ObservableObject {
         let sourcePath = sourceURL.standardizedFileURL.path
         let accountFolder = URL(fileURLWithPath: account.folder).standardizedFileURL.path
         let repoName = sanitizedRepoName(from: (sourcePath as NSString).lastPathComponent)
-        let blockingReason = sourcePath == accountFolder
-            ? "Choose an individual project folder, not the account root folder."
-            : nil
+        let blockingReason = ProjectInitPlan.pathBlockingReason(sourcePath: sourcePath,
+                                                                accountFolder: accountFolder)
         let inAccountFolder = sourcePath == accountFolder || sourcePath.hasPrefix(accountFolder + "/")
         let workingPath = inAccountFolder
             ? sourcePath
@@ -66,7 +65,10 @@ final class ProjectWorkflow: ObservableObject {
             workingPath: workingPath,
             repoName: repoName,
             willCopy: !inAccountFolder,
-            blockingReason: blockingReason,
+            blockingReason: blockingReason
+                ?? ProjectInitPlan.copyBlockingReason(sourcePath: sourcePath,
+                                                      workingPath: workingPath,
+                                                      willCopy: !inAccountFolder),
             sourceOrigin: sourceOrigin
         )
     }
@@ -167,6 +169,8 @@ final class ProjectWorkflow: ObservableObject {
 
     private func forkCloneDestinationState(repo: Repo, account: Account) async -> LocalRepoFolderState {
         let dest = repoManager.localPath(repo, in: account)
-        return await runBlocking { AppModel.localFolderState(for: repo, path: dest) }
+        return await runBlocking {
+            AppModel.localFolderState(for: repo, path: dest, expectedSSHHost: account.sshHost)
+        }
     }
 }
