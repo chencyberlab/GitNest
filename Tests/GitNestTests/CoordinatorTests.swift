@@ -83,6 +83,19 @@ final class CoordinatorTests: XCTestCase {
         XCTAssertNotEqual(model.setupCoordinator.addAccountSessionID, session)
     }
 
+    func testAppModelDismissPullWarningRoutesThroughAlertStore() async {
+        let model = AppModel()
+        model.alertStore.showPullWarning(AlertStore.PullWarning(repoName: "tools", message: "boom"))
+        await Task.yield()
+        XCTAssertNotNil(model.pullWarning)
+
+        model.dismissPullWarning()
+        await Task.yield()
+
+        XCTAssertNil(model.alertStore.pullWarning)
+        XCTAssertNil(model.pullWarning)
+    }
+
     // MARK: AlertStore
 
     func testAlertStoreShowsAndDismissesPullWarning() {

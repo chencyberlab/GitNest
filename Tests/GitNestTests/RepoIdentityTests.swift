@@ -161,6 +161,48 @@ final class RepoIdentityTests: XCTestCase {
         XCTAssertFalse(accountBHead.ok)
     }
 
+    func testCloneStateForExplicitAccountDoesNotUseVisibleAccountState() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let accountA = Account(alias: "me",
+                               name: "Me",
+                               email: "me@example.com",
+                               folder: root.appendingPathComponent("me").path)
+        let accountB = Account(alias: "work",
+                               name: "Work",
+                               email: "work@example.com",
+                               folder: root.appendingPathComponent("work").path)
+        let existing = repo(owner: "me", name: "existing")
+        let target = repo(owner: "me", name: "tools")
+        let visible = repo(owner: "work", name: "dashboard")
+        let targetFolder = URL(fileURLWithPath: accountA.folder).appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: targetFolder, withIntermediateDirectories: true)
+
+        XCTAssertTrue(Shell.run(["git", "init"], cwd: targetFolder.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/me/tools.git"
+        ], cwd: targetFolder.path).ok)
+
+        let model = AppModel()
+        model.accountManager.accounts = [accountA, accountB]
+        model.accountManager.selectedAccount = accountB
+        model.repoManager.repos = [visible]
+        model.repoManager.clonedRepos = [visible.id]
+        model.repoManager.repoFolderConflicts = [
+            visible.id: RepoFolderConflict(path: "/tmp/visible-conflict", origin: nil)
+        ]
+        model.repoManager.repoCache[accountA.alias] = [existing, target]
+        model.repoManager.clonedReposCache[accountA.alias] = [existing.id]
+
+        await model.clone(target, in: accountA)
+
+        XCTAssertEqual(model.repoManager.clonedRepos, [visible.id])
+        XCTAssertFalse(model.repoManager.clonedReposCache[accountA.alias]?.contains(visible.id) == true)
+        XCTAssertTrue(model.repoManager.clonedReposCache[accountA.alias]?.contains(existing.id) == true)
+        XCTAssertTrue(model.repoManager.clonedReposCache[accountA.alias]?.contains(target.id) == true)
+    }
+
     private func repo(owner: String, name: String) -> Repo {
         Repo(
             name: name,

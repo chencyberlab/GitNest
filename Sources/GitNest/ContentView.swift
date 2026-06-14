@@ -146,10 +146,10 @@ struct ContentView: View {
             pullAlertTitle,
             isPresented: Binding(
                 get: { model.pullWarning != nil },
-                set: { if !$0 { model.pullWarning = nil } }
+                set: { if !$0 { model.dismissPullWarning() } }
             )
         ) {
-            Button("OK") { model.pullWarning = nil }
+            Button("OK") { model.dismissPullWarning() }
         } message: {
             Text(model.pullWarning?.message ?? "")
         }

@@ -393,6 +393,13 @@ final class RepoManager: ObservableObject {
         repoFolderConflicts[repo.id]
     }
 
+    func cloneState(for alias: String) -> (cloned: Set<Repo.ID>, conflicts: [Repo.ID: RepoFolderConflict]) {
+        if accountManager.selectedAccount?.alias == alias {
+            return (clonedRepos, repoFolderConflicts)
+        }
+        return (clonedReposCache[alias] ?? [], repoFolderConflictsCache[alias] ?? [:])
+    }
+
     func refreshClonedStatus(for account: Account) async {
         let alias = account.alias
         let sourceRepos = accountManager.selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])

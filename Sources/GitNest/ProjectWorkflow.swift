@@ -9,14 +9,19 @@ final class ProjectWorkflow: ObservableObject {
     private let ghChain: GhChain
     private let logStore: LogStore
     private let repoManager: RepoManager
+    private let initAndPushProject: @Sendable (ProjectInitPlan, RepoVisibilityChoice) -> ShellResult
     private let forkRepo: @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>
     private let cloneRepo: @Sendable (Repo, String) -> ShellResult
     private let setUpstream: @Sendable (RepoReference, String) -> ShellResult
+    private let refreshReposAfterInit: @MainActor (Account) async -> Void
     private let refreshReposAfterFork: @MainActor (Account) async -> Void
 
     init(ghChain: GhChain,
          logStore: LogStore,
          repoManager: RepoManager,
+         initAndPushProject: @escaping @Sendable (ProjectInitPlan, RepoVisibilityChoice) -> ShellResult = {
+             GitHub.initAndPushProject($0, visibility: $1)
+         },
          forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError> = {
              GitHub.fork(source: $0, intoAccount: $1)
          },
@@ -26,13 +31,18 @@ final class ProjectWorkflow: ObservableObject {
          setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult = {
              GitHub.setUpstream(source: $0, at: $1)
          },
+         refreshReposAfterInit: (@MainActor (Account) async -> Void)? = nil,
          refreshReposAfterFork: (@MainActor (Account) async -> Void)? = nil) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.repoManager = repoManager
+        self.initAndPushProject = initAndPushProject
         self.forkRepo = forkRepo
         self.cloneRepo = cloneRepo
         self.setUpstream = setUpstream
+        self.refreshReposAfterInit = refreshReposAfterInit ?? { [repoManager] account in
+            await repoManager.loadRepos(for: account, silent: true, userInitiated: true)
+        }
         self.refreshReposAfterFork = refreshReposAfterFork ?? { [repoManager] account in
             await repoManager.loadRepos(for: account, silent: true, userInitiated: false)
         }
@@ -79,15 +89,22 @@ final class ProjectWorkflow: ObservableObject {
         isInitializingProject = true
         defer { isInitializingProject = false }
         logStore.append("Initializing \(plan.repoName) for \(plan.account.alias)…")
-        let res = await ghChain.serializedPreservingActiveAccount { GitHub.initAndPushProject(plan, visibility: visibility) }
+        let initAndPushProject = self.initAndPushProject
+        let res = await ghChain.serializedPreservingActiveAccount {
+            initAndPushProject(plan, visibility)
+        }
         logStore.report(res, ok: "initialized and pushed \(plan.account.alias)/\(plan.repoName)")
         if res.ok, plan.willCopy, moveOriginalToTrash {
             logStore.append("Moving original folder to Trash…")
             let trash = await runBlocking { FileOps.moveToTrash(plan.sourcePath) }
             logStore.report(trash, ok: "moved original \(plan.sourceName) to Trash")
         }
-        await repoManager.refreshClonedStatus(for: plan.account)
-        await repoManager.refreshStatuses(for: plan.account, refreshRemote: true)
+        if res.ok {
+            await refreshReposAfterInit(plan.account)
+        } else {
+            await repoManager.refreshClonedStatus(for: plan.account)
+            await repoManager.refreshStatuses(for: plan.account, refreshRemote: true)
+        }
         return res.ok
     }
 

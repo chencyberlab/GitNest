@@ -67,11 +67,9 @@ final class RepoActionCoordinator: ObservableObject {
         let account = context.account
         let alias = account.alias
         let dest = context.path
-        // Snapshot this account's sets now, while it's the selected one, so an
-        // account switch during the await can't land its result in another
-        // account's visible UI (or write that account's dict into this cache).
-        var cloned = repoManager.clonedRepos
-        var conflicts = repoManager.repoFolderConflicts
+        // Snapshot the target account's state, whether or not it is visible.
+        // Explicit-account actions can complete after the user switches accounts.
+        var (cloned, conflicts) = repoManager.cloneState(for: alias)
         let state = await runBlocking {
             AppModel.localFolderState(for: repo, path: dest, expectedSSHHost: account.sshHost)
         }

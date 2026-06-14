@@ -150,6 +150,42 @@ final class InitProjectTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: accountFolder.path))
     }
 
+    @MainActor
+    func testInitProjectRefreshesRepoListAfterSuccessfulPush() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: root.path,
+            workingPath: root.path,
+            repoName: "new-project",
+            willCopy: false
+        )
+        var refreshedAliases: [String] = []
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let auth = AuthProcessController()
+        let accountManager = AccountManager(ghChain: ghChain, logStore: logStore, authProcessController: auth)
+        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let workflow = ProjectWorkflow(
+            ghChain: ghChain,
+            logStore: logStore,
+            repoManager: repoManager,
+            initAndPushProject: { _, _ in
+                ShellResult(exitCode: 0, stdout: "pushed", stderr: "")
+            },
+            refreshReposAfterInit: { account in
+                refreshedAliases.append(account.alias)
+            }
+        )
+
+        let ok = await workflow.initProject(plan, visibility: .private)
+
+        XCTAssertTrue(ok)
+        XCTAssertEqual(refreshedAliases, ["me"])
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("GitNestInitProjectTests-\(UUID().uuidString)")

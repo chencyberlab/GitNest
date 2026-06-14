@@ -176,6 +176,10 @@ final class AppModel: ObservableObject {
         repoManager.repoSearch = text
     }
 
+    func dismissPullWarning() {
+        alertStore.dismissPullWarning()
+    }
+
     /// Two-way binding for the search field: reads the mirror, writes the source.
     var repoSearchBinding: Binding<String> {
         Binding(get: { self.repoSearch }, set: { self.repoManager.repoSearch = $0 })
