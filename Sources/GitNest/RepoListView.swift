@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// Target of a per-repo action that needs confirmation (commit/push/delete).
 struct RepoActionTarget: Identifiable {

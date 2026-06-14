@@ -38,8 +38,6 @@ enum AccountStatusLoadMode: String, CaseIterable, Identifiable, Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    typealias PullWarning = AlertStore.PullWarning
-
     @Published var accounts: [Account] = []
     @Published var selectedAccount: Account?
     @Published var sshGreetings: [String: String] = [:]
@@ -78,7 +76,7 @@ final class AppModel: ObservableObject {
     /// collapsed Output status line uses this to stay pinned on problems while
     /// progress/success lines fade away on their own.
     @Published var lastLogWasError = false
-    @Published var pullWarning: PullWarning?
+    @Published var pullWarning: AlertStore.PullWarning?
 
     let ghChain: GhChain
     let logStore: LogStore

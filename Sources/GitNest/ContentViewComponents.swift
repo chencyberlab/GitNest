@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 
 /// Collects each account card's frame (in the account-list coordinate space) so

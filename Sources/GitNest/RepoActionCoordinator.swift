@@ -107,7 +107,7 @@ final class RepoActionCoordinator: ObservableObject {
         let dirty = await runBlocking { GitHub.hasUncommittedChanges(at: path) }
         if dirty {
             logStore.append("⚠ Pull blocked for \(repo.name): uncommitted or untracked changes.")
-            alertStore.showPullWarning(AppModel.PullWarning(
+            alertStore.showPullWarning(AlertStore.PullWarning(
                 repoName: repo.name,
                 message: """
                 \(repo.name) has uncommitted or untracked changes.
@@ -123,9 +123,9 @@ final class RepoActionCoordinator: ObservableObject {
         let res = await runBlocking { GitHub.pull(at: path) }
         logStore.report(res, ok: "pulled \(repo.name)")
         if !res.ok {
-            alertStore.showPullWarning(AppModel.PullWarning(
+            alertStore.showPullWarning(AlertStore.PullWarning(
                 repoName: repo.name,
-                message: AppModel.PullWarning.message(repoName: repo.name, gitOutput: res.stdout + res.stderr)
+                message: AlertStore.PullWarning.message(repoName: repo.name, gitOutput: res.stdout + res.stderr)
             ))
         }
         await repoManager.refreshStatuses(for: account, refreshRemote: true)

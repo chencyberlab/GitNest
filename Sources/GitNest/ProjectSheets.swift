@@ -88,7 +88,7 @@ struct InitProjectSheet: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.isInitializingProject)
+                .disabled(model.isInitializingProject || plan.blockingReason != nil)
             }
         }
         .padding(22)
@@ -125,7 +125,7 @@ struct ForkProjectSheet: View {
                 Button("Cancel") { showForkSheet = false }
                     .buttonStyle(SubtleButtonStyle())
                 Button("Fork") {
-                    let address = forkAddress
+                    let address = forkAddress.trimmingCharacters(in: .whitespacesAndNewlines)
                     let account = model.selectedAccount
                     showForkSheet = false
                     Task {
@@ -135,7 +135,7 @@ struct ForkProjectSheet: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(forkAddress.trimmingCharacters(in: .whitespaces).isEmpty || model.isForkingProject)
+                .disabled(forkAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isForkingProject)
             }
         }
         .padding(22)

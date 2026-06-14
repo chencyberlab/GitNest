@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// A single repository row in the repo list: icon, name, status pills, and actions.
 struct RepoRowView: View {

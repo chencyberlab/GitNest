@@ -1,5 +1,4 @@
 import SwiftUI
-import AppKit
 
 /// Account list sidebar: search, cards, drag-to-reorder, add-account,
 /// appearance/settings controls, and refresh.
