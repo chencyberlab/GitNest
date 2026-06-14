@@ -93,6 +93,10 @@ final class AppModel: ObservableObject {
     @Published var clonedRepos: Set<Repo.ID> = []   // repo owner/name values present on disk for the selected account
     @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]   // repo owner/name -> local/upstream state
     @Published var repoFolderConflicts: [Repo.ID: RepoFolderConflict] = [:]
+    /// Mirror of `repoActionCoordinator.busyRepos`. Rows read the busy state through
+    /// the coordinator but observe only `AppModel`, so this re-publish is what makes
+    /// their action buttons disable/enable when an action starts or finishes.
+    @Published var busyRepos: Set<Repo.ID> = []
     var lifecycleStarted = false
     static let accountOrderDefaultsKey = "accountOrder"
 
@@ -147,6 +151,7 @@ final class AppModel: ObservableObject {
         repoManager.$isRefreshingRepos.assign(to: &$isRefreshingRepos)
         repoManager.$isCheckingRepoRemotes.assign(to: &$isCheckingRepoRemotes)
         repoManager.$repoRefreshMessage.assign(to: &$repoRefreshMessage)
+        repoActionCoordinator.$busyRepos.assign(to: &$busyRepos)
         projectWorkflow.$isInitializingProject.assign(to: &$isInitializingProject)
         projectWorkflow.$isForkingProject.assign(to: &$isForkingProject)
         setupCoordinator.$addAccountActive.assign(to: &$addAccountActive)

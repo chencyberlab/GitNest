@@ -158,7 +158,7 @@ struct SidebarView: View {
             """)
         }
         .sheet(isPresented: $model.addAccountActive) {
-            AddAccountSheet().environmentObject(model)
+            AddAccountSheet().environmentObject(model.setupCoordinator)
         }
     }
 

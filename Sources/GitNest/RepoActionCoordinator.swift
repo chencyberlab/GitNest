@@ -249,7 +249,7 @@ final class RepoActionCoordinator: ObservableObject {
     }
 
     func commit(_ repo: Repo, message: String, in account: Account? = nil) async {
-        guard !message.trimmingCharacters(in: .whitespaces).isEmpty,
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account

@@ -39,6 +39,7 @@ struct RepoListView: View {
                                 repo: repo,
                                 account: account,
                                 commitTarget: $commitTarget,
+                                commitMessage: $commitMessage,
                                 pushTarget: $pushTarget,
                                 deleteTarget: $deleteTarget,
                                 preferredEditor: preferredEditor,
@@ -190,7 +191,7 @@ struct CommitSheet: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(commitMessage.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(22)

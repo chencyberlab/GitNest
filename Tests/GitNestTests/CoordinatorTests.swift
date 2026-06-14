@@ -51,6 +51,24 @@ final class CoordinatorTests: XCTestCase {
         XCTAssertTrue(store.lastWasError)
     }
 
+    // MARK: AppModel re-publishing
+
+    /// Rows read the busy state through `repoActionCoordinator` but observe only
+    /// `AppModel`, so `AppModel` must mirror `busyRepos` for the action buttons to
+    /// disable/enable. This pins that re-publish so it can't silently regress again.
+    func testAppModelMirrorsRepoActionBusyState() async {
+        let model = AppModel()
+        XCTAssertTrue(model.busyRepos.isEmpty)
+
+        model.repoActionCoordinator.busyRepos.insert("owner/repo")
+        await Task.yield()   // let the Combine assign propagate
+        XCTAssertTrue(model.busyRepos.contains("owner/repo"))
+
+        model.repoActionCoordinator.busyRepos.removeAll()
+        await Task.yield()
+        XCTAssertTrue(model.busyRepos.isEmpty)
+    }
+
     // MARK: AlertStore
 
     func testAlertStoreShowsAndDismissesPullWarning() {

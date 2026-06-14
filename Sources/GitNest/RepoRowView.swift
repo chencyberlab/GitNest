@@ -9,6 +9,7 @@ struct RepoRowView: View {
     let account: Account
 
     @Binding var commitTarget: RepoActionTarget?
+    @Binding var commitMessage: String
     @Binding var pushTarget: RepoActionTarget?
     @Binding var deleteTarget: RepoActionTarget?
 
@@ -75,6 +76,7 @@ struct RepoRowView: View {
                     Task { await model.repoActionCoordinator.pull(repo, in: account) }
                 }
                 iconButton("pencil", "Commit all changes…") {
+                    commitMessage = ""
                     commitTarget = RepoActionTarget(repo: repo, account: account)
                 }
                 iconButton("arrow.up", "Push (git push)") {
