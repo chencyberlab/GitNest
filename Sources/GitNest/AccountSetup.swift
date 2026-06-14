@@ -303,7 +303,8 @@ enum AccountSetup {
             let key = String(record[..<newline])
             let value = String(record[record.index(after: newline)...])
             let lowerKey = key.lowercased()
-            guard lowerKey.hasPrefix("includeif.gitdir:"), lowerKey.hasSuffix(".path") else { continue }
+            guard (lowerKey.hasPrefix("includeif.gitdir:") || lowerKey.hasPrefix("includeif.gitdir/i:")),
+                  lowerKey.hasSuffix(".path") else { continue }
             if (value as NSString).expandingTildeInPath == wanted { keys.append(key) }
         }
         return keys

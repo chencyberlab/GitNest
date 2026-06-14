@@ -52,10 +52,12 @@ struct InitProjectSheet: View {
             }
             .pickerStyle(.segmented)
 
-            Toggle(isOn: $moveOriginalToTrash) {
-                Text("Move original project folder to Trash after moving it into the account")
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.text)
+            if plan.willCopy {
+                Toggle(isOn: $moveOriginalToTrash) {
+                    Text("Move original project folder to Trash after copying it into the account")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.text)
+                }
             }
 
             if let warning = planWarning(plan) {

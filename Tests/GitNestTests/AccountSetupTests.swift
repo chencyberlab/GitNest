@@ -107,6 +107,7 @@ final class AccountSetupTests: XCTestCase {
         let home = NSHomeDirectory()
         let output = [
             "includeIf.gitdir:~/Developer/github-work/.path\n~/.gitconfig-work",
+            "includeIf.gitdir/i:~/CASE/github-work/.path\n~/.gitconfig-work",
             "includeIf.gitdir:~/Old/github-work/.path\n\(home)/.gitconfig-work",
             "includeIf.gitdir:~/Developer/github-home/.path\n~/.gitconfig-home",
         ].joined(separator: "\0") + "\0"
@@ -115,6 +116,7 @@ final class AccountSetupTests: XCTestCase {
 
         XCTAssertEqual(keys, [
             "includeIf.gitdir:~/Developer/github-work/.path",   // portable value
+            "includeIf.gitdir/i:~/CASE/github-work/.path",       // case-insensitive gitdir rule
             "includeIf.gitdir:~/Old/github-work/.path",         // expanded value, same file
         ])
     }

@@ -9,11 +9,33 @@ final class ProjectWorkflow: ObservableObject {
     private let ghChain: GhChain
     private let logStore: LogStore
     private let repoManager: RepoManager
+    private let forkRepo: @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>
+    private let cloneRepo: @Sendable (Repo, String) -> ShellResult
+    private let setUpstream: @Sendable (RepoReference, String) -> ShellResult
+    private let refreshReposAfterFork: @MainActor (Account) async -> Void
 
-    init(ghChain: GhChain, logStore: LogStore, repoManager: RepoManager) {
+    init(ghChain: GhChain,
+         logStore: LogStore,
+         repoManager: RepoManager,
+         forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError> = {
+             GitHub.fork(source: $0, intoAccount: $1)
+         },
+         cloneRepo: @escaping @Sendable (Repo, String) -> ShellResult = {
+             GitHub.clone(repo: $0, into: $1)
+         },
+         setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult = {
+             GitHub.setUpstream(source: $0, at: $1)
+         },
+         refreshReposAfterFork: (@MainActor (Account) async -> Void)? = nil) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.repoManager = repoManager
+        self.forkRepo = forkRepo
+        self.cloneRepo = cloneRepo
+        self.setUpstream = setUpstream
+        self.refreshReposAfterFork = refreshReposAfterFork ?? { [repoManager] account in
+            await repoManager.loadRepos(for: account, silent: true, userInitiated: false)
+        }
     }
 
     func makeInitPlan(sourceURL: URL, account: Account) async -> ProjectInitPlan {
@@ -79,7 +101,8 @@ final class ProjectWorkflow: ObservableObject {
         defer { isForkingProject = false }
         logStore.append("Forking \(ref.nameWithOwner) into \(account.alias)'s account…")
 
-        let forkResult = await ghChain.serializedPreservingActiveAccount { GitHub.fork(source: ref, intoAccount: account.alias) }
+        let forkRepo = self.forkRepo
+        let forkResult = await ghChain.serializedPreservingActiveAccount { forkRepo(ref, account.alias) }
         guard case .success(let outcome) = forkResult else {
             if case .failure(let error) = forkResult {
                 logStore.append("✗ Fork failed: \(error.message)")
@@ -99,22 +122,32 @@ final class ProjectWorkflow: ObservableObject {
         }
 
         let dest = repoManager.localPath(repo, in: account)
-        let cloneRes = await runBlocking { GitHub.clone(repo: repo, into: account.folder) }
-        // A fork you already cloned isn't a failure — the goal (fork present locally
-        // with upstream wired up) is already met, so report it calmly and continue.
-        let alreadyCloned = !cloneRes.ok && cloneRes.stderr.contains("already exists:")
-        if cloneRes.ok {
-            logStore.report(cloneRes, ok: "cloned \(repo.name)")
-        } else if alreadyCloned {
+        let cloneRepo = self.cloneRepo
+        switch await forkCloneDestinationState(repo: repo, account: account) {
+        case .cloned:
             logStore.append("ℹ \(repo.name) is already cloned at \(dest).")
-        } else {
-            logStore.report(cloneRes, ok: "cloned \(repo.name)")
+        case .occupied(let conflict):
+            logStore.append("✗ Cannot clone \(repo.nameWithOwner): \(conflict.message)")
             await repoManager.refreshClonedStatus(for: account)
             await repoManager.refreshStatuses(for: account, refreshRemote: true)
             return false
+        case .absent:
+            let cloneRes = await runBlocking { cloneRepo(repo, account.folder) }
+            if cloneRes.ok {
+                logStore.report(cloneRes, ok: "cloned \(repo.name)")
+            } else if case .cloned = await forkCloneDestinationState(repo: repo, account: account) {
+                // A concurrent clone may have won the race after our preflight.
+                logStore.append("ℹ \(repo.name) is already cloned at \(dest).")
+            } else {
+                logStore.report(cloneRes, ok: "cloned \(repo.name)")
+                await repoManager.refreshClonedStatus(for: account)
+                await repoManager.refreshStatuses(for: account, refreshRemote: true)
+                return false
+            }
         }
 
-        let upstream = await runBlocking { GitHub.setUpstream(source: ref, at: dest) }
+        let setUpstream = self.setUpstream
+        let upstream = await runBlocking { setUpstream(ref, dest) }
         let upstreamText = (upstream.stdout + upstream.stderr)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if upstream.ok {
@@ -127,8 +160,13 @@ final class ProjectWorkflow: ObservableObject {
         // already runs refreshClonedStatus + refreshStatuses(refreshRemote:) at the
         // end — and only after `repos` includes the new fork — so doing those here
         // first would just re-fetch every cloned repo's remote a second time.
-        await repoManager.loadRepos(for: account, silent: true, userInitiated: false)
+        await refreshReposAfterFork(account)
 
         return true
+    }
+
+    private func forkCloneDestinationState(repo: Repo, account: Account) async -> LocalRepoFolderState {
+        let dest = repoManager.localPath(repo, in: account)
+        return await runBlocking { AppModel.localFolderState(for: repo, path: dest) }
     }
 }
