@@ -1,4 +1,7 @@
 # GitNest
+![GitHub watchers](https://img.shields.io/github/watchers/chencyberlab/GitNest) 
+![GitHub Repo stars](https://img.shields.io/github/stars/chencyberlab/GitNest) 
+
 
 A tiny native macOS (SwiftUI) GUI for a local multi-account GitHub setup. It
 shows your configured accounts, which account each SSH key authenticates as,
