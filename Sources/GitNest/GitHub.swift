@@ -60,8 +60,17 @@ private struct RestRepo: Decodable {
 }
 
 private struct RepoViewPayload: Decodable {
+    // `gh repo view --json parent` exposes the parent as `{name, owner: {login}}`
+    // — it does NOT include a flat `nameWithOwner` like the top-level repo does.
+    // Decode the nested shape and compose the name ourselves.
     struct Parent: Decodable {
-        let nameWithOwner: String
+        struct Owner: Decodable {
+            let login: String
+        }
+        let name: String
+        let owner: Owner
+
+        var nameWithOwner: String { "\(owner.login)/\(name)" }
     }
 
     let name: String
@@ -652,8 +661,16 @@ enum GitHub {
             "gh", "repo", "view", nameWithOwner,
             "--json", "name,nameWithOwner,description,visibility,updatedAt,url,parent"
         ])
-        guard view.ok,
-              let data = view.stdout.data(using: .utf8),
+        guard view.ok else { return nil }
+        return decodeRepoViewDetails(fromJSON: view.stdout)
+    }
+
+    /// Decode one `gh repo view --json …,parent` payload into `RepoViewDetails`.
+    /// Exposed (not `private`) so tests can cover the fork-detection decode — the
+    /// path that previously broke because `gh`'s nested `parent` shape doesn't
+    /// match a flat `nameWithOwner` — without hitting the network.
+    static func decodeRepoViewDetails(fromJSON json: String) -> RepoViewDetails? {
+        guard let data = json.data(using: .utf8),
               let payload = try? JSONDecoder().decode(RepoViewPayload.self, from: data) else { return nil }
         return payload.details
     }

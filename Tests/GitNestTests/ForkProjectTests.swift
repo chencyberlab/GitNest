@@ -60,6 +60,39 @@ final class ForkProjectTests: XCTestCase {
         XCTAssertFalse(RepoViewDetails(repo: repo, parentNameWithOwner: nil).isFork(of: source))
     }
 
+    func testDecodeRepoViewDetailsParsesGitHubForkParentShape() {
+        // The exact JSON `gh repo view --json …,parent` emits for a fork: the
+        // parent is a nested {name, owner:{login}} object with NO flat
+        // `nameWithOwner`. A decoder that required `parent.nameWithOwner` threw,
+        // `try?` swallowed it, and every fork looked "not available" for 60s.
+        let json = """
+        {"name":"awesome-design-md","nameWithOwner":"chencyberlab/awesome-design-md",\
+        "parent":{"id":"R_kgDOR2Chew","name":"awesome-design-md",\
+        "owner":{"id":"O_kgDOC_9TSg","login":"VoltAgent"}},\
+        "url":"https://github.com/chencyberlab/awesome-design-md","visibility":"PUBLIC"}
+        """
+
+        let details = GitHub.decodeRepoViewDetails(fromJSON: json)
+        XCTAssertNotNil(details, "fork payload must decode")
+        XCTAssertEqual(details?.repo.nameWithOwner, "chencyberlab/awesome-design-md")
+        XCTAssertEqual(details?.parentNameWithOwner, "VoltAgent/awesome-design-md")
+
+        let source = RepoReference(owner: "VoltAgent", repo: "awesome-design-md",
+                                   raw: "VoltAgent/awesome-design-md")
+        XCTAssertEqual(details?.isFork(of: source), true)
+    }
+
+    func testDecodeRepoViewDetailsParsesNonForkWithNullParent() {
+        let json = """
+        {"name":"GitNest","nameWithOwner":"chencyberlab/GitNest","parent":null,\
+        "url":"https://github.com/chencyberlab/GitNest","visibility":"PUBLIC"}
+        """
+
+        let details = GitHub.decodeRepoViewDetails(fromJSON: json)
+        XCTAssertNotNil(details)
+        XCTAssertNil(details?.parentNameWithOwner)
+    }
+
     func testRepoReferenceParsesHTTPSURL() {
         let ref = RepoReference.parse("https://github.com/owner/repo")
         XCTAssertEqual(ref?.owner, "owner")
