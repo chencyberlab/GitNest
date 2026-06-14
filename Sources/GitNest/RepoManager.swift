@@ -228,7 +228,10 @@ final class RepoManager: ObservableObject {
         repoAutoRefreshTimer?.cancel()
         repoAutoRefreshTimer = nil
         guard seconds > 0, appIsActive else {
-            repoAutoRefreshSeconds = appIsActive ? 0 : UInt64(seconds)
+            // `max(0, …)` because UInt64(negative) traps; a non-positive interval
+            // means "off" → store 0. While backgrounded we remember a positive
+            // interval so resume can restart it.
+            repoAutoRefreshSeconds = appIsActive ? 0 : UInt64(max(0, seconds))
             if seconds <= 0 {
                 isRefreshingRepos = false
                 setRepoRefreshMessage(nil)

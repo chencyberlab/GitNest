@@ -177,6 +177,17 @@ final class AccountManager: ObservableObject {
 
     func loadAccountStatus(_ account: Account, session: UUID) async {
         let alias = account.alias
+        // Clear the in-flight marker on every exit path — but only while this is
+        // still the current session. A newer batch bumps accountStatusSessionID and
+        // clears the whole set itself, then re-inserts aliases for its own in-flight
+        // checks; removing here in that case would wipe an entry we no longer own.
+        // Guarding on the session still lets us clean up the same-session early
+        // returns (e.g. the account was removed mid-check), which would otherwise leak.
+        defer {
+            if session == accountStatusSessionID {
+                accountStatusChecksPending.remove(alias)
+            }
+        }
         let greeting = await runBlocking { GitHub.sshGreeting(host: account.sshHost) }
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
         sshGreetings[alias] = greeting
@@ -198,7 +209,6 @@ final class AccountManager: ObservableObject {
         }
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
         ghIndicators[alias] = indicator
-        accountStatusChecksPending.remove(alias)
     }
 
     func isCurrentAccountStatusSession(_ session: UUID, alias: String) -> Bool {

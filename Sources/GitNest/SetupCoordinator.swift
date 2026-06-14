@@ -124,7 +124,7 @@ final class SetupCoordinator: ObservableObject {
         addAccountBusy = false
     }
 
-    func setAddAccountFolder(_ path: String) { addAccountFolder = path }
+    func setAddAccountFolder(_ path: String?) { addAccountFolder = path }
 
     /// Step 2 → 3 — generate (or reuse) the dedicated SSH key, then show its pubkey.
     func addAccountGenerateKey() async {
@@ -193,7 +193,10 @@ final class SetupCoordinator: ObservableObject {
     func addAccountReverify() async {
         guard let alias = addAccountAlias else { return }
         let session = addAccountSessionID
-        let result = await ghChain.serialized { AccountSetup.verify(alias: alias) }
+        // verify() switches the active gh account to `alias`; preserve+restore the
+        // previously active account around it so the mid-wizard Re-verify button
+        // doesn't leave global gh state pointing at this half-configured account.
+        let result = await ghChain.serializedPreservingActiveAccount { AccountSetup.verify(alias: alias) }
         guard isCurrentAddAccountSession(session) else { return }
         addAccountVerification = result
         let sshText = result.sshOK ? "OK" : (result.sshLogin.map { "as \($0), expected \(alias)" } ?? "not ready")

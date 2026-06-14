@@ -293,8 +293,13 @@ struct AddAccountSheet: View {
         if panel.runModal() == .OK, let url = panel.url {
             let chosen = url.path
             if let overlap = setupCoordinator.accounts.first(where: { AccountSetup.foldersOverlap(chosen, $0.folder) }) {
+                // Clear any previously chosen folder so the error can't sit next to a
+                // still-valid selection with Next left enabled (which would let the
+                // user proceed with the old folder while seeing an error about the new one).
+                setupCoordinator.setAddAccountFolder(nil)
                 setupCoordinator.addAccountError = "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
             } else {
+                setupCoordinator.addAccountError = nil
                 setupCoordinator.setAddAccountFolder(chosen)
             }
         }
