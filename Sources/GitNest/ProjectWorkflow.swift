@@ -80,7 +80,7 @@ final class ProjectWorkflow: ObservableObject {
         logStore.append("Forking \(ref.nameWithOwner) into \(account.alias)'s account…")
 
         let forkResult = await ghChain.serializedPreservingActiveAccount { GitHub.fork(source: ref, intoAccount: account.alias) }
-        guard case .success(let repo) = forkResult else {
+        guard case .success(let outcome) = forkResult else {
             if case .failure(let error) = forkResult {
                 logStore.append("✗ Fork failed: \(error.message)")
             } else {
@@ -88,18 +88,32 @@ final class ProjectWorkflow: ObservableObject {
             }
             return false
         }
+        let repo = outcome.repo
 
-        logStore.append("✓ Fork ready: \(repo.nameWithOwner). Cloning into \(account.folder)…")
+        // `gh repo fork` is idempotent: re-forking something you already have just
+        // returns the existing fork. Say so plainly instead of implying a fresh one.
+        if outcome.alreadyExisted {
+            logStore.append("ℹ You already have a fork: \(repo.nameWithOwner). Cloning your existing fork into \(account.folder)…")
+        } else {
+            logStore.append("✓ Fork created: \(repo.nameWithOwner). Cloning into \(account.folder)…")
+        }
+
+        let dest = repoManager.localPath(repo, in: account)
         let cloneRes = await runBlocking { GitHub.clone(repo: repo, into: account.folder) }
-        logStore.report(cloneRes, ok: "cloned \(repo.name)")
-
-        guard cloneRes.ok else {
+        // A fork you already cloned isn't a failure — the goal (fork present locally
+        // with upstream wired up) is already met, so report it calmly and continue.
+        let alreadyCloned = !cloneRes.ok && cloneRes.stderr.contains("already exists:")
+        if cloneRes.ok {
+            logStore.report(cloneRes, ok: "cloned \(repo.name)")
+        } else if alreadyCloned {
+            logStore.append("ℹ \(repo.name) is already cloned at \(dest).")
+        } else {
+            logStore.report(cloneRes, ok: "cloned \(repo.name)")
             await repoManager.refreshClonedStatus(for: account)
             await repoManager.refreshStatuses(for: account, refreshRemote: true)
             return false
         }
 
-        let dest = repoManager.localPath(repo, in: account)
         let upstream = await runBlocking { GitHub.setUpstream(source: ref, at: dest) }
         let upstreamText = (upstream.stdout + upstream.stderr)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -109,10 +123,10 @@ final class ProjectWorkflow: ObservableObject {
             logStore.append("⚠ Cloned, but could not add upstream: \(upstreamText.isEmpty ? "unknown error" : upstreamText)")
         }
 
-        await repoManager.refreshClonedStatus(for: account)
-        await repoManager.refreshStatuses(for: account, refreshRemote: true)
-
-        // Also refresh the repo list so the newly forked repo appears as a row.
+        // Refresh the repo list so the newly forked repo appears as a row. This
+        // already runs refreshClonedStatus + refreshStatuses(refreshRemote:) at the
+        // end — and only after `repos` includes the new fork — so doing those here
+        // first would just re-fetch every cloned repo's remote a second time.
         await repoManager.loadRepos(for: account, silent: true, userInitiated: false)
 
         return true

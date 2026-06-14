@@ -109,6 +109,14 @@ struct CommandError: Error, Sendable {
     let message: String
 }
 
+/// Result of a fork request. `alreadyExisted` is true when the user already had
+/// the fork (`gh repo fork` is idempotent and just reports it), so callers can
+/// say "cloning your existing fork" instead of implying a fresh one was created.
+struct ForkOutcome: Sendable {
+    let repo: Repo
+    let alreadyExisted: Bool
+}
+
 /// A reference to a GitHub repository extracted from user input such as a URL
 /// or an `owner/repo` shorthand. Keeps the original text for display/logging.
 struct RepoReference: Sendable {
@@ -528,7 +536,7 @@ enum GitHub {
     static func fork(source: RepoReference,
                      intoAccount alias: String,
                      defaultBranchOnly: Bool = true,
-                     timeoutSeconds: UInt64 = 60) -> Result<Repo, CommandError> {
+                     timeoutSeconds: UInt64 = 60) -> Result<ForkOutcome, CommandError> {
         let accountCheck = ensureActiveAccount(alias)
         guard accountCheck.ok else {
             let detail = (accountCheck.stdout + accountCheck.stderr)
@@ -554,13 +562,18 @@ enum GitHub {
                 fallbackRepo: source.repo,
                 source: source
             ) {
-                return .success(existing)
+                return .success(ForkOutcome(repo: existing, alreadyExisted: true))
             }
 
             let msg = (forkRes.stderr + forkRes.stdout)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             return .failure(CommandError(message: msg.isEmpty ? "fork failed" : msg))
         }
+
+        // `gh repo fork` succeeds (exit 0) whether it created the fork or found one
+        // you already had — in the latter case it prints "<owner/repo> already
+        // exists". Detect that so the caller can phrase the log honestly.
+        let alreadyExisted = forkOutput.range(of: "already exists", options: .caseInsensitive) != nil
 
         let forkedNameWithOwner = forkedRepoNameWithOwner(
             from: forkOutput,
@@ -569,6 +582,7 @@ enum GitHub {
         )
         return waitForRepo(nameWithOwner: forkedNameWithOwner,
                            timeoutSeconds: timeoutSeconds)
+            .map { ForkOutcome(repo: $0, alreadyExisted: alreadyExisted) }
     }
 
     static func forkedRepoNameWithOwner(from output: String,
