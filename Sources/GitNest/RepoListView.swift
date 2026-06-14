@@ -147,7 +147,7 @@ struct RepoListView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(theme.textMuted)
             if !model.repos.isEmpty {
-                Button("Clear search") { model.repoSearch = "" }
+                Button("Clear search") { model.setRepoSearch("") }
                     .buttonStyle(SubtleButtonStyle())
             }
         }

@@ -61,7 +61,7 @@ struct RepoRowView: View {
                 .padding(.trailing, 12)
         }
         .contentShape(Rectangle())
-        .onTapGesture { model.selectedRepo = repo.id }
+        .onTapGesture { model.selectRepo(repo.id) }
         .padding(.horizontal, 4)
     }
 

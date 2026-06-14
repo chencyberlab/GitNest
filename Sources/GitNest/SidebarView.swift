@@ -157,7 +157,7 @@ struct SidebarView: View {
             Sign in as \(account.alias) if that is the account you want to refresh.
             """)
         }
-        .sheet(isPresented: $model.addAccountActive) {
+        .sheet(isPresented: model.addAccountActiveBinding) {
             AddAccountSheet().environmentObject(model.setupCoordinator)
         }
     }

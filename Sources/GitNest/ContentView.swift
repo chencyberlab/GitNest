@@ -302,14 +302,14 @@ private struct DetailView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.textMuted)
             TextField("Wild search repos…  (part of a name, glob like m*ger, or fuzzy “mgm”)",
-                      text: $model.repoSearch)
+                      text: model.repoSearchBinding)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
             if !model.repoSearch.isEmpty {
                 Text("\(model.filteredRepos.count)/\(model.repos.count)")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.textTertiary)
-                Button { model.repoSearch = "" } label: {
+                Button { model.setRepoSearch("") } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(theme.textTertiary)

@@ -155,20 +155,35 @@ final class AppModel: ObservableObject {
         projectWorkflow.$isInitializingProject.assign(to: &$isInitializingProject)
         projectWorkflow.$isForkingProject.assign(to: &$isForkingProject)
         setupCoordinator.$addAccountActive.assign(to: &$addAccountActive)
-        bindAppModelRepoSearchToRepoManager()
-        bindAppModelSelectedRepoToRepoManager()
-        bindAppModelAddAccountActiveToSetupCoordinator()
         bindAutoRefreshGate()
     }
 
-    private func bindAppModelAddAccountActiveToSetupCoordinator() {
-        $addAccountActive
-            .removeDuplicates()
-            .sink { [weak self] in
-                guard let self, self.setupCoordinator.addAccountActive != $0 else { return }
-                self.setupCoordinator.addAccountActive = $0
-            }
-            .store(in: &storeCancellables)
+    // MARK: - UI write intents
+    //
+    // `selectedRepo`, `repoSearch`, and `addAccountActive` are one-way mirrors
+    // of their owning managers (see the `assign(to:)` wiring in `init`). The UI
+    // reads the mirror but must write through to the source of truth, so route
+    // writes here rather than mutating the mirror. Mutating the mirror would not
+    // propagate to the manager, and the previous two-way Combine bindings that
+    // tried to bridge it caused an infinite `willSet` feedback loop that crashed
+    // the app with a stack overflow.
+
+    func selectRepo(_ id: Repo.ID?) {
+        repoManager.selectedRepo = id
+    }
+
+    func setRepoSearch(_ text: String) {
+        repoManager.repoSearch = text
+    }
+
+    /// Two-way binding for the search field: reads the mirror, writes the source.
+    var repoSearchBinding: Binding<String> {
+        Binding(get: { self.repoSearch }, set: { self.repoManager.repoSearch = $0 })
+    }
+
+    /// Two-way binding for the add-account sheet: reads the mirror, writes the source.
+    var addAccountActiveBinding: Binding<Bool> {
+        Binding(get: { self.addAccountActive }, set: { self.setupCoordinator.addAccountActive = $0 })
     }
 
     private func bindAutoRefreshGate() {
@@ -176,25 +191,6 @@ final class AppModel: ObservableObject {
             .CombineLatest3($isInitializingProject, $isForkingProject, $addAccountActive)
             .sink { [weak self] initializing, forking, adding in
                 self?.repoManager.canAutoRefresh = !initializing && !forking && !adding
-            }
-            .store(in: &storeCancellables)
-    }
-
-    private func bindAppModelRepoSearchToRepoManager() {
-        $repoSearch
-            .removeDuplicates()
-            .sink { [weak self] in
-                guard let self, self.repoManager.repoSearch != $0 else { return }
-                self.repoManager.repoSearch = $0
-            }
-            .store(in: &storeCancellables)
-    }
-
-    private func bindAppModelSelectedRepoToRepoManager() {
-        $selectedRepo
-            .sink { [weak self] in
-                guard let self, self.repoManager.selectedRepo != $0 else { return }
-                self.repoManager.selectedRepo = $0
             }
             .store(in: &storeCancellables)
     }
