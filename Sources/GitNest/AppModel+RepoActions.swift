@@ -55,6 +55,11 @@ extension AppModel {
         await repoActionCoordinator.changedFiles(for: repo, in: explicitAccount)
     }
 
+    func recentCommits(for repo: Repo,
+                       in explicitAccount: Account? = nil) async -> Result<[GitCommit], CommandError> {
+        await repoActionCoordinator.recentCommits(for: repo, in: explicitAccount)
+    }
+
     func deleteLocalFolder(_ repo: Repo, in account: Account? = nil) async {
         await repoActionCoordinator.deleteLocalFolder(repo, in: account)
     }

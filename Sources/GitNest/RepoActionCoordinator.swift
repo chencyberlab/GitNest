@@ -235,6 +235,58 @@ final class RepoActionCoordinator: ObservableObject {
         return await runBlocking { GitHub.changedFiles(at: path) }
     }
 
+    /// Load recent commits for the history popover. Read-only and network-free —
+    /// mirrors `changedFiles`. Reports a friendly error when the repo isn't cloned.
+    func recentCommits(for repo: Repo,
+                       in explicitAccount: Account? = nil) async -> Result<[GitCommit], CommandError> {
+        guard let account = explicitAccount ?? accountManager.selectedAccount else {
+            return .failure(CommandError(message: "No account selected."))
+        }
+        let path = repoManager.localPath(repo, in: account)
+        let gitDir = (path as NSString).appendingPathComponent(".git")
+        guard FileManager.default.fileExists(atPath: gitDir) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally."))
+        }
+        return await runBlocking { GitHub.recentCommits(at: path) }
+    }
+
+    // MARK: GitHub navigation & clipboard (non-mutating)
+
+    /// Open the repo's pull-requests page on GitHub.
+    func openPullRequests(_ repo: Repo) { openGitHubPage(repo, path: "pulls", label: "pull requests") }
+
+    /// Open the repo's issues page on GitHub.
+    func openIssues(_ repo: Repo) { openGitHubPage(repo, path: "issues", label: "issues") }
+
+    private func openGitHubPage(_ repo: Repo, path: String, label: String) {
+        guard let url = URL(string: "https://github.com/\(repo.nameWithOwner)/\(path)") else { return }
+        logStore.append("Opening \(label) for \(repo.nameWithOwner) on GitHub…")
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Copy the HTTPS clone URL (e.g. https://github.com/owner/repo.git).
+    func copyHTTPSURL(_ repo: Repo) {
+        copyToClipboard("https://github.com/\(repo.nameWithOwner).git", describing: "HTTPS URL for \(repo.name)")
+    }
+
+    /// Copy the standard SSH clone URL (git@github.com:owner/repo.git). The plain
+    /// github.com host is used rather than the per-account alias so the copied URL is
+    /// portable to other machines/CI; local clones still route via the alias rewrite.
+    func copySSHURL(_ repo: Repo) {
+        copyToClipboard("git@github.com:\(repo.nameWithOwner).git", describing: "SSH URL for \(repo.name)")
+    }
+
+    /// Copy a ready-to-run `gh repo clone` command.
+    func copyCloneCommand(_ repo: Repo) {
+        copyToClipboard("gh repo clone \(repo.nameWithOwner)", describing: "clone command for \(repo.name)")
+    }
+
+    private func copyToClipboard(_ value: String, describing label: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        logStore.append("Copied \(label) to clipboard.")
+    }
+
     /// Move the local clone to Trash (does NOT touch the GitHub repo).
     func deleteLocalFolder(_ repo: Repo, in account: Account? = nil) async {
         guard let context = beginRepoAction(repo, in: account) else { return }

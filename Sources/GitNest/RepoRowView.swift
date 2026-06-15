@@ -18,6 +18,10 @@ struct RepoRowView: View {
     let customEditorName: String
     let customTerminalName: String
 
+    /// Drives the read-only commit-history popover, opened from the row's
+    /// right-click menu (cloned repos only).
+    @State private var showHistory = false
+
     var body: some View {
         let selected = model.selectedRepo == repo.id
         let status = model.repoStatuses[repo.id]
@@ -63,6 +67,49 @@ struct RepoRowView: View {
         .contentShape(Rectangle())
         .onTapGesture { model.selectRepo(repo.id) }
         .padding(.horizontal, 4)
+        .contextMenu { rowContextMenu(cloned: cloned) }
+        .popover(isPresented: $showHistory, arrowEdge: .bottom) {
+            CommitHistoryContent(repo: repo, account: account)
+                .environmentObject(model)
+        }
+    }
+
+    // MARK: Context menu
+
+    /// Right-click menu: GitHub navigation and clipboard helpers that would clutter
+    /// the inline action row. Cloned repos also get history and a Finder reveal.
+    @ViewBuilder
+    private func rowContextMenu(cloned: Bool) -> some View {
+        Button {
+            model.repoActionCoordinator.openGitHubRepo(repo)
+        } label: { Label("Open on GitHub", systemImage: "globe") }
+        Button {
+            model.repoActionCoordinator.openPullRequests(repo)
+        } label: { Label("Pull Requests", systemImage: "arrow.triangle.pull") }
+        Button {
+            model.repoActionCoordinator.openIssues(repo)
+        } label: { Label("Issues", systemImage: "smallcircle.filled.circle") }
+
+        if cloned {
+            Divider()
+            Button { showHistory = true } label: {
+                Label("Commit History…", systemImage: "clock.arrow.circlepath")
+            }
+            Button {
+                model.repoActionCoordinator.openLocalFolder(repo, in: account)
+            } label: { Label("Open in Finder", systemImage: "folder") }
+        }
+
+        Divider()
+        Button {
+            model.repoActionCoordinator.copyHTTPSURL(repo)
+        } label: { Label("Copy HTTPS URL", systemImage: "doc.on.doc") }
+        Button {
+            model.repoActionCoordinator.copySSHURL(repo)
+        } label: { Label("Copy SSH URL", systemImage: "doc.on.doc") }
+        Button {
+            model.repoActionCoordinator.copyCloneCommand(repo)
+        } label: { Label("Copy gh clone command", systemImage: "terminal") }
     }
 
     // MARK: Row actions
