@@ -744,6 +744,15 @@ enum GitHub {
         Shell.run(["git", "-C", path, "pull"])
     }
 
+    /// Download new commits/tags for the current branch's remote (default
+    /// `origin`) and prune deleted remote-tracking refs. Unlike `pull`, it never
+    /// touches the working tree or current branch, so it's safe with uncommitted
+    /// changes. Not `--quiet`, so the summary of what arrived shows in the Output
+    /// pane.
+    static func fetch(at path: String) -> ShellResult {
+        Shell.run(["git", "-C", path, "fetch", "--prune"])
+    }
+
     /// True when the working tree has any uncommitted or untracked changes.
     /// Network-free; returns `false` when the path is not a usable git repo.
     static func hasUncommittedChanges(at path: String) -> Bool {

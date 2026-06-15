@@ -18,6 +18,10 @@ extension AppModel {
         await repoActionCoordinator.pull(repo, in: account)
     }
 
+    func fetch(_ repo: Repo, in account: Account? = nil) async {
+        await repoActionCoordinator.fetch(repo, in: account)
+    }
+
     func push(_ repo: Repo, in account: Account? = nil) async {
         await repoActionCoordinator.push(repo, in: account)
     }
@@ -58,6 +62,11 @@ extension AppModel {
     func recentCommits(for repo: Repo,
                        in explicitAccount: Account? = nil) async -> Result<[GitCommit], CommandError> {
         await repoActionCoordinator.recentCommits(for: repo, in: explicitAccount)
+    }
+
+    func incomingCommits(for repo: Repo,
+                         in explicitAccount: Account? = nil) async -> Result<[GitCommit], CommandError> {
+        await repoActionCoordinator.incomingCommits(for: repo, in: explicitAccount)
     }
 
     func deleteLocalFolder(_ repo: Repo, in account: Account? = nil) async {

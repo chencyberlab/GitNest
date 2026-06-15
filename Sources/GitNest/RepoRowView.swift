@@ -18,9 +18,18 @@ struct RepoRowView: View {
     let customEditorName: String
     let customTerminalName: String
 
-    /// Drives the read-only commit-history popover, opened from the row's
-    /// right-click menu (cloned repos only).
-    @State private var showHistory = false
+    /// Which read-only popover (if any) the row is showing, opened from its
+    /// right-click menu (cloned repos only). One `item:`-driven popover keeps the
+    /// two mutually exclusive — SwiftUI only reliably presents one popover per view,
+    /// so they can't each carry their own `isPresented` binding.
+    @State private var activePopover: RowPopover?
+
+    /// Read-only popovers reachable from the row's context menu.
+    private enum RowPopover: String, Identifiable {
+        case history
+        case incoming
+        var id: String { rawValue }
+    }
 
     var body: some View {
         let selected = model.selectedRepo == repo.id
@@ -68,9 +77,15 @@ struct RepoRowView: View {
         .onTapGesture { model.selectRepo(repo.id) }
         .padding(.horizontal, 4)
         .contextMenu { rowContextMenu(cloned: cloned) }
-        .popover(isPresented: $showHistory, arrowEdge: .bottom) {
-            CommitHistoryContent(repo: repo, account: account)
-                .environmentObject(model)
+        .popover(item: $activePopover, arrowEdge: .bottom) { which in
+            switch which {
+            case .history:
+                CommitHistoryContent(repo: repo, account: account)
+                    .environmentObject(model)
+            case .incoming:
+                IncomingCommitsContent(repo: repo, account: account)
+                    .environmentObject(model)
+            }
         }
     }
 
@@ -92,12 +107,12 @@ struct RepoRowView: View {
 
         if cloned {
             Divider()
-            Button { showHistory = true } label: {
+            Button { activePopover = .history } label: {
                 Label("Commit History…", systemImage: "clock.arrow.circlepath")
             }
-            Button {
-                model.repoActionCoordinator.openLocalFolder(repo, in: account)
-            } label: { Label("Open in Finder", systemImage: "folder") }
+            Button { activePopover = .incoming } label: {
+                Label("Incoming Commits…", systemImage: "arrow.down.to.line")
+            }
         }
 
         Divider()
@@ -119,6 +134,9 @@ struct RepoRowView: View {
         HStack(spacing: 7) {
             if cloned {
                 openMenu
+                iconButton("arrow.triangle.2.circlepath", "Fetch from origin (git fetch)") {
+                    Task { await model.repoActionCoordinator.fetch(repo, in: account) }
+                }
                 iconButton("arrow.down", "Pull (git pull)") {
                     Task { await model.repoActionCoordinator.pull(repo, in: account) }
                 }

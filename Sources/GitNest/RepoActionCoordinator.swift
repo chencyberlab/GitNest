@@ -131,6 +131,21 @@ final class RepoActionCoordinator: ObservableObject {
         await repoManager.refreshStatuses(for: account, refreshRemote: true)
     }
 
+    /// Download remote changes without merging. Safe even with uncommitted work,
+    /// so (unlike pull) there's no dirty-tree guard. Refreshes status with a live
+    /// remote check afterward so ahead/behind and the green "up to date" badge
+    /// reflect what just arrived.
+    func fetch(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
+        logStore.append("Fetching \(repo.name)…")
+        let res = await runBlocking { GitHub.fetch(at: path) }
+        logStore.report(res, ok: "fetched \(repo.name)")
+        await repoManager.refreshStatuses(for: account, refreshRemote: true)
+    }
+
     func push(_ repo: Repo, in account: Account? = nil) async {
         guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
@@ -248,6 +263,22 @@ final class RepoActionCoordinator: ObservableObject {
             return .failure(CommandError(message: "This repository isn't cloned locally."))
         }
         return await runBlocking { GitHub.recentCommits(at: path) }
+    }
+
+    /// Load commits the current branch is behind its upstream by, for the incoming-
+    /// commits popover. Read-only and network-free — mirrors `recentCommits`.
+    /// Reflects the last fetch, so it pairs with the Fetch action in the row menu.
+    func incomingCommits(for repo: Repo,
+                         in explicitAccount: Account? = nil) async -> Result<[GitCommit], CommandError> {
+        guard let account = explicitAccount ?? accountManager.selectedAccount else {
+            return .failure(CommandError(message: "No account selected."))
+        }
+        let path = repoManager.localPath(repo, in: account)
+        let gitDir = (path as NSString).appendingPathComponent(".git")
+        guard FileManager.default.fileExists(atPath: gitDir) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally."))
+        }
+        return await runBlocking { GitHub.incomingCommits(at: path) }
     }
 
     // MARK: GitHub navigation & clipboard (non-mutating)

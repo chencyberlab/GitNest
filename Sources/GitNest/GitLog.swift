@@ -68,4 +68,25 @@ extension GitHub {
         }
         return .success(GitLog.parse(logZ: res.stdout))
     }
+
+    /// Commits on the current branch's upstream that aren't in HEAD yet — i.e.
+    /// what a pull would bring in. Reflects the last fetch (the status sweep and
+    /// the Fetch action both update remote-tracking refs), so pair it with a fetch
+    /// for live data. Reuses the history popover's format/parser. `.failure` only
+    /// when git itself fails (no upstream configured, detached HEAD, not a repo, …);
+    /// an up-to-date branch returns an empty list. Network-free and lock-free.
+    static func incomingCommits(at path: String, limit: Int = 50) -> Result<[GitCommit], CommandError> {
+        let res = Shell.run([
+            "git", "--no-optional-locks", "-C", path,
+            "log", "-n", "\(limit)", "--no-color", "-z",
+            "--pretty=format:\(GitLog.prettyFormat)",
+            "HEAD..@{upstream}",
+        ])
+        guard res.ok else {
+            let raw = (res.stderr.isEmpty ? res.stdout : res.stderr)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return .failure(CommandError(message: raw.isEmpty ? "git log failed" : raw))
+        }
+        return .success(GitLog.parse(logZ: res.stdout))
+    }
 }
