@@ -148,6 +148,23 @@ struct IncomingCommitsContent: View {
             .joined(separator: " · ")
     }
 
+    /// Plain message when the branch isn't tracking a remote (no upstream, detached
+    /// HEAD, …) — there's simply nothing to compare against GitHub. Neutral wording
+    /// so it reads correctly whether you're off-branch or just haven't pushed.
+    private static let noComparisonMessage =
+        "This branch isn't tracking a remote branch on GitHub, so there's nothing to compare."
+
+    /// Whether a git failure means "no upstream to compare against" rather than a real
+    /// error — the fatals git emits for no-upstream / detached HEAD / unborn branch.
+    private static func isNoComparison(_ gitMessage: String) -> Bool {
+        let m = gitMessage.lowercased()
+        return m.contains("no upstream")
+            || m.contains("does not point to a branch")
+            || m.contains("no such branch")
+            || m.contains("unknown revision")
+            || m.contains("ambiguous argument")
+    }
+
     private func load() async {
         phase = .loading
         // No upstream / detached HEAD / deleted upstream → there's nothing to compare.
@@ -160,7 +177,7 @@ struct IncomingCommitsContent: View {
                 return
             }
             if !status.hasUpstream {
-                phase = .unavailable("This branch has no upstream on GitHub yet, so there's nothing to compare. Push it first.")
+                phase = .unavailable(Self.noComparisonMessage)
                 return
             }
         }
@@ -168,7 +185,10 @@ struct IncomingCommitsContent: View {
         case .success(let commits):
             phase = commits.isEmpty ? .upToDate : .loaded(commits)
         case .failure(let error):
-            phase = .failed(error.message)
+            // Fallback for when status was nil above (popover opened before the first
+            // sweep populated it): map git's "can't resolve the upstream" fatals to the
+            // same plain message rather than leaking `fatal:` into the popover.
+            phase = Self.isNoComparison(error.message) ? .unavailable(Self.noComparisonMessage) : .failed(error.message)
         }
     }
 }

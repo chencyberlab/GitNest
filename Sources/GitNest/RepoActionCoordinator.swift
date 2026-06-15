@@ -415,8 +415,9 @@ final class RepoActionCoordinator: ObservableObject {
     /// Shared apply/pop body. Re-checks that stash@{index} still has `expectedHash`
     /// before acting — the index is positional, so an out-of-band drop/pop (another
     /// row, an external terminal) could otherwise make this hit the wrong stash. The
-    /// SHA check and the op run in one off-main hop, so nothing interleaves between
-    /// them. On a non-clean restore, says plainly that the stash was kept.
+    /// busy guard serializes in-app stash ops on this repo, and the SHA check runs
+    /// immediately before the op in the same hop; any real shift changes the SHA and
+    /// aborts. On a non-clean restore, says plainly that the stash was kept.
     private func restoreStash(_ repo: Repo, at index: Int, expectedHash: String, in account: Account?,
                               running: String, done: String,
                               _ run: @escaping (String) -> ShellResult) async {
@@ -429,13 +430,13 @@ final class RepoActionCoordinator: ObservableObject {
             GitHub.stashHash(at: path, index: index) == expectedHash ? run(path) : nil
         }
         guard let res else {
-            logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing applied. Try again.")
+            logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing changed. Try again.")
             await repoManager.refreshStatuses(for: account)
             return
         }
         logStore.report(res, ok: "\(done) stash@{\(index)} in \(repo.name)")
         if !res.ok {
-            logStore.append("⚠ \(repo.name): the stash was kept — resolve the conflicting changes in your working tree, then drop it when you're done.")
+            logStore.append("⚠ \(repo.name): git stash \(running) didn't complete — your stash was kept. Resolve any conflicts in your working tree, then drop it when you're done.")
         }
         await repoManager.refreshStatuses(for: account)
     }
