@@ -83,8 +83,8 @@ extension AppModel {
         await repoActionCoordinator.stashList(for: repo, in: explicitAccount)
     }
 
-    func stashPush(_ repo: Repo, in account: Account? = nil) async {
-        await repoActionCoordinator.stashPush(repo, in: account)
+    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async {
+        await repoActionCoordinator.stashPush(repo, message: message, in: account)
     }
 
     func stashApply(_ repo: Repo, at index: Int, in account: Account? = nil) async {

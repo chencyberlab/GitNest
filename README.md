@@ -8,7 +8,7 @@ shows your configured accounts, which account each SSH key authenticates as,
 and lets you browse, clone, initialize, commit, push, and clean up repos from a
 single window.
 
-## What it shows / does (important)
+## What it shows / does
 
 - **Accounts** (left): discovered automatically from `~/.gitconfig` `includeIf`
   rules plus the per-account `~/.gitconfig-<account>` files. Shows name, email,

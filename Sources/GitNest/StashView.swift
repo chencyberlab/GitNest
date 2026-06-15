@@ -17,6 +17,9 @@ struct StashContent: View {
     @State private var isWorking = false
     /// The stash index armed for deletion via the inline confirm, if any.
     @State private var armedDrop: Int?
+    /// Optional note for the next stash; becomes its description in `git stash list`.
+    /// Cleared once the stash is taken.
+    @State private var noteDraft = ""
 
     private static let maxListHeight: CGFloat = 300
     private static let rowHeight: CGFloat = 54
@@ -48,7 +51,7 @@ struct StashContent: View {
                     .foregroundStyle(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            stashCurrentButton
+            stashComposer
             Divider().overlay(theme.border)
             content
         }
@@ -58,11 +61,24 @@ struct StashContent: View {
         .disabled(isWorking)
     }
 
+    /// The "create a stash" controls: an optional note field (shown only when there
+    /// is something to stash) above the stash button. The note becomes the entry's
+    /// description in the list; blank falls back to git's auto "WIP on…" text.
+    @ViewBuilder
+    private var stashComposer: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            if hasChanges {
+                TextField("Optional note (e.g. half-done login refactor)", text: $noteDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 12))
+                    .onSubmit(stashCurrent)
+            }
+            stashCurrentButton
+        }
+    }
+
     private var stashCurrentButton: some View {
-        Button {
-            armedDrop = nil
-            Task { await perform { await model.stashPush(repo, in: account) } }
-        } label: {
+        Button(action: stashCurrent) {
             Label(hasChanges ? "Stash current changes" : "No changes to stash",
                   systemImage: "archivebox")
                 .font(.system(size: 12, weight: .medium))
@@ -75,6 +91,18 @@ struct StashContent: View {
         }
         .buttonStyle(.plain)
         .disabled(!hasChanges || isWorking)
+    }
+
+    /// Stash the working tree with the current note, then clear the note. Guards on
+    /// `hasChanges` so a stray submit on a clean tree is a no-op.
+    private func stashCurrent() {
+        guard hasChanges, !isWorking else { return }
+        armedDrop = nil
+        let note = noteDraft
+        Task {
+            await perform { await model.stashPush(repo, message: note, in: account) }
+            noteDraft = ""
+        }
     }
 
     @ViewBuilder

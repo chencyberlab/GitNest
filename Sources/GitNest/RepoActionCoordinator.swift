@@ -360,15 +360,16 @@ final class RepoActionCoordinator: ObservableObject {
     }
 
     /// Save the working tree's changes onto the stash stack. Clears the change badge
-    /// and adds a stash badge. Logs a friendly note (not a success) when the tree is
-    /// already clean, since `git stash` is a no-op then.
-    func stashPush(_ repo: Repo, in account: Account? = nil) async {
+    /// and adds a stash badge. An optional `message` labels the stash in the list;
+    /// blank uses git's auto "WIP on…" text. Logs a friendly note (not a success)
+    /// when the tree is already clean, since `git stash` is a no-op then.
+    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async {
         guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
         logStore.append("Stashing changes in \(repo.name)…")
-        let res = await runBlocking { GitHub.stashPush(at: path) }
+        let res = await runBlocking { GitHub.stashPush(at: path, message: message) }
         if res.ok, (res.stdout + res.stderr).contains("No local changes to save") {
             logStore.append("Nothing to stash in \(repo.name) — the working tree is clean.")
         } else {

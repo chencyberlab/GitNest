@@ -80,10 +80,16 @@ extension GitHub {
     }
 
     /// Save the working tree's changes (including untracked, so it matches what the
-    /// row's change badge counts) onto the stash stack. Exits 0 with "No local
-    /// changes to save" when the tree is clean — callers should check for that.
-    static func stashPush(at path: String) -> ShellResult {
-        Shell.run(["git", "-C", path, "stash", "push", "--include-untracked"])
+    /// row's change badge counts) onto the stash stack. A non-empty `message` labels
+    /// the stash in `git stash list` (`-m`); blank keeps git's auto-generated "WIP on
+    /// <branch>…" text. The message is passed as its own argv element (no shell), so
+    /// spaces or quotes in it are safe. Exits 0 with "No local changes to save" when
+    /// the tree is clean — callers should check for that.
+    static func stashPush(at path: String, message: String = "") -> ShellResult {
+        var args = ["git", "-C", path, "stash", "push", "--include-untracked"]
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { args += ["-m", trimmed] }
+        return Shell.run(args)
     }
 
     /// Restore a stash onto the working tree, keeping it on the stack.
