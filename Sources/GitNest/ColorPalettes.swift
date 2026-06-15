@@ -4,6 +4,7 @@ import Foundation
 /// app's original look; the rest come from `planned_colour_schemes.md`.
 let allPalettes: [ColorThemePalette] = [
     .gitNest,
+    .github,
     .catppuccin,
     .dracula,
     .nord,
@@ -12,7 +13,11 @@ let allPalettes: [ColorThemePalette] = [
     .gruvbox,
     .rosePine,
     .flexoki,
-    .ayu
+    .ayu,
+    .oneAtom,
+    .everforest,
+    .material,
+    .cyberpunk
 ]
 
 extension ColorThemePalette {
@@ -84,6 +89,41 @@ extension ColorThemePalette {
         displayName: "Ayu",
         light: .ayuLight,
         dark: .ayuDark
+    )
+
+    static let github = ColorThemePalette(
+        id: "github",
+        displayName: "GitHub",
+        light: .githubLight,
+        dark: .githubDark
+    )
+
+    static let oneAtom = ColorThemePalette(
+        id: "one",
+        displayName: "One",
+        light: .oneLight,
+        dark: .oneDark
+    )
+
+    static let everforest = ColorThemePalette(
+        id: "everforest",
+        displayName: "Everforest",
+        light: .everforestLight,
+        dark: .everforestDark
+    )
+
+    static let material = ColorThemePalette(
+        id: "material",
+        displayName: "Material",
+        light: .materialLight,
+        dark: .materialDark
+    )
+
+    static let cyberpunk = ColorThemePalette(
+        id: "cyberpunk",
+        displayName: "Cyberpunk",
+        light: .cyberpunkLight,
+        dark: .cyberpunkNight
     )
 
 }
@@ -201,7 +241,7 @@ private extension ColorThemeTokens {
         surfaceMuted: "#EAEAE2",
         text: "#282A36",
         textMuted: "#6272A4",
-        textTertiary: "#6272A4",
+        textTertiary: mixHex("#6272A4", "#F8F8F2", 0.2),
         border: "#CFCFDE",
         primary: "#7B61A8",
         primaryText: "#FFFFFF",
@@ -228,7 +268,7 @@ private extension ColorThemeTokens {
         surfaceMuted: "#44475A",
         text: "#F8F8F2",
         textMuted: "#6272A4",
-        textTertiary: "#6272A4",
+        textTertiary: mixHex("#6272A4", "#282A36", 0.2),
         border: "#44475A",
         primary: "#BD93F9",
         primaryText: "#282A36",
@@ -548,6 +588,229 @@ private extension ColorThemeTokens {
         pink: "#D2A6FF"
     )
 
+    // GitHub's own Primer palette — a fitting default for a GitHub tool. Blue is
+    // the primary (links/buttons), purple the accent, with Primer's semantic reds,
+    // greens, and ambers. The selection tone is a neutral canvas inset.
+    static let githubLight = fromPlanned(
+        background: "#FFFFFF",
+        surface: "#F6F8FA",
+        elevatedSurface: "#FFFFFF",
+        text: "#1F2328",
+        textMuted: "#656D76",
+        border: "#D0D7DE",
+        primary: "#0969DA",
+        primaryText: "#FFFFFF",
+        accent: "#8250DF",
+        success: "#1A7F37",
+        warning: "#9A6700",
+        error: "#CF222E",
+        selection: "#EAEEF2",
+        tooltipBackground: "#FFFFFF",
+        tooltipText: "#1F2328",
+        blue: "#0969DA",
+        teal: "#1B7C83",
+        pink: "#BF3989"
+    )
+
+    static let githubDark = fromPlanned(
+        background: "#0D1117",
+        surface: "#161B22",
+        elevatedSurface: "#21262D",
+        text: "#E6EDF3",
+        textMuted: "#8B949E",
+        border: "#30363D",
+        primary: "#1F6FEB",
+        primaryText: "#FFFFFF",
+        accent: "#A371F7",
+        success: "#3FB950",
+        warning: "#D29922",
+        error: "#F85149",
+        selection: "#21262D",
+        tooltipBackground: "#21262D",
+        tooltipText: "#E6EDF3",
+        blue: "#2F81F7",
+        teal: "#56D4DD",
+        pink: "#DB61A2"
+    )
+
+    // Atom's One Light / One Dark — one of the most widely used editor themes.
+    // Blue primary, magenta accent, with One's signature green/gold/red.
+    static let oneLight = fromPlanned(
+        background: "#FAFAFA",
+        surface: "#EAEAEB",
+        elevatedSurface: "#FFFFFF",
+        text: "#383A42",
+        textMuted: "#696C77",
+        border: "#D4D4D6",
+        primary: "#4078F2",
+        primaryText: "#FFFFFF",
+        accent: "#A626A4",
+        success: "#50A14F",
+        warning: "#C18401",
+        error: "#E45649",
+        selection: "#DBDBDC",
+        tooltipBackground: "#FFFFFF",
+        tooltipText: "#383A42",
+        blue: "#4078F2",
+        teal: "#0184BC",
+        pink: "#A626A4"
+    )
+
+    static let oneDark = fromPlanned(
+        background: "#282C34",
+        surface: "#21252B",
+        elevatedSurface: "#2C313A",
+        text: "#ABB2BF",
+        textMuted: "#828997",
+        border: "#3B4048",
+        primary: "#61AFEF",
+        primaryText: "#282C34",
+        accent: "#C678DD",
+        success: "#98C379",
+        warning: "#E5C07B",
+        error: "#E06C75",
+        selection: "#3E4451",
+        tooltipBackground: "#2C313A",
+        tooltipText: "#ABB2BF",
+        blue: "#61AFEF",
+        teal: "#56B6C2",
+        pink: "#C678DD"
+    )
+
+    // Everforest — a warm, low-contrast green-based scheme that's easy on the eyes.
+    // Aqua/blue primary, a soft magenta accent, and its muted earthy semantics.
+    static let everforestLight = fromPlanned(
+        background: "#FDF6E3",
+        surface: "#F4F0D9",
+        elevatedSurface: "#FFFBEF",
+        text: "#5C6A72",
+        textMuted: "#939F91",
+        border: "#DDD8BE",
+        primary: "#3A94C5",
+        primaryText: "#FFFFFF",
+        accent: "#DF69BA",
+        success: "#8DA101",
+        warning: "#DFA000",
+        error: "#F85552",
+        selection: "#E8E2CC",
+        tooltipBackground: "#FFFBEF",
+        tooltipText: "#5C6A72",
+        blue: "#3A94C5",
+        teal: "#35A77C",
+        pink: "#DF69BA"
+    )
+
+    static let everforestDark = fromPlanned(
+        background: "#2D353B",
+        surface: "#272E33",
+        elevatedSurface: "#343F44",
+        text: "#D3C6AA",
+        textMuted: "#9DA9A0",
+        border: "#404B51",
+        primary: "#7FBBB3",
+        primaryText: "#2D353B",
+        accent: "#D699B6",
+        success: "#A7C080",
+        warning: "#DBBC7F",
+        error: "#E67E80",
+        selection: "#475258",
+        tooltipBackground: "#343F44",
+        tooltipText: "#D3C6AA",
+        blue: "#7FBBB3",
+        teal: "#83C092",
+        pink: "#D699B6"
+    )
+
+    // Material Theme — the popular Material Design editor palette. A clean light
+    // variant and the classic dark "Oceanic" tones: blue primary, purple accent.
+    static let materialLight = fromPlanned(
+        background: "#FAFAFA",
+        surface: "#F4F4F4",
+        elevatedSurface: "#FFFFFF",
+        text: "#37474F",
+        textMuted: "#7E939E",
+        border: "#D3DEE3",
+        primary: "#6182B8",
+        primaryText: "#FFFFFF",
+        accent: "#7C4DFF",
+        success: "#91B859",
+        warning: "#F6A434",
+        error: "#E53935",
+        selection: "#DDE3E7",
+        tooltipBackground: "#FFFFFF",
+        tooltipText: "#37474F",
+        blue: "#6182B8",
+        teal: "#39ADB5",
+        pink: "#FF5370"
+    )
+
+    static let materialDark = fromPlanned(
+        background: "#263238",
+        surface: "#20292E",
+        elevatedSurface: "#2E3C43",
+        text: "#CFD8DC",
+        textMuted: "#7E97A3",
+        border: "#37474F",
+        primary: "#82AAFF",
+        primaryText: "#263238",
+        accent: "#C792EA",
+        success: "#C3E88D",
+        warning: "#FFCB6B",
+        error: "#FF5370",
+        selection: "#34474F",
+        tooltipBackground: "#2E3C43",
+        tooltipText: "#CFD8DC",
+        blue: "#82AAFF",
+        teal: "#89DDFF",
+        pink: "#F07178"
+    )
+
+    // Cyberpunk / synthwave — neon-on-dark is the hero. Electric cyan primary, hot
+    // magenta accent, acid-yellow warning, all glowing on a deep purple-navy. The
+    // light variant keeps the cyan/magenta identity but darkens the neons for
+    // contrast on a pale lavender canvas (the same trade-off as Dracula Light).
+    static let cyberpunkNight = fromPlanned(
+        background: "#0D0B1F",
+        surface: "#141229",
+        elevatedSurface: "#1E1B3A",
+        text: "#E6F2FF",
+        textMuted: "#8B9BC4",
+        border: "#332F5E",
+        primary: "#18E0F5",
+        primaryText: "#0D0B1F",
+        accent: "#FF49C0",
+        success: "#1FE6A8",
+        warning: "#F5D90A",
+        error: "#FF3366",
+        selection: "#2A2452",
+        tooltipBackground: "#1E1B3A",
+        tooltipText: "#E6F2FF",
+        blue: "#4D8DFF",
+        teal: "#1DE9B6",
+        pink: "#FF6AC1"
+    )
+
+    static let cyberpunkLight = fromPlanned(
+        background: "#F6F4FE",
+        surface: "#ECE9F7",
+        elevatedSurface: "#FFFFFF",
+        text: "#1A1730",
+        textMuted: "#5C5680",
+        border: "#DAD4EE",
+        primary: "#0C7D99",
+        primaryText: "#FFFFFF",
+        accent: "#C81E8E",
+        success: "#0A8F60",
+        warning: "#A8780A",
+        error: "#E0244E",
+        selection: "#E4DEF6",
+        tooltipBackground: "#FFFFFF",
+        tooltipText: "#1A1730",
+        blue: "#2D5BD8",
+        teal: "#0A9488",
+        pink: "#C81E8E"
+    )
+
 }
 
 // MARK: - Helpers
@@ -580,7 +843,13 @@ private extension ColorThemeTokens {
             surfaceMuted: surface,
             text: text,
             textMuted: textMuted,
-            textTertiary: textMuted,
+            // A genuine third text tier: a quieter tone eased toward the background,
+            // so subtle labels ("+N more", counts, the version string, settings help)
+            // sit a step below muted instead of matching it. Mirrors the hand-tuned
+            // hierarchy the built-in GitNest theme already has. The blend is kept
+            // gentle (0.2) so themes whose muted is already soft (Ayu, Solarized)
+            // don't push their faintest text past legibility.
+            textTertiary: mixHex(textMuted, background, 0.2),
             border: border,
             primary: primary,
             primaryText: primaryText,
@@ -606,4 +875,31 @@ private func alphaHex(_ hex: String, _ alpha: Double) -> String {
     let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     let a = max(0, min(255, Int(round(alpha * 255))))
     return "#" + cleaned + String(format: "%02X", a)
+}
+
+/// Linearly blend two opaque hex colours by `t` in [0, 1] (`t = 0` → `a`, `t = 1`
+/// → `b`), returning an opaque `#RRGGBB`. Accepts `#RGB`, `#RRGGBB`, or
+/// `#RRGGBBAA` (alpha is dropped). Used to derive a third-tier text colour by
+/// easing a muted tone toward the background.
+private func mixHex(_ a: String, _ b: String, _ t: Double) -> String {
+    func rgb(_ hex: String) -> (Double, Double, Double) {
+        let c = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var v: UInt64 = 0
+        Scanner(string: c).scanHexInt64(&v)
+        switch c.count {
+        case 3:
+            return (Double((v >> 8) & 0xF) * 17, Double((v >> 4) & 0xF) * 17, Double(v & 0xF) * 17)
+        case 8:   // #RRGGBBAA — drop the trailing alpha byte
+            return (Double((v >> 24) & 0xFF), Double((v >> 16) & 0xFF), Double((v >> 8) & 0xFF))
+        default:  // #RRGGBB
+            return (Double((v >> 16) & 0xFF), Double((v >> 8) & 0xFF), Double(v & 0xFF))
+        }
+    }
+    let f = max(0, min(1, t))
+    let (ar, ag, ab) = rgb(a)
+    let (br, bg, bb) = rgb(b)
+    let r = Int(round(ar + (br - ar) * f))
+    let g = Int(round(ag + (bg - ag) * f))
+    let bl = Int(round(ab + (bb - ab) * f))
+    return String(format: "#%02X%02X%02X", r, g, bl)
 }
