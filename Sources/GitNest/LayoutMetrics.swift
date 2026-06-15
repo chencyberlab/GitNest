@@ -7,8 +7,8 @@ enum LayoutMetrics {
     static let visWidth: CGFloat = 52
     /// "Updated" date column.
     static let updatedWidth: CGFloat = 150
-    /// Actions column: Open menu + fetch/pull/commit/push/delete icon buttons.
-    static let actionsWidth: CGFloat = 213
+    /// Actions column: Open menu + fetch/pull/commit/push/stash/delete icon buttons.
+    static let actionsWidth: CGFloat = 248
     /// Fixed width for both profile-card auth pills so they read as a matched pair.
     static let authBadgeWidth: CGFloat = 78
     /// Leading inset for the row divider so it lines up with the repo-name text.

@@ -77,6 +77,28 @@ extension AppModel {
         await repoActionCoordinator.commit(repo, message: message, in: account)
     }
 
+    // MARK: Stash proxies
+
+    func stashList(for repo: Repo, in explicitAccount: Account? = nil) async -> Result<[GitStashEntry], CommandError> {
+        await repoActionCoordinator.stashList(for: repo, in: explicitAccount)
+    }
+
+    func stashPush(_ repo: Repo, in account: Account? = nil) async {
+        await repoActionCoordinator.stashPush(repo, in: account)
+    }
+
+    func stashApply(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        await repoActionCoordinator.stashApply(repo, at: index, in: account)
+    }
+
+    func stashPop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        await repoActionCoordinator.stashPop(repo, at: index, in: account)
+    }
+
+    func stashDrop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        await repoActionCoordinator.stashDrop(repo, at: index, in: account)
+    }
+
     // MARK: Account re-authentication proxy
 
     func reauthenticateGh(for account: Account) async {

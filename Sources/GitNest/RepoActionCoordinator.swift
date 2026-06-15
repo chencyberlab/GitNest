@@ -342,4 +342,80 @@ final class RepoActionCoordinator: ObservableObject {
         logStore.report(res, ok: "committed \(repo.name)")
         await repoManager.refreshStatuses(for: account)
     }
+
+    // MARK: Stash (local parking; never touches GitHub)
+
+    /// Read-only: all stash entries for the stash popover. Mirrors `recentCommits` —
+    /// returns a friendly error when the repo isn't cloned or git fails.
+    func stashList(for repo: Repo, in explicitAccount: Account? = nil) async -> Result<[GitStashEntry], CommandError> {
+        guard let account = explicitAccount ?? accountManager.selectedAccount else {
+            return .failure(CommandError(message: "No account selected."))
+        }
+        let path = repoManager.localPath(repo, in: account)
+        let gitDir = (path as NSString).appendingPathComponent(".git")
+        guard FileManager.default.fileExists(atPath: gitDir) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally."))
+        }
+        return await runBlocking { GitHub.stashList(at: path) }
+    }
+
+    /// Save the working tree's changes onto the stash stack. Clears the change badge
+    /// and adds a stash badge. Logs a friendly note (not a success) when the tree is
+    /// already clean, since `git stash` is a no-op then.
+    func stashPush(_ repo: Repo, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
+        logStore.append("Stashing changes in \(repo.name)…")
+        let res = await runBlocking { GitHub.stashPush(at: path) }
+        if res.ok, (res.stdout + res.stderr).contains("No local changes to save") {
+            logStore.append("Nothing to stash in \(repo.name) — the working tree is clean.")
+        } else {
+            logStore.report(res, ok: "stashed changes in \(repo.name)")
+        }
+        await repoManager.refreshStatuses(for: account)
+    }
+
+    /// Restore stash@{index}, keeping it on the stack. A conflicting apply leaves
+    /// merge markers in the working tree for the user to resolve (reported to Output).
+    func stashApply(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        await restoreStash(repo, at: index, in: account, running: "apply", done: "applied") {
+            GitHub.stashApply(at: $0, index: index)
+        }
+    }
+
+    /// Restore stash@{index} and drop it on success. Git keeps the stash if applying
+    /// conflicts, so a failed pop never loses the parked work.
+    func stashPop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        await restoreStash(repo, at: index, in: account, running: "pop", done: "popped") {
+            GitHub.stashPop(at: $0, index: index)
+        }
+    }
+
+    private func restoreStash(_ repo: Repo, at index: Int, in account: Account?,
+                              running: String, done: String,
+                              _ run: @escaping (String) -> ShellResult) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
+        logStore.append("Running git stash \(running) stash@{\(index)} in \(repo.name)…")
+        let res = await runBlocking { run(path) }
+        logStore.report(res, ok: "\(done) stash@{\(index)} in \(repo.name)")
+        await repoManager.refreshStatuses(for: account)
+    }
+
+    /// Discard stash@{index} without restoring it. Destructive — the UI confirms
+    /// before calling this.
+    func stashDrop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+        guard let context = beginRepoAction(repo, in: account) else { return }
+        defer { finishRepoAction(context) }
+        let account = context.account
+        let path = context.path
+        logStore.append("Dropping stash@{\(index)} in \(repo.name)…")
+        let res = await runBlocking { GitHub.stashDrop(at: path, index: index) }
+        logStore.report(res, ok: "dropped stash@{\(index)} in \(repo.name)")
+        await repoManager.refreshStatuses(for: account)
+    }
 }

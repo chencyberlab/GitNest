@@ -147,6 +147,7 @@ struct RepoRowView: View {
                 iconButton("arrow.up", "Push (git push)") {
                     pushTarget = RepoActionTarget(repo: repo, account: account)
                 }
+                stashMenu
                 iconButton("trash", "Move local folder to Trash (recoverable)",
                            tint: theme.error, fill: theme.errorSubtle) {
                     deleteTarget = RepoActionTarget(repo: repo, account: account)
@@ -216,6 +217,18 @@ struct RepoRowView: View {
             .padding(8)
             .frame(width: 220)
             .background(theme.surface)
+        }
+    }
+
+    // MARK: Stash menu
+
+    /// Archivebox button opening the interactive stash popover (stash current
+    /// changes, then apply / pop / drop entries). The popover owns its own state;
+    /// the row just provides the trigger.
+    private var stashMenu: some View {
+        ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
+            StashContent(repo: repo, account: account)
+                .environmentObject(model)
         }
     }
 
@@ -337,6 +350,10 @@ struct RepoRowView: View {
             if status.changedFiles > 0 {
                 ChangeSummaryButton(repo: repo, account: account, count: status.changedFiles)
             }
+            if status.stashCount > 0 {
+                statusPill("archivebox", status.stashCount, theme.accent, theme.accentSubtle,
+                           help: stashBadgeHelp(status.stashCount))
+            }
             if status.ahead > 0 {
                 statusPill("arrow.up", status.ahead, theme.accent, theme.accentSubtle,
                            help: "\(plural(status.ahead, "local commit")) not pushed yet")
@@ -438,6 +455,12 @@ struct RepoRowView: View {
 
     private func plural(_ n: Int, _ noun: String) -> String {
         "\(n) \(noun)\(n == 1 ? "" : "s")"
+    }
+
+    /// Tooltip for the stash-count badge. Separate from `plural` because "stash"
+    /// pluralizes to "stashes", not "stashs".
+    private func stashBadgeHelp(_ count: Int) -> String {
+        "\(count) stash\(count == 1 ? "" : "es") parked in this clone — open the stash button to apply, pop, or drop"
     }
 
     /// Parses the ISO-8601 timestamps returned by `gh` (e.g. 2026-06-02T16:40:31Z).

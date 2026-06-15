@@ -1,0 +1,216 @@
+import SwiftUI
+
+/// Interactive popover for a cloned repo's stashes: create one from the current
+/// changes, and apply / pop / drop existing entries. Opened from the row's
+/// archivebox button (`ActionPopoverButton`); the trigger lives in the row, this is
+/// just the content. Mutating actions go through the coordinator's busy guard, and
+/// the list reloads after each so a shifted `stash@{N}` index is never reused. Drop —
+/// the one destructive, non-recoverable action — is confirmed inline before it runs.
+struct StashContent: View {
+    let repo: Repo
+    let account: Account
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.theme) private var theme
+
+    @State private var phase: Phase = .loading
+    /// True while a stash action is in flight; disables the popover's buttons.
+    @State private var isWorking = false
+    /// The stash index armed for deletion via the inline confirm, if any.
+    @State private var armedDrop: Int?
+
+    private static let maxListHeight: CGFloat = 300
+    private static let rowHeight: CGFloat = 54
+    private static let rowSpacing: CGFloat = 8
+
+    enum Phase {
+        case loading
+        case empty
+        case failed(String)
+        case loaded([GitStashEntry])
+    }
+
+    /// Whether the working tree has changes worth stashing. Read live from the model
+    /// so the "Stash current changes" button disables itself the moment a stash (or
+    /// commit) clears the tree.
+    private var hasChanges: Bool { (model.repoStatuses[repo.id]?.changedFiles ?? 0) > 0 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 8) {
+                    Text("Stashes for \(repo.name)")
+                        .font(Theme.title(14))
+                        .foregroundStyle(theme.text)
+                    if isWorking { ProgressView().controlSize(.small) }
+                }
+                Text("Parked changes saved locally in this clone — never on GitHub.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            stashCurrentButton
+            Divider().overlay(theme.border)
+            content
+        }
+        .padding(16)
+        .frame(width: 360)
+        .task { await load() }
+        .disabled(isWorking)
+    }
+
+    private var stashCurrentButton: some View {
+        Button {
+            armedDrop = nil
+            Task { await perform { await model.stashPush(repo, in: account) } }
+        } label: {
+            Label(hasChanges ? "Stash current changes" : "No changes to stash",
+                  systemImage: "archivebox")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(hasChanges ? theme.accent : theme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 7).padding(.horizontal, 9)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                    .fill(theme.accentSubtle.opacity(hasChanges ? 1 : 0.4)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!hasChanges || isWorking)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch phase {
+        case .loading:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Reading stashes…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(theme.textMuted)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .empty:
+            Label("No stashes parked here.", systemImage: "archivebox")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
+
+        case .failed(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Couldn't read stashes", systemImage: "exclamationmark.triangle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.error)
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+        case .loaded(let entries):
+            loadedList(entries)
+        }
+    }
+
+    private func loadedList(_ entries: [GitStashEntry]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Self.rowSpacing) {
+                ForEach(entries) { stashRow($0) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        // Concrete height derived from the rows, capped so long stacks scroll. A
+        // ScrollView with only a max height collapses in a popover.
+        .frame(height: min(estimatedHeight(entries), Self.maxListHeight))
+    }
+
+    private func estimatedHeight(_ entries: [GitStashEntry]) -> CGFloat {
+        let n = CGFloat(entries.count)
+        return n * Self.rowHeight + max(0, n - 1) * Self.rowSpacing
+    }
+
+    private func stashRow(_ entry: GitStashEntry) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(entry.subject)
+                .font(.system(size: 12))
+                .foregroundStyle(theme.text)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if armedDrop == entry.index {
+                dropConfirm(entry)
+            } else {
+                HStack(spacing: 6) {
+                    Text(entry.selector)
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(theme.textTertiary)
+                    Spacer()
+                    actionChip("Apply", theme.accent) {
+                        Task { await perform { await model.stashApply(repo, at: entry.index, in: account) } }
+                    }
+                    actionChip("Pop", theme.accent) {
+                        Task { await perform { await model.stashPop(repo, at: entry.index, in: account) } }
+                    }
+                    actionChip("Drop", theme.error) { armedDrop = entry.index }
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func dropConfirm(_ entry: GitStashEntry) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.error)
+            Text("Delete permanently? Can't be undone.")
+                .font(.system(size: 10))
+                .foregroundStyle(theme.error)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            actionChip("Cancel", theme.textMuted) { armedDrop = nil }
+            actionChip("Delete", theme.error, filled: true) {
+                Task {
+                    await perform { await model.stashDrop(repo, at: entry.index, in: account) }
+                    armedDrop = nil
+                }
+            }
+        }
+    }
+
+    private func actionChip(_ title: String, _ color: Color, filled: Bool = false,
+                            _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(filled ? Color.white : color)
+                .padding(.vertical, 3).padding(.horizontal, 8)
+                .background(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous)
+                    .fill(filled ? color : color.opacity(0.12)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Run a stash mutation, then quietly reload the list (no loading flicker) so a
+    /// just-shifted `stash@{N}` index is never reused. Disables buttons meanwhile.
+    private func perform(_ work: @escaping () async -> Void) async {
+        isWorking = true
+        await work()
+        await reload()
+        isWorking = false
+    }
+
+    private func load() async {
+        phase = .loading
+        await reload()
+    }
+
+    private func reload() async {
+        switch await model.stashList(for: repo, in: account) {
+        case .success(let entries):
+            phase = entries.isEmpty ? .empty : .loaded(entries)
+        case .failure(let error):
+            phase = .failed(error.message)
+        }
+    }
+}

@@ -251,6 +251,7 @@ enum RepoRemoteState: Sendable, Equatable {
 /// Local working-tree and upstream state for a cloned repo.
 struct RepoStatus: Sendable, Equatable {
     var changedFiles: Int = 0   // uncommitted + untracked entries
+    var stashCount: Int = 0     // entries on the stash stack (parked locally, not on GitHub)
     var ahead: Int = 0          // local commits not yet pushed
     var behind: Int = 0         // remote commits not yet pulled
     var hasUpstream: Bool = false
@@ -773,6 +774,11 @@ enum GitHub {
         let res = Shell.run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain", "--branch"])
         guard res.ok else { return nil }
         var status = RepoStatus.parse(porcelainBranch: res.stdout)
+        // Surface parked work the change badge can't: stashing drops changedFiles to
+        // 0, so without this a clone with a stash would read as clean. Cheap, local,
+        // and never fails a status pass (stashCount returns 0 on any error).
+        let stashes = stashCount(at: path)
+        status.stashCount = stashes
         guard refreshRemote else { return status }
 
         guard status.hasUpstream else {
@@ -797,6 +803,7 @@ enum GitHub {
         }
 
         var next = RepoStatus.parse(porcelainBranch: refreshed.stdout, remoteState: .checked)
+        next.stashCount = stashes   // unchanged by the fetch between the two parses
         if !next.hasUpstream { next.remoteState = .noUpstream }
         return next
     }
