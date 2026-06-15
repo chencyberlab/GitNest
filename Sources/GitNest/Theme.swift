@@ -260,7 +260,12 @@ private func parseHexColor(_ hex: String) -> (red: Double, green: Double, blue: 
     let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
     guard !cleaned.isEmpty else { return nil }
     var value: UInt64 = 0
-    guard Scanner(string: cleaned).scanHexInt64(&value), [3, 4, 6, 8].contains(cleaned.count) else {
+    // Every character must be a hex digit: scanHexInt64 alone stops at the first
+    // non-hex char and still reports success, so "FFFFFG" would slip through the
+    // length check and parse as a partial colour instead of being rejected.
+    guard cleaned.allSatisfy(\.isHexDigit),
+          [3, 4, 6, 8].contains(cleaned.count),
+          Scanner(string: cleaned).scanHexInt64(&value) else {
         return nil
     }
 

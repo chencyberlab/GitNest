@@ -171,7 +171,11 @@ final class SetupCoordinator: ObservableObject {
         }
 
         let name = id.displayName
-        let email = addAccountEmail
+        // Fall back to the no-reply address if the field was cleared, so the account
+        // never gets an empty user.email (which breaks commits in its repos). Mirrors
+        // the name fallback in id.displayName.
+        let trimmedEmail = addAccountEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = trimmedEmail.isEmpty ? id.noreplyEmail : trimmedEmail
         let write = await runBlocking { AccountSetup.writeGitConfig(alias: alias, name: name, email: email, folder: folder) }
         guard isCurrentAddAccountSession(session) else { return }
         if case .failure(let e) = write {

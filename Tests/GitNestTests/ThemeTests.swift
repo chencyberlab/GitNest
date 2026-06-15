@@ -17,6 +17,25 @@ final class ThemeTests: XCTestCase {
         }
     }
 
+    func testInvalidColorTokenNamesRejectsMalformedHex() throws {
+        // "#FFFFFG" is 6 chars but ends in a non-hex digit. The old check relied on
+        // length + Scanner.scanHexInt64, which stops at the bad char and still
+        // succeeds — so a typo'd token slipped through validation. nil fields
+        // (system fallbacks) must stay ignored.
+        let json = ##"{"accent": "#FFFFFG", "warning": "#12 34", "success": "not-a-color"}"##
+        let tokens = try JSONDecoder().decode(ColorThemeTokens.self, from: Data(json.utf8))
+
+        XCTAssertEqual(Set(tokens.invalidColorTokenNames), ["accent", "warning", "success"])
+    }
+
+    func testInvalidColorTokenNamesAcceptsEveryValidHexForm() throws {
+        // #RGB, #RGBA, #RRGGBB, #RRGGBBAA are all valid and must not be flagged.
+        let json = ##"{"accent": "#abc", "warning": "#abcd", "success": "#1A2B3C", "error": "#1A2B3C80"}"##
+        let tokens = try JSONDecoder().decode(ColorThemeTokens.self, from: Data(json.utf8))
+
+        XCTAssertEqual(tokens.invalidColorTokenNames, [])
+    }
+
     func testGitNestThemeUsesSystemFallbacksForWindowChrome() {
         let gitNest = ColorThemePalette.gitNest
         XCTAssertNil(gitNest.light.background)
