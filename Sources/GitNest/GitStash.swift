@@ -8,6 +8,9 @@ struct GitStashEntry: Identifiable, Sendable {
     let id = UUID()
     let index: Int        // the N in stash@{N}; what apply/pop/drop act on
     let selector: String  // "stash@{N}" exactly as git reported it
+    let hash: String      // full commit SHA; re-checked before a destructive op so a
+                          // stack that shifted under us (external git, another row)
+                          // can't make the action hit the wrong stash
     let subject: String   // git's description, e.g. "WIP on main: 1a2b3c4 Fix bug"
 }
 
@@ -17,26 +20,28 @@ enum GitStash {
     /// Field separator we ask git to emit between the selector and the subject.
     static let fieldSeparator: Character = "\u{1f}"   // ASCII Unit Separator
 
-    /// The `--format` string: the shortened reflog selector (`stash@{N}`) and the
-    /// reflog subject (the human description), joined by the Unit Separator. Paired
-    /// with `-z`, git NUL-separates entries, so neither a subject containing spaces,
-    /// commas, or quotes, nor the field separator inside text, can ever be misread.
-    static let listFormat = "%gd%x1f%gs"
+    /// The `--format` string: the shortened reflog selector (`stash@{N}`), the full
+    /// commit SHA (`%H`, for the re-validation guard), and the reflog subject (the
+    /// human description), joined by the Unit Separator. Paired with `-z`, git
+    /// NUL-separates entries, so neither a subject containing spaces, commas, or
+    /// quotes, nor the field separator inside text, can ever be misread.
+    static let listFormat = "%gd%x1f%H%x1f%gs"
 
     /// Parse `git stash list -z` output (NUL-separated entries, each the
-    /// Unit-Separator-joined selector + subject) into entries. Tolerant of git's
-    /// trailing NUL after the last entry.
+    /// Unit-Separator-joined selector + hash + subject) into entries. Tolerant of
+    /// git's trailing NUL after the last entry.
     static func parse(listZ output: String) -> [GitStashEntry] {
         var entries: [GitStashEntry] = []
         for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
-            // Keep empty subsequences so an empty subject can't shift the selector.
+            // Keep empty subsequences so an empty subject can't shift earlier fields.
             let fields = record
                 .split(separator: fieldSeparator, omittingEmptySubsequences: false)
                 .map(String.init)
-            guard fields.count >= 2 else { continue }   // malformed/truncated — skip
+            guard fields.count >= 3 else { continue }   // malformed/truncated — skip
             let selector = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard let index = index(from: selector) else { continue }
-            entries.append(GitStashEntry(index: index, selector: selector, subject: fields[1]))
+            let hash = fields[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let index = index(from: selector), !hash.isEmpty else { continue }
+            entries.append(GitStashEntry(index: index, selector: selector, hash: hash, subject: fields[2]))
         }
         return entries
     }
@@ -77,6 +82,19 @@ extension GitHub {
         ])
         guard res.ok else { return 0 }
         return res.stdout.split(separator: "\0", omittingEmptySubsequences: true).count
+    }
+
+    /// The current commit SHA at `stash@{index}`, or nil if it no longer resolves
+    /// (the stack shrank or shifted). Used to confirm an action still targets the
+    /// stash the user saw before it mutates. Read-only and lock-free.
+    static func stashHash(at path: String, index: Int) -> String? {
+        let res = Shell.run([
+            "git", "--no-optional-locks", "-C", path,
+            "rev-parse", "--verify", "--quiet", "stash@{\(index)}",
+        ])
+        guard res.ok else { return nil }
+        let hash = res.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return hash.isEmpty ? nil : hash
     }
 
     /// Save the working tree's changes (including untracked, so it matches what the

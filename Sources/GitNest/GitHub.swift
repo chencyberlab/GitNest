@@ -751,7 +751,23 @@ enum GitHub {
     /// changes. Not `--quiet`, so the summary of what arrived shows in the Output
     /// pane.
     static func fetch(at path: String) -> ShellResult {
-        Shell.run(["git", "-C", path, "fetch", "--prune"])
+        runFetch(["git", "-C", path, "fetch", "--prune"])
+    }
+
+    /// Run a fetch, retrying once if a concurrent fetch on the same repo briefly held
+    /// a ref lock ("cannot lock ref" / "unable to update local ref"). A manual Fetch
+    /// and the background repo-list refresh can target one repo at the same time;
+    /// fetch is idempotent, so a single retry clears that transient clash instead of
+    /// surfacing a confusing error.
+    private static func runFetch(_ args: [String]) -> ShellResult {
+        let res = Shell.run(args)
+        guard !res.ok else { return res }
+        let text = (res.stdout + res.stderr).lowercased()
+        guard text.contains("cannot lock ref") || text.contains("unable to update local ref") else {
+            return res
+        }
+        Thread.sleep(forTimeInterval: 0.4)
+        return Shell.run(args)
     }
 
     /// True when the working tree has any uncommitted or untracked changes.
@@ -787,7 +803,7 @@ enum GitHub {
         }
 
         let remote = status.upstreamRemote ?? "origin"
-        let fetch = Shell.run([
+        let fetch = runFetch([
             "git", "--no-optional-locks", "-C", path,
             "fetch", "--prune", "--quiet", remote,
         ])

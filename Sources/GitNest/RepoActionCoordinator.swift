@@ -51,7 +51,10 @@ final class RepoActionCoordinator: ObservableObject {
         var ids = Set(sourceRepos.filter { repoManager.localPath($0, in: account) == path }.map(\.id))
         ids.insert(repo.id)
         guard busyRepos.isDisjoint(with: ids),
-              busyRepoPaths.insert(path).inserted else { return nil }
+              busyRepoPaths.insert(path).inserted else {
+            logStore.append("⚠ \(repo.name): another action is already running — skipped.")
+            return nil
+        }
         busyRepos.formUnion(ids)
         return RepoActionContext(account: account, path: path, repoIDs: ids)
     }
@@ -359,42 +362,62 @@ final class RepoActionCoordinator: ObservableObject {
         return await runBlocking { GitHub.stashList(at: path) }
     }
 
+    /// Live working-tree dirty check for the stash popover, so its "Stash current
+    /// changes" affordance reflects the tree right now rather than the ≤10s-old sweep
+    /// status. Read-only and lock-free; false when the repo isn't cloned.
+    func hasLocalChanges(for repo: Repo, in explicitAccount: Account? = nil) async -> Bool {
+        guard let account = explicitAccount ?? accountManager.selectedAccount else { return false }
+        let path = repoManager.localPath(repo, in: account)
+        let gitDir = (path as NSString).appendingPathComponent(".git")
+        guard FileManager.default.fileExists(atPath: gitDir) else { return false }
+        return await runBlocking { GitHub.hasUncommittedChanges(at: path) }
+    }
+
     /// Save the working tree's changes onto the stash stack. Clears the change badge
     /// and adds a stash badge. An optional `message` labels the stash in the list;
-    /// blank uses git's auto "WIP on…" text. Logs a friendly note (not a success)
-    /// when the tree is already clean, since `git stash` is a no-op then.
-    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async {
-        guard let context = beginRepoAction(repo, in: account) else { return }
+    /// blank uses git's auto "WIP on…" text. Logs a friendly note when the tree is
+    /// already clean (a no-op). Returns true only when a stash was actually created,
+    /// so the caller can keep an unsaved note rather than clear it on a no-op/failure.
+    @discardableResult
+    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async -> Bool {
+        guard let context = beginRepoAction(repo, in: account) else { return false }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
         logStore.append("Stashing changes in \(repo.name)…")
         let res = await runBlocking { GitHub.stashPush(at: path, message: message) }
-        if res.ok, (res.stdout + res.stderr).contains("No local changes to save") {
+        let nothingToStash = res.ok && (res.stdout + res.stderr).contains("No local changes to save")
+        if nothingToStash {
             logStore.append("Nothing to stash in \(repo.name) — the working tree is clean.")
         } else {
             logStore.report(res, ok: "stashed changes in \(repo.name)")
         }
         await repoManager.refreshStatuses(for: account)
+        return res.ok && !nothingToStash
     }
 
-    /// Restore stash@{index}, keeping it on the stack. A conflicting apply leaves
-    /// merge markers in the working tree for the user to resolve (reported to Output).
-    func stashApply(_ repo: Repo, at index: Int, in account: Account? = nil) async {
-        await restoreStash(repo, at: index, in: account, running: "apply", done: "applied") {
+    /// Restore stash@{index}, keeping it on the stack. `expectedHash` is the SHA the
+    /// user saw; a conflicting apply leaves merge markers for them to resolve.
+    func stashApply(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
+        await restoreStash(repo, at: index, expectedHash: expectedHash, in: account, running: "apply", done: "applied") {
             GitHub.stashApply(at: $0, index: index)
         }
     }
 
     /// Restore stash@{index} and drop it on success. Git keeps the stash if applying
     /// conflicts, so a failed pop never loses the parked work.
-    func stashPop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
-        await restoreStash(repo, at: index, in: account, running: "pop", done: "popped") {
+    func stashPop(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
+        await restoreStash(repo, at: index, expectedHash: expectedHash, in: account, running: "pop", done: "popped") {
             GitHub.stashPop(at: $0, index: index)
         }
     }
 
-    private func restoreStash(_ repo: Repo, at index: Int, in account: Account?,
+    /// Shared apply/pop body. Re-checks that stash@{index} still has `expectedHash`
+    /// before acting — the index is positional, so an out-of-band drop/pop (another
+    /// row, an external terminal) could otherwise make this hit the wrong stash. The
+    /// SHA check and the op run in one off-main hop, so nothing interleaves between
+    /// them. On a non-clean restore, says plainly that the stash was kept.
+    private func restoreStash(_ repo: Repo, at index: Int, expectedHash: String, in account: Account?,
                               running: String, done: String,
                               _ run: @escaping (String) -> ShellResult) async {
         guard let context = beginRepoAction(repo, in: account) else { return }
@@ -402,20 +425,38 @@ final class RepoActionCoordinator: ObservableObject {
         let account = context.account
         let path = context.path
         logStore.append("Running git stash \(running) stash@{\(index)} in \(repo.name)…")
-        let res = await runBlocking { run(path) }
+        let res: ShellResult? = await runBlocking {
+            GitHub.stashHash(at: path, index: index) == expectedHash ? run(path) : nil
+        }
+        guard let res else {
+            logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing applied. Try again.")
+            await repoManager.refreshStatuses(for: account)
+            return
+        }
         logStore.report(res, ok: "\(done) stash@{\(index)} in \(repo.name)")
+        if !res.ok {
+            logStore.append("⚠ \(repo.name): the stash was kept — resolve the conflicting changes in your working tree, then drop it when you're done.")
+        }
         await repoManager.refreshStatuses(for: account)
     }
 
     /// Discard stash@{index} without restoring it. Destructive — the UI confirms
-    /// before calling this.
-    func stashDrop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
+    /// first, and we re-check `expectedHash` so a stack that shifted out-of-band can
+    /// never make this drop the wrong, unrecoverable stash.
+    func stashDrop(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
         guard let context = beginRepoAction(repo, in: account) else { return }
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
         logStore.append("Dropping stash@{\(index)} in \(repo.name)…")
-        let res = await runBlocking { GitHub.stashDrop(at: path, index: index) }
+        let res: ShellResult? = await runBlocking {
+            GitHub.stashHash(at: path, index: index) == expectedHash ? GitHub.stashDrop(at: path, index: index) : nil
+        }
+        guard let res else {
+            logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing dropped.")
+            await repoManager.refreshStatuses(for: account)
+            return
+        }
         logStore.report(res, ok: "dropped stash@{\(index)} in \(repo.name)")
         await repoManager.refreshStatuses(for: account)
     }

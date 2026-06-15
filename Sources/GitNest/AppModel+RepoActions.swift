@@ -83,20 +83,25 @@ extension AppModel {
         await repoActionCoordinator.stashList(for: repo, in: explicitAccount)
     }
 
-    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async {
+    func hasLocalChanges(for repo: Repo, in explicitAccount: Account? = nil) async -> Bool {
+        await repoActionCoordinator.hasLocalChanges(for: repo, in: explicitAccount)
+    }
+
+    @discardableResult
+    func stashPush(_ repo: Repo, message: String = "", in account: Account? = nil) async -> Bool {
         await repoActionCoordinator.stashPush(repo, message: message, in: account)
     }
 
-    func stashApply(_ repo: Repo, at index: Int, in account: Account? = nil) async {
-        await repoActionCoordinator.stashApply(repo, at: index, in: account)
+    func stashApply(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
+        await repoActionCoordinator.stashApply(repo, at: index, expectedHash: expectedHash, in: account)
     }
 
-    func stashPop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
-        await repoActionCoordinator.stashPop(repo, at: index, in: account)
+    func stashPop(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
+        await repoActionCoordinator.stashPop(repo, at: index, expectedHash: expectedHash, in: account)
     }
 
-    func stashDrop(_ repo: Repo, at index: Int, in account: Account? = nil) async {
-        await repoActionCoordinator.stashDrop(repo, at: index, in: account)
+    func stashDrop(_ repo: Repo, at index: Int, expectedHash: String, in account: Account? = nil) async {
+        await repoActionCoordinator.stashDrop(repo, at: index, expectedHash: expectedHash, in: account)
     }
 
     // MARK: Account re-authentication proxy

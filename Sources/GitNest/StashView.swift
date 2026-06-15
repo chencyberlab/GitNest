@@ -18,8 +18,11 @@ struct StashContent: View {
     /// The stash index armed for deletion via the inline confirm, if any.
     @State private var armedDrop: Int?
     /// Optional note for the next stash; becomes its description in `git stash list`.
-    /// Cleared once the stash is taken.
+    /// Cleared once a stash is actually created.
     @State private var noteDraft = ""
+    /// Live working-tree dirty state, loaded with the list so the "Stash current
+    /// changes" affordance reflects the tree now, not the ≤10s-old sweep status.
+    @State private var treeDirty: Bool?
 
     private static let maxListHeight: CGFloat = 300
     private static let rowHeight: CGFloat = 54
@@ -32,10 +35,12 @@ struct StashContent: View {
         case loaded([GitStashEntry])
     }
 
-    /// Whether the working tree has changes worth stashing. Read live from the model
-    /// so the "Stash current changes" button disables itself the moment a stash (or
-    /// commit) clears the tree.
-    private var hasChanges: Bool { (model.repoStatuses[repo.id]?.changedFiles ?? 0) > 0 }
+    /// Whether the working tree has changes worth stashing. Prefers the live check in
+    /// `treeDirty` (accurate now); falls back to the cached sweep status only until
+    /// that first load lands, so a just-made edit can't wrongly disable the button.
+    private var hasChanges: Bool {
+        treeDirty ?? ((model.repoStatuses[repo.id]?.changedFiles ?? 0) > 0)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -46,7 +51,7 @@ struct StashContent: View {
                         .foregroundStyle(theme.text)
                     if isWorking { ProgressView().controlSize(.small) }
                 }
-                Text("Parked changes saved locally in this clone — never on GitHub.")
+                Text("Parks all uncommitted changes — including new files — on your machine. Never on GitHub.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -100,8 +105,8 @@ struct StashContent: View {
         armedDrop = nil
         let note = noteDraft
         Task {
-            await perform { await model.stashPush(repo, message: note, in: account) }
-            noteDraft = ""
+            let stashed = await perform { await model.stashPush(repo, message: note, in: account) }
+            if stashed { noteDraft = "" }   // keep the typed note if the stash was a no-op/failure
         }
     }
 
@@ -173,10 +178,10 @@ struct StashContent: View {
                         .foregroundStyle(theme.textTertiary)
                     Spacer()
                     actionChip("Apply", theme.accent) {
-                        Task { await perform { await model.stashApply(repo, at: entry.index, in: account) } }
+                        Task { await perform { await model.stashApply(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
                     }
                     actionChip("Pop", theme.accent) {
-                        Task { await perform { await model.stashPop(repo, at: entry.index, in: account) } }
+                        Task { await perform { await model.stashPop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
                     }
                     actionChip("Drop", theme.error) { armedDrop = entry.index }
                 }
@@ -197,10 +202,7 @@ struct StashContent: View {
             Spacer()
             actionChip("Cancel", theme.textMuted) { armedDrop = nil }
             actionChip("Delete", theme.error, filled: true) {
-                Task {
-                    await perform { await model.stashDrop(repo, at: entry.index, in: account) }
-                    armedDrop = nil
-                }
+                Task { await perform { await model.stashDrop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
             }
         }
     }
@@ -210,10 +212,12 @@ struct StashContent: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(filled ? Color.white : color)
+                .foregroundStyle(color)
+                // `filled` = a stronger same-hue tint for the destructive confirm, so
+                // the text stays theme-safe (no hardcoded white on a light error).
                 .padding(.vertical, 3).padding(.horizontal, 8)
                 .background(RoundedRectangle(cornerRadius: Theme.radiusMicro, style: .continuous)
-                    .fill(filled ? color : color.opacity(0.12)))
+                    .fill(color.opacity(filled ? 0.24 : 0.12)))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -221,11 +225,13 @@ struct StashContent: View {
 
     /// Run a stash mutation, then quietly reload the list (no loading flicker) so a
     /// just-shifted `stash@{N}` index is never reused. Disables buttons meanwhile.
-    private func perform(_ work: @escaping () async -> Void) async {
+    @discardableResult
+    private func perform<T>(_ work: @escaping () async -> T) async -> T {
         isWorking = true
-        await work()
+        let result = await work()
         await reload()
         isWorking = false
+        return result
     }
 
     private func load() async {
@@ -234,6 +240,11 @@ struct StashContent: View {
     }
 
     private func reload() async {
+        // Clearing armedDrop on every reload means a list change (after any op) can
+        // never leave a stale row showing the delete confirm — nor arm a row that
+        // renumbered into the previously-armed index.
+        armedDrop = nil
+        treeDirty = await model.hasLocalChanges(for: repo, in: account)
         switch await model.stashList(for: repo, in: account) {
         case .success(let entries):
             phase = entries.isEmpty ? .empty : .loaded(entries)

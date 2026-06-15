@@ -2,9 +2,10 @@ import SwiftUI
 
 /// Read-only popover listing the commits the current branch is behind its
 /// upstream by — i.e. what a pull would bring in. Loads on demand when shown,
-/// mirroring `CommitHistoryContent`. Reflects the most recent fetch (the status
-/// sweep fetches each cycle, and the row's Fetch action fetches on demand), so it
-/// pairs with Fetch in the menu rather than running the network itself.
+/// mirroring `CommitHistoryContent`. Reflects the most recent fetch (the Fetch
+/// action or a repo-list refresh — the 10s status sweep is local-only and does not
+/// fetch), so it pairs with Fetch rather than running the network itself, and the
+/// copy says "as of the last fetch" to be honest about that.
 struct IncomingCommitsContent: View {
     let repo: Repo
     let account: Account
@@ -22,6 +23,7 @@ struct IncomingCommitsContent: View {
     enum Phase {
         case loading
         case upToDate
+        case unavailable(String)   // no upstream / detached / gone — nothing to compare
         case failed(String)
         case loaded([GitCommit])
     }
@@ -34,7 +36,7 @@ struct IncomingCommitsContent: View {
                     .foregroundStyle(theme.text)
                 // Frames every state below: this is the remote→local direction, so
                 // it's never about the user's own local edits (a common mix-up).
-                Text("New commits on GitHub, not yet in your local branch.")
+                Text("New commits on GitHub not yet in your branch, as of the last fetch.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -71,6 +73,17 @@ struct IncomingCommitsContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             .fixedSize(horizontal: false, vertical: true)
+
+        case .unavailable(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Nothing to compare", systemImage: "questionmark.circle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.textMuted)
+                Text(message)
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
         case .failed(let message):
             VStack(alignment: .leading, spacing: 4) {
@@ -137,6 +150,20 @@ struct IncomingCommitsContent: View {
 
     private func load() async {
         phase = .loading
+        // No upstream / detached HEAD / deleted upstream → there's nothing to compare.
+        // Use the row's already-computed status to say so plainly, instead of letting
+        // git's raw "fatal: no upstream configured…" reach the user (the row's own
+        // badge already reports these states the friendly way).
+        if let status = model.repoStatuses[repo.id] {
+            if status.remoteState == .upstreamGone {
+                phase = .unavailable("The upstream branch no longer exists on GitHub (deleted or renamed). Push the branch again to re-establish it.")
+                return
+            }
+            if !status.hasUpstream {
+                phase = .unavailable("This branch has no upstream on GitHub yet, so there's nothing to compare. Push it first.")
+                return
+            }
+        }
         switch await model.incomingCommits(for: repo, in: account) {
         case .success(let commits):
             phase = commits.isEmpty ? .upToDate : .loaded(commits)
