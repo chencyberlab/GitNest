@@ -99,4 +99,18 @@ final class RefreshSchedulerTests: XCTestCase {
         repo.repoLastRefreshAt["vis"] = Date().addingTimeInterval(-31)
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"))
     }
+
+    func testRateLimitSuppressesShouldAutoRefreshRepos() {
+        GitHub.clearRateLimitBackoff()
+        defer { GitHub.clearRateLimitBackoff() }
+
+        let (repo, accounts) = makeManager()
+        accounts.selectedAccount = account("vis")
+        repo.repoAutoRefreshSeconds = 30
+        repo.repoCache["vis"] = repos(10)
+        XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"))
+
+        GitHub.recordRateLimitBackoff(seconds: 60)
+        XCTAssertFalse(repo.shouldAutoRefreshRepos(for: "vis"))
+    }
 }

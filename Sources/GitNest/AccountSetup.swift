@@ -26,9 +26,16 @@ enum AccountSetup {
     /// True when `a` and `b` are the same folder or one is nested inside the other.
     /// Uses standardized URLs so symlinks and trailing slashes don't hide overlaps.
     static func foldersOverlap(_ a: String, _ b: String) -> Bool {
-        let pathA = URL(fileURLWithPath: (a as NSString).expandingTildeInPath).standardizedFileURL.path
-        let pathB = URL(fileURLWithPath: (b as NSString).expandingTildeInPath).standardizedFileURL.path
+        let pathA = normalizedFolderPath(a)
+        let pathB = normalizedFolderPath(b)
         return pathA == pathB || pathA.hasPrefix(pathB + "/") || pathB.hasPrefix(pathA + "/")
+    }
+
+    /// Expand `~`, resolve symlinks, and standardize — same normalization used for
+    /// project-init safety checks so overlap detection can't miss symlink aliases.
+    static func normalizedFolderPath(_ path: String) -> String {
+        let expanded = (path as NSString).expandingTildeInPath
+        return URL(fileURLWithPath: expanded).resolvingSymlinksInPath().standardizedFileURL.path
     }
 
     // MARK: Identity (read from gh after sign-in)
@@ -348,12 +355,27 @@ enum AccountSetup {
     /// wizard must still write its dedicated `Host github-<alias>` block. Requiring at
     /// least one literal character keeps `github-*` matching while excluding `*`/`?`.
     static func hostMatchesPattern(host: String, pattern: String) -> Bool {
-        if pattern.caseInsensitiveCompare(host) == .orderedSame { return true }
-        guard pattern.contains("*") || pattern.contains("?") else { return false }
-        guard pattern.contains(where: { $0 != "*" && $0 != "?" }) else { return false }
+        let trimmed = pattern.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return false }
+
+        // OpenSSH negation: `!pattern` matches when the inner pattern does not.
+        if trimmed.hasPrefix("!") {
+            return !hostMatchesPattern(host: host, pattern: String(trimmed.dropFirst()))
+        }
+
+        // Comma-separated alternates on one Host line (OpenSSH 7.6+).
+        if trimmed.contains(",") {
+            return trimmed.split(separator: ",").contains { part in
+                hostMatchesPattern(host: host, pattern: String(part))
+            }
+        }
+
+        if trimmed.caseInsensitiveCompare(host) == .orderedSame { return true }
+        guard trimmed.contains("*") || trimmed.contains("?") else { return false }
+        guard trimmed.contains(where: { $0 != "*" && $0 != "?" }) else { return false }
 
         var regex = ""
-        for char in pattern {
+        for char in trimmed {
             switch char {
             case "*":
                 regex.append(".*")

@@ -23,7 +23,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
     func applicationWillTerminate(_ notification: Notification) {
-        model.prepareForTermination()
+        // `prepareForTermination` is async (@MainActor). Pump the run loop so the
+        // chain can drain and restore gh before the process exits — a bare
+        // semaphore.wait on the main thread would deadlock MainActor work.
+        let done = DispatchSemaphore(value: 0)
+        Task { @MainActor in
+            await model.prepareForTermination()
+            done.signal()
+        }
+        let deadline = Date().addingTimeInterval(15)
+        while done.wait(timeout: .now()) == .timedOut {
+            if Date() >= deadline { break }
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

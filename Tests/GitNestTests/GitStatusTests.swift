@@ -16,6 +16,7 @@ final class GitStatusTests: XCTestCase {
         XCTAssertEqual(status.behind, 3)
         XCTAssertTrue(status.hasUpstream)
         XCTAssertEqual(status.upstreamRemote, "origin")
+        XCTAssertEqual(status.upstreamRef, "origin/main")
         XCTAssertTrue(status.isDiverged)
     }
 
@@ -74,14 +75,26 @@ final class GitStatusTests: XCTestCase {
         XCTAssertNotEqual(status.remoteState, .upstreamGone)
     }
 
-    func testRepoStatusParsesUpstreamBranchNameWithSpaces() {
-        // Upstream branch names can contain spaces; the parser must not split on
-        // whitespace inside the upstream reference.
+    func testRepoStatusSetsUpstreamRefSeparatelyFromRemote() {
+        let onMain = RepoStatus.parse(porcelainBranch: "## main...origin/main", remoteState: .checked)
+        let onFeature = RepoStatus.parse(porcelainBranch: "## main...origin/feature")
+
+        XCTAssertEqual(onMain.upstreamRemote, onFeature.upstreamRemote)
+        XCTAssertEqual(onMain.upstreamRef, "origin/main")
+        XCTAssertEqual(onFeature.upstreamRef, "origin/feature")
+        XCTAssertNotEqual(onMain.upstreamRef, onFeature.upstreamRef)
+    }
+
+    func testRepoStatusParsesTrackingBlockAfterUpstreamRefWithSpaces() {
+        // Porcelain keeps the upstream ref intact before a space-separated
+        // `[ahead/behind]` block — split on whitespace inside the ref would break
+        // refs that contain spaces (rare, but valid in porcelain output).
         let output = "## main...origin/my branch [ahead 2]"
 
         let status = RepoStatus.parse(porcelainBranch: output)
 
         XCTAssertEqual(status.upstreamRemote, "origin")
+        XCTAssertEqual(status.upstreamRef, "origin/my branch")
         XCTAssertEqual(status.ahead, 2)
         XCTAssertTrue(status.hasUpstream)
     }
@@ -94,5 +107,6 @@ final class GitStatusTests: XCTestCase {
 
         XCTAssertFalse(status.hasUpstream)
         XCTAssertNil(status.upstreamRemote)
+        XCTAssertNil(status.upstreamRef)
     }
 }

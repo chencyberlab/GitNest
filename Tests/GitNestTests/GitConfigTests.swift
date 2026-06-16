@@ -131,6 +131,8 @@ final class GitConfigTests: XCTestCase {
         XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"a@b\\com\""), "a@b\\com")
         XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"line1\\nline2\""), "line1\nline2")
         XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"tab\\there\""), "tab\there")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"form\\ffeed\""), "form\u{0C}feed")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"\\101BC\""), "ABC")
         XCTAssertEqual(GitConfig.unescapeGitConfigValue("plain"), "plain")
     }
 

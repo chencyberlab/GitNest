@@ -89,14 +89,14 @@ final class RepoListTests: XCTestCase {
     }
 
     func testRateLimitBackoffSuppressesAutoRefresh() {
-        // Clear any leftover backoff from previous tests.
-        GitHub.recordRateLimitBackoff(seconds: -1)
+        GitHub.clearRateLimitBackoff()
+        defer { GitHub.clearRateLimitBackoff() }
         XCTAssertFalse(GitHub.isRateLimited())
 
         GitHub.recordRateLimitBackoff(seconds: 60)
         XCTAssertTrue(GitHub.isRateLimited())
 
-        GitHub.recordRateLimitBackoff(seconds: -1)
+        GitHub.clearRateLimitBackoff()
         XCTAssertFalse(GitHub.isRateLimited())
     }
 

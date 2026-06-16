@@ -256,6 +256,10 @@ struct RepoStatus: Sendable, Equatable {
     var ahead: Int = 0          // local commits not yet pushed
     var behind: Int = 0         // remote commits not yet pulled
     var hasUpstream: Bool = false
+    /// Full upstream ref from porcelain (e.g. `origin/main`). Used to detect when
+    /// tracking changes so a live-fetch `.checked` verdict is not carried forward
+    /// across a different upstream branch on the same remote.
+    var upstreamRef: String?
     var upstreamRemote: String?
     var remoteState: RepoRemoteState = .unchecked
 
@@ -289,6 +293,7 @@ struct RepoStatus: Sendable, Equatable {
                     // tracking info first, then extract the remote from the part
                     // before the first '/'.
                     let (upstreamRef, tracking) = splitUpstreamAndTracking(afterUpstream)
+                    status.upstreamRef = upstreamRef.isEmpty ? nil : upstreamRef
                     status.upstreamRemote = upstreamRemote(from: upstreamRef)
                     if tracking.hasPrefix("["), tracking.hasSuffix("]") {
                         let inner = tracking.dropFirst().dropLast()
@@ -481,9 +486,9 @@ enum GitHub {
     private static var rateLimitBackoffUntil: Date?
 
     /// Seconds to wait after hitting a rate limit before allowing auto-refresh
-    /// to try again. GitHub's REST rate-limit window is one hour; this is a
-    /// conservative but not punishing back-off for a background poll.
-    static let rateLimitBackoffSeconds: TimeInterval = 60
+    /// to try again. GitHub's REST rate-limit window is one hour; five minutes
+    /// is conservative enough to avoid thrashing without going silent for long.
+    static let rateLimitBackoffSeconds: TimeInterval = 300
 
     /// True while the app is within the backoff window following a rate-limit
     /// response from a `gh api` call. Callers suppress auto-refresh when this
@@ -505,9 +510,22 @@ enum GitHub {
         rateLimitLock.unlock()
     }
 
+    /// Clears any active backoff. Test-only seam — production callers rely on the
+    /// window expiring naturally.
+    static func clearRateLimitBackoff() {
+        rateLimitLock.lock()
+        rateLimitBackoffUntil = nil
+        rateLimitLock.unlock()
+    }
+
     private static func isRateLimitError(_ text: String) -> Bool {
         let lower = text.lowercased()
         return lower.contains("rate limit") || lower.contains("api rate limit")
+    }
+
+    private static func recordRateLimitIfNeeded(_ res: ShellResult) {
+        let msg = res.stderr.isEmpty ? res.stdout : res.stderr
+        if isRateLimitError(msg) { recordRateLimitBackoff() }
     }
 
     /// List every repo `owner` can see: the repos it owns, plus repos it has been
@@ -563,8 +581,8 @@ enum GitHub {
             "--paginate", "--slurp",
         ])
         guard res.ok else {
+            recordRateLimitIfNeeded(res)
             let msg = res.stderr.isEmpty ? res.stdout : res.stderr
-            if isRateLimitError(msg) { recordRateLimitBackoff() }
             return .failure(CommandError(message: msg.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         guard let repos = decodeSlurpedRestRepos(res.stdout) else {
@@ -581,7 +599,7 @@ enum GitHub {
             "gh", "api", "user/repos?affiliation=collaborator&per_page=100",
             "--paginate", "--slurp",
         ])
-        if !res.ok, isRateLimitError(res.stderr) { recordRateLimitBackoff() }
+        if !res.ok { recordRateLimitIfNeeded(res) }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }
@@ -593,7 +611,7 @@ enum GitHub {
             "gh", "api", "user/repos?affiliation=organization_member&per_page=100",
             "--paginate", "--slurp",
         ])
-        if !res.ok, isRateLimitError(res.stderr) { recordRateLimitBackoff() }
+        if !res.ok { recordRateLimitIfNeeded(res) }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }

@@ -29,4 +29,9 @@ final class GhChain {
             return result
         }
     }
+
+    /// Wait until every previously queued operation has finished.
+    func awaitDrain() async {
+        _ = await chain.value
+    }
 }

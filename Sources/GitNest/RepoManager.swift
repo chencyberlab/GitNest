@@ -416,7 +416,7 @@ final class RepoManager: ObservableObject {
                 // e.g. `[gone]`).
                 if !refreshRemote, status.remoteState == .unchecked, status.hasUpstream,
                    let prev = previous[target.id], prev.remoteState == .checked, prev.hasUpstream,
-                   prev.upstreamRemote == status.upstreamRemote {
+                   prev.upstreamRef == status.upstreamRef {
                     status.remoteState = .checked
                 }
                 out[target.id] = status

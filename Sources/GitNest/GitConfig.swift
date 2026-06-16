@@ -111,9 +111,8 @@ enum GitConfig {
 
     /// Unquote and unescape a git config value the same way `git config` does.
     /// `\"` becomes `"`, `\\` becomes `\`, `\n` becomes newline, `\t` becomes tab,
-    /// `\b` becomes backspace, and surrounding quotes are removed. Keeps other
-    /// backslash sequences literal so that unusual but valid values round-trip
-    /// through `git config` writes.
+    /// `\b` becomes backspace, `\f` becomes form feed, `\nnn` is an octal byte,
+    /// and surrounding quotes are removed. Keeps other backslash sequences literal.
     static func unescapeGitConfigValue(_ raw: String) -> String {
         guard raw.count >= 2, raw.first == "\"", raw.last == "\"" else { return raw }
         var value = raw
@@ -125,24 +124,50 @@ enum GitConfig {
         while index < value.endIndex {
             let char = value[index]
             if char == "\\", value.index(after: index) < value.endIndex {
-                let next = value[value.index(after: index)]
+                let nextIndex = value.index(after: index)
+                let next = value[nextIndex]
                 switch next {
                 case "\"":
                     output.append("\"")
+                    index = value.index(after: nextIndex)
                 case "\\":
                     output.append("\\")
+                    index = value.index(after: nextIndex)
                 case "n":
                     output.append("\n")
+                    index = value.index(after: nextIndex)
                 case "t":
                     output.append("\t")
+                    index = value.index(after: nextIndex)
                 case "b":
                     output.append("\u{08}")
+                    index = value.index(after: nextIndex)
+                case "f":
+                    output.append("\u{0C}")
+                    index = value.index(after: nextIndex)
+                case "0"..."7":
+                    var octal = String(next)
+                    var scan = value.index(after: nextIndex)
+                    while octal.count < 3, scan < value.endIndex {
+                        let digit = value[scan]
+                        guard ("0"..."7").contains(digit) else { break }
+                        octal.append(digit)
+                        scan = value.index(after: scan)
+                    }
+                    if let code = Int(octal, radix: 8), let scalar = UnicodeScalar(code) {
+                        output.append(Character(scalar))
+                        index = scan
+                    } else {
+                        output.append(char)
+                        output.append(next)
+                        index = value.index(after: nextIndex)
+                    }
                 default:
                     // Unknown escape: git keeps the backslash + char literally.
                     output.append(char)
                     output.append(next)
+                    index = value.index(after: nextIndex)
                 }
-                index = value.index(after: value.index(after: index))
             } else {
                 output.append(char)
                 index = value.index(after: index)

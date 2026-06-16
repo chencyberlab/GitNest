@@ -77,6 +77,27 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-*"))
     }
 
+    func testHostMatchesPatternHandlesNegationAndCommaAlternates() {
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-*"))
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob"))
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-alice"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-carol"))
+    }
+
+    func testFoldersOverlapDetectsSymlinkEquivalentPaths() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestSymlinkOverlap-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let target = root.appendingPathComponent("target")
+        let link = root.appendingPathComponent("link")
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+
+        XCTAssertTrue(AccountSetup.foldersOverlap(target.path, link.path))
+        XCTAssertTrue(AccountSetup.foldersOverlap(link.path, target.path))
+    }
+
     func testFoldersOverlapDetectsSameOrNestedPaths() {
         let home = NSHomeDirectory()
         XCTAssertTrue(AccountSetup.foldersOverlap("\(home)/a", "\(home)/a"))

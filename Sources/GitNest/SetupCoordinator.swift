@@ -22,6 +22,7 @@ final class SetupCoordinator: ObservableObject {
 
     var addAccountSessionID = UUID()
     var currentAuthFlowCode: String?
+    private var addAccountClipboardWatcher: Task<Void, Never>?
 
     /// Alias for the in-progress account (GitHub login, lowercased).
     var addAccountAlias: String? { addAccountIdentity?.alias }
@@ -58,6 +59,8 @@ final class SetupCoordinator: ObservableObject {
         // If verification already ran, the config was written — refresh so the new
         // account's cards/chips populate, just like the Done path (minus the select).
         let wroteConfig = addAccountVerification != nil
+        addAccountClipboardWatcher?.cancel()
+        addAccountClipboardWatcher = nil
         // Kill any in-flight `gh auth login` poll so it doesn't keep the serialized
         // gh chain busy (blocking repo refreshes/account checks) for up to ~10 min.
         authProcessController.cancel()
@@ -84,6 +87,7 @@ final class SetupCoordinator: ObservableObject {
             NSWorkspace.shared.open(url)
         }
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
+        addAccountClipboardWatcher?.cancel()
         let watcher = Task {
             let code = await DeviceCodeWatcher.watchClipboard(
                 startingChangeCount: startingClipboardChangeCount,
@@ -92,6 +96,7 @@ final class SetupCoordinator: ObservableObject {
             guard isCurrentAddAccountSession(session) else { return }
             if let code { addAccountDeviceCode = code }
         }
+        addAccountClipboardWatcher = watcher
         let authProcess = authProcessController.start()
         let result = await ghChain.serialized { () -> AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
@@ -100,6 +105,7 @@ final class SetupCoordinator: ObservableObject {
         }
         authProcessController.finish(authProcess)
         watcher.cancel()
+        addAccountClipboardWatcher = nil
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: out) { addAccountDeviceCode = code }

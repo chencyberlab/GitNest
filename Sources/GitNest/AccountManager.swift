@@ -21,6 +21,7 @@ final class AccountManager: ObservableObject {
     var accountStatusSessionID = UUID()
     var accountStatusLoadMode: AccountStatusLoadMode = .smart
     var currentAuthFlowCode: String?
+    private var reauthClipboardWatcher: Task<Void, Never>?
     static let accountOrderDefaultsKey = "accountOrder"
 
     init(ghChain: GhChain, logStore: LogStore, authProcessController: AuthProcessController) {
@@ -268,6 +269,7 @@ final class AccountManager: ObservableObject {
         }
         logStore.append("Starting gh auth login (web) for \(account.alias)…")
         currentAuthFlowCode = nil
+        reauthClipboardWatcher?.cancel()
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         let clipboardWatcher = Task {
             if let code = await DeviceCodeWatcher.watchClipboard(
@@ -280,10 +282,12 @@ final class AccountManager: ObservableObject {
                 }
             }
         }
+        reauthClipboardWatcher = clipboardWatcher
         let authProcess = authProcessController.start()
         let login = await runBlocking { GitHub.authLoginWebWithClipboard(handle: authProcess) }
         authProcessController.finish(authProcess)
         clipboardWatcher.cancel()
+        reauthClipboardWatcher = nil
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
             if currentAuthFlowCode != code {
