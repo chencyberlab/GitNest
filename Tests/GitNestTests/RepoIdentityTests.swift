@@ -87,6 +87,9 @@ final class RepoIdentityTests: XCTestCase {
         XCTAssertTrue(Shell.run(["git", "init"], cwd: localRepo.path).ok)
         XCTAssertTrue(Shell.run(["git", "config", "user.name", "Test User"], cwd: localRepo.path).ok)
         XCTAssertTrue(Shell.run(["git", "config", "user.email", "test@example.com"], cwd: localRepo.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/me/tools.git"
+        ], cwd: localRepo.path).ok)
 
         let file = localRepo.appendingPathComponent("README.md")
         try "hello\n".write(to: file, atomically: true, encoding: .utf8)
@@ -141,6 +144,12 @@ final class RepoIdentityTests: XCTestCase {
             XCTAssertTrue(Shell.run(["git", "config", "user.name", "Test User"], cwd: repoURL.path).ok)
             XCTAssertTrue(Shell.run(["git", "config", "user.email", "test@example.com"], cwd: repoURL.path).ok)
         }
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/me/tools.git"
+        ], cwd: repoA.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/work/tools.git"
+        ], cwd: repoB.path).ok)
         try "from account A\n".write(to: repoA.appendingPathComponent("README.md"),
                                      atomically: true,
                                      encoding: .utf8)
@@ -201,6 +210,39 @@ final class RepoIdentityTests: XCTestCase {
         XCTAssertFalse(model.repoManager.clonedReposCache[accountA.alias]?.contains(visible.id) == true)
         XCTAssertTrue(model.repoManager.clonedReposCache[accountA.alias]?.contains(existing.id) == true)
         XCTAssertTrue(model.repoManager.clonedReposCache[accountA.alias]?.contains(target.id) == true)
+    }
+
+    func testMutatingRepoActionRefusesStaleCloneStateForDifferentOrigin() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let account = Account(alias: "me",
+                              name: "Me",
+                              email: "me@example.com",
+                              folder: root.path)
+        let target = repo(owner: "me", name: "tools")
+        let localRepo = root.appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: localRepo, withIntermediateDirectories: true)
+
+        XCTAssertTrue(Shell.run(["git", "init"], cwd: localRepo.path).ok)
+        XCTAssertTrue(Shell.run(["git", "config", "user.name", "Test User"], cwd: localRepo.path).ok)
+        XCTAssertTrue(Shell.run(["git", "config", "user.email", "test@example.com"], cwd: localRepo.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/other/tools.git"
+        ], cwd: localRepo.path).ok)
+        try "do not commit\n".write(to: localRepo.appendingPathComponent("README.md"),
+                                    atomically: true,
+                                    encoding: .utf8)
+
+        let model = AppModel()
+        model.accountManager.selectedAccount = account
+        model.repoManager.repos = [target]
+        model.repoManager.clonedRepos = [target.id]
+
+        await model.commit(target, message: "Should not commit")
+
+        XCTAssertFalse(Shell.run(["git", "rev-parse", "--verify", "HEAD"], cwd: localRepo.path).ok)
+        XCTAssertTrue(model.log.contains("no longer a clone of me/tools"))
     }
 
     private func repo(owner: String, name: String) -> Repo {

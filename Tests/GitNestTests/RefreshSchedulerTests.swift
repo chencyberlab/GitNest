@@ -110,7 +110,59 @@ final class RefreshSchedulerTests: XCTestCase {
         repo.repoCache["vis"] = repos(10)
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"))
 
-        GitHub.recordRateLimitBackoff(seconds: 60)
+        GitHub.recordRateLimitBackoff(owner: "vis", seconds: 60)
         XCTAssertFalse(repo.shouldAutoRefreshRepos(for: "vis"))
+        XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "other"))
+    }
+
+    func testLocalStatusRefreshPreservesRemoteFailureUntilLiveCheckSucceeds() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repoFolder = root.appendingPathComponent("tools")
+        try FileManager.default.createDirectory(at: repoFolder, withIntermediateDirectories: true)
+        XCTAssertTrue(Shell.run(["git", "init"], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run(["git", "checkout", "-B", "main"], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run(["git", "config", "user.name", "Test User"], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run(["git", "config", "user.email", "test@example.com"], cwd: repoFolder.path).ok)
+        try "hello\n".write(to: repoFolder.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+        XCTAssertTrue(Shell.run(["git", "add", "README.md"], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run(["git", "commit", "-m", "Initial"], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "remote", "add", "origin", "https://github.com/me/tools.git"
+        ], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "update-ref", "refs/remotes/origin/main", "HEAD"
+        ], cwd: repoFolder.path).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "branch", "--set-upstream-to=origin/main", "main"
+        ], cwd: repoFolder.path).ok)
+
+        let (manager, accounts) = makeManager()
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+        let target = Repo(name: "tools",
+                          nameWithOwner: "me/tools",
+                          description: nil,
+                          visibility: "private",
+                          updatedAt: nil,
+                          url: "https://github.com/me/tools")
+        accounts.selectedAccount = account
+        manager.repos = [target]
+        manager.clonedRepos = [target.id]
+        var previous = RepoStatus()
+        previous.hasUpstream = true
+        previous.upstreamRef = "origin/main"
+        previous.remoteState = .failed("fetch failed")
+        manager.repoStatuses = [target.id: previous]
+
+        await manager.refreshStatuses(for: account)
+
+        XCTAssertEqual(manager.repoStatuses[target.id]?.remoteState, .failed("fetch failed"))
+    }
+
+    private func makeTempDirectory() throws -> URL {
+        let url = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestRefreshSchedulerTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 }

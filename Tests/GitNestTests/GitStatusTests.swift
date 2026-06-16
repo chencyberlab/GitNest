@@ -109,4 +109,17 @@ final class GitStatusTests: XCTestCase {
         XCTAssertNil(status.upstreamRemote)
         XCTAssertNil(status.upstreamRef)
     }
+
+    func testHasUncommittedChangesReportsGitStatusFailure() throws {
+        let path = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestMissingRepo-\(UUID().uuidString)")
+            .path
+
+        switch GitHub.hasUncommittedChanges(at: path) {
+        case .success:
+            XCTFail("Expected git status failure for a missing repo")
+        case .failure(let error):
+            XCTAssertFalse(error.message.isEmpty)
+        }
+    }
 }

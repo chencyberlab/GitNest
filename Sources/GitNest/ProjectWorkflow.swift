@@ -1,8 +1,14 @@
-import SwiftUI
 import AppKit
+import Darwin
+import SwiftUI
 
 @MainActor
 final class ProjectWorkflow: ObservableObject {
+    private struct FileIdentity: Equatable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
     @Published var isInitializingProject = false
     @Published var isForkingProject = false
 
@@ -88,6 +94,9 @@ final class ProjectWorkflow: ObservableObject {
                      moveOriginalToTrash: Bool = false) async -> Bool {
         isInitializingProject = true
         defer { isInitializingProject = false }
+        let originalSourceIdentity = (plan.willCopy && moveOriginalToTrash)
+            ? Self.fileIdentity(at: plan.sourcePath)
+            : nil
         logStore.append("Initializing \(plan.repoName) for \(plan.account.alias)…")
         let initAndPushProject = self.initAndPushProject
         let res = await ghChain.serializedPreservingActiveAccount {
@@ -95,6 +104,12 @@ final class ProjectWorkflow: ObservableObject {
         }
         logStore.report(res, ok: "initialized and pushed \(plan.account.alias)/\(plan.repoName)")
         if res.ok, plan.willCopy, moveOriginalToTrash {
+            guard let originalSourceIdentity,
+                  Self.fileIdentity(at: plan.sourcePath) == originalSourceIdentity else {
+                logStore.append("⚠ Original folder was not moved to Trash because it changed during initialization.")
+                await refreshReposAfterInit(plan.account)
+                return res.ok
+            }
             logStore.append("Moving original folder to Trash…")
             let trash = await runBlocking { FileOps.moveToTrash(plan.sourcePath) }
             logStore.report(trash, ok: "moved original \(plan.sourceName) to Trash")
@@ -166,6 +181,12 @@ final class ProjectWorkflow: ObservableObject {
         }
 
         let setUpstream = self.setUpstream
+        guard case .cloned = await forkCloneDestinationState(repo: repo, account: account) else {
+            logStore.append("✗ Cannot add upstream: \(dest) is no longer a clone of \(repo.nameWithOwner).")
+            await repoManager.refreshClonedStatus(for: account)
+            await repoManager.refreshStatuses(for: account, refreshRemote: true)
+            return false
+        }
         let upstream = await runBlocking { setUpstream(ref, dest) }
         let upstreamText = (upstream.stdout + upstream.stderr)
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -189,5 +210,11 @@ final class ProjectWorkflow: ObservableObject {
         return await runBlocking {
             AppModel.localFolderState(for: repo, path: dest, expectedSSHHost: account.sshHost)
         }
+    }
+
+    private static func fileIdentity(at path: String) -> FileIdentity? {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return nil }
+        return FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
 }

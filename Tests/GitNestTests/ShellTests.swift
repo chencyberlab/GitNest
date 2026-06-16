@@ -97,7 +97,12 @@ final class ShellTests: XCTestCase {
             "GIT_CONFIG_COUNT": "1",
             "GIT_CONFIG_KEY_0": "user.name",
             "GIT_CONFIG_VALUE_0": "Wrong User",
-            "GIT_SSH_COMMAND": "ssh -F /tmp/wrong-config"
+            "GIT_SSH_COMMAND": "ssh -F /tmp/wrong-config",
+            "GIT_AUTHOR_NAME": "Wrong Author",
+            "GIT_AUTHOR_EMAIL": "wrong@example.com",
+            "GIT_COMMITTER_NAME": "Wrong Committer",
+            "GIT_COMMITTER_EMAIL": "wrong@example.com",
+            "GIT_ASKPASS": "/tmp/askpass"
         ])
 
         XCTAssertNil(env["GIT_DIR"])
@@ -108,6 +113,11 @@ final class ShellTests: XCTestCase {
         XCTAssertNil(env["GIT_CONFIG_KEY_0"])
         XCTAssertNil(env["GIT_CONFIG_VALUE_0"])
         XCTAssertNil(env["GIT_SSH_COMMAND"])
+        XCTAssertNil(env["GIT_AUTHOR_NAME"])
+        XCTAssertNil(env["GIT_AUTHOR_EMAIL"])
+        XCTAssertNil(env["GIT_COMMITTER_NAME"])
+        XCTAssertNil(env["GIT_COMMITTER_EMAIL"])
+        XCTAssertNil(env["GIT_ASKPASS"])
         XCTAssertEqual(env["GH_TOKEN"], "keep-me")
         XCTAssertEqual(env["GIT_TERMINAL_PROMPT"], "0")
         XCTAssertTrue(env["PATH"]?.hasSuffix(":/custom/bin") == true)

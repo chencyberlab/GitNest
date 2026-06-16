@@ -247,6 +247,7 @@ final class ForkProjectTests: XCTestCase {
         XCTAssertNil(RepoReference.parse("-owner/repo"))
         XCTAssertNil(RepoReference.parse("owner-/repo"))
         XCTAssertNil(RepoReference.parse("owner--name/repo"))
+        XCTAssertNil(RepoReference.parse("ownér/repo"))
     }
 
     func testRepoReferenceRejectsInvalidRepoNames() {
@@ -255,6 +256,7 @@ final class ForkProjectTests: XCTestCase {
         XCTAssertNil(RepoReference.parse("owner/.."))
         XCTAssertNil(RepoReference.parse("owner/.hidden"))
         XCTAssertNil(RepoReference.parse("owner/-bad"))
+        XCTAssertNil(RepoReference.parse("owner/répo"))
     }
 
     func testRepoReferenceTrimsWhitespace() {

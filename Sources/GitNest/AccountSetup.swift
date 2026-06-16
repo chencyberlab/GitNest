@@ -181,10 +181,6 @@ enum AccountSetup {
             }
         }
 
-        let folderExisted = FileManager.default.fileExists(atPath: expandedFolder)
-        let mk = Shell.run(["mkdir", "-p", expandedFolder])
-        guard mk.ok else { return .failure(CommandError(message: short(mk))) }
-
         let accountBackup: String?
         let globalBackup: String?
         do {
@@ -193,6 +189,10 @@ enum AccountSetup {
         } catch {
             return .failure(CommandError(message: "could not create config backup: \(error.localizedDescription)"))
         }
+
+        let folderExisted = FileManager.default.fileExists(atPath: expandedFolder)
+        let mk = Shell.run(["mkdir", "-p", expandedFolder])
+        guard mk.ok else { return .failure(CommandError(message: short(mk))) }
 
         // Any failure past this point restores both config files to their pre-edit
         // state (and removes a folder this call just created), so a failed run is a

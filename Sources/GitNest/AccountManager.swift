@@ -8,6 +8,11 @@ final class AccountManager: ObservableObject {
         let text: String
     }
 
+    private struct ReauthGhResult: Sendable {
+        let login: ShellResult
+        let switched: ShellResult?
+    }
+
     @Published var accounts: [Account] = []
     @Published var selectedAccount: Account?
     @Published var sshGreetings: [String: String] = [:]   // alias -> "Hi X!"
@@ -284,10 +289,15 @@ final class AccountManager: ObservableObject {
         }
         reauthClipboardWatcher = clipboardWatcher
         let authProcess = authProcessController.start()
-        let login = await runBlocking { GitHub.authLoginWebWithClipboard(handle: authProcess) }
+        let result = await ghChain.serialized { () -> ReauthGhResult in
+            let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
+            guard login.ok else { return ReauthGhResult(login: login, switched: nil) }
+            return ReauthGhResult(login: login, switched: GitHub.ensureActiveAccount(account.alias))
+        }
         authProcessController.finish(authProcess)
         clipboardWatcher.cancel()
         reauthClipboardWatcher = nil
+        let login = result.login
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
             if currentAuthFlowCode != code {
@@ -304,11 +314,11 @@ final class AccountManager: ObservableObject {
         }
 
         // Best effort: make the requested account active for subsequent operations.
-        let switched = await ghChain.serialized { GitHub.ensureActiveAccount(account.alias) }
-        if switched.ok {
+        if result.switched?.ok == true {
             logStore.append("✓ Active gh account set to \(account.alias).")
         } else {
-            let out = (switched.stdout + switched.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
+            let switchedOutput = (result.switched?.stdout ?? "") + (result.switched?.stderr ?? "")
+            let out = switchedOutput.trimmingCharacters(in: .whitespacesAndNewlines)
             logStore.append("⚠ Could not switch to \(account.alias): \(out)")
         }
         beginAccountStatusChecks([account], force: true)

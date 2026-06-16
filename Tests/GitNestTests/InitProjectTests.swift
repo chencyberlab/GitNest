@@ -24,6 +24,7 @@ final class InitProjectTests: XCTestCase {
         XCTAssertFalse(GitHub.remoteLooksLike("https://github.example.com/owner/repo.git", owner: "owner", repoName: "repo"))
         XCTAssertFalse(GitHub.remoteLooksLike("git@github.example.com:owner/repo.git", owner: "owner", repoName: "repo"))
         XCTAssertFalse(GitHub.remoteLooksLike("git@github-evil.com:owner/repo.git", owner: "owner", repoName: "repo"))
+        XCTAssertFalse(GitHub.remoteLooksLike("git@github-wørk:owner/repo.git", owner: "owner", repoName: "repo"))
         XCTAssertFalse(GitHub.remoteLooksLike("ssh://git@github-evil.com/owner/repo.git", owner: "owner", repoName: "repo"))
         XCTAssertFalse(GitHub.remoteLooksLike("git@github-:owner/repo.git", owner: "owner", repoName: "repo"))
     }
@@ -184,6 +185,53 @@ final class InitProjectTests: XCTestCase {
 
         XCTAssertTrue(ok)
         XCTAssertEqual(refreshedAliases, ["me"])
+    }
+
+    @MainActor
+    func testInitProjectDoesNotTrashOriginalWhenSourceChangesDuringPush() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+        try "original\n".write(to: source.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+        let accountFolder = root.appendingPathComponent("account")
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: source.path,
+            workingPath: accountFolder.appendingPathComponent("source").path,
+            repoName: "source",
+            willCopy: true
+        )
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let auth = AuthProcessController()
+        let accountManager = AccountManager(ghChain: ghChain, logStore: logStore, authProcessController: auth)
+        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let workflow = ProjectWorkflow(
+            ghChain: ghChain,
+            logStore: logStore,
+            repoManager: repoManager,
+            initAndPushProject: { _, _ in
+                try? FileManager.default.removeItem(at: source)
+                try? FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
+                try? "replacement\n".write(to: source.appendingPathComponent("README.md"),
+                                            atomically: true,
+                                            encoding: .utf8)
+                return ShellResult(exitCode: 0, stdout: "pushed", stderr: "")
+            },
+            refreshReposAfterInit: { _ in }
+        )
+
+        let ok = await workflow.initProject(plan,
+                                            visibility: .private,
+                                            moveOriginalToTrash: true)
+
+        XCTAssertTrue(ok)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
+        XCTAssertEqual(try String(contentsOf: source.appendingPathComponent("README.md")), "replacement\n")
+        XCTAssertTrue(logStore.log.contains("changed during initialization"))
     }
 
     private func makeTempDirectory() throws -> URL {

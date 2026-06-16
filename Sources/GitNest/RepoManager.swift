@@ -336,7 +336,7 @@ final class RepoManager: ObservableObject {
     /// result. Per-owner in-flight guards in loadRepos keep this from stacking on a
     /// manual load already running.
     func autoRefreshRepoListTick() async {
-        guard repoAutoRefreshSeconds > 0, canAutoRefresh, !GitHub.isRateLimited() else { return }
+        guard repoAutoRefreshSeconds > 0, canAutoRefresh else { return }
         let selected = accountManager.selectedAccount?.alias
         let targets = accountManager.accounts
             .filter { repoAutoRefreshAccounts.contains($0.alias) }
@@ -350,7 +350,7 @@ final class RepoManager: ObservableObject {
     /// Whether `alias` is due for an auto-refresh, based on its *effective*
     /// interval. Used by both the timer tick and the on-switch refresh.
     func shouldAutoRefreshRepos(for alias: String) -> Bool {
-        guard !GitHub.isRateLimited() else { return false }
+        guard !GitHub.isRateLimited(owner: alias) else { return false }
         let interval = effectiveRefreshInterval(for: alias)
         guard interval > 0 else { return false }
         guard let last = repoLastRefreshAt[alias] else { return true }
@@ -414,10 +414,18 @@ final class RepoManager: ObservableObject {
                 // Carry forward the last live-fetch verdict while the upstream is
                 // unchanged (and the fresh parse hasn't found something newer,
                 // e.g. `[gone]`).
-                if !refreshRemote, status.remoteState == .unchecked, status.hasUpstream,
-                   let prev = previous[target.id], prev.remoteState == .checked, prev.hasUpstream,
-                   prev.upstreamRef == status.upstreamRef {
-                    status.remoteState = .checked
+                if !refreshRemote, status.remoteState == .unchecked,
+                   let prev = previous[target.id] {
+                    if status.hasUpstream, prev.hasUpstream, prev.upstreamRef == status.upstreamRef {
+                        switch prev.remoteState {
+                        case .checked, .failed:
+                            status.remoteState = prev.remoteState
+                        case .unchecked, .noUpstream, .upstreamGone:
+                            break
+                        }
+                    } else if !status.hasUpstream, !prev.hasUpstream, prev.remoteState == .noUpstream {
+                        status.remoteState = .noUpstream
+                    }
                 }
                 out[target.id] = status
             }

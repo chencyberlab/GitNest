@@ -211,7 +211,7 @@ extension RepoReference {
     /// GitHub account and organization names are intentionally stricter than repo names.
     private static func isValidOwner(_ name: String) -> Bool {
         guard !name.isEmpty, name.count <= 39 else { return false }
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-")
         guard name.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
         guard !name.hasPrefix("-"), !name.hasSuffix("-") else { return false }
         guard !name.contains("--") else { return false }
@@ -224,7 +224,7 @@ extension RepoReference {
         guard !name.isEmpty, name.count <= 100 else { return false }
         guard name != ".", name != "..", name.lowercased() != ".git" else { return false }
         guard !name.hasPrefix("."), !name.hasPrefix("-") else { return false }
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
         return name.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 }
@@ -484,7 +484,7 @@ enum GitHub {
     /// `ghChain`, but the lock keeps the check itself thread-safe for tests and
     /// any future non-serialized readers.
     private static let rateLimitLock = NSLock()
-    private static var rateLimitBackoffUntil: Date?
+    private static var rateLimitBackoffUntilByOwner: [String: Date] = [:]
 
     /// Seconds to wait after hitting a rate limit before allowing auto-refresh
     /// to try again. GitHub's REST rate-limit window is one hour; five minutes
@@ -492,31 +492,49 @@ enum GitHub {
     static let rateLimitBackoffSeconds: TimeInterval = 300
 
     /// True while the app is within the backoff window following a rate-limit
-    /// response from a `gh api` call. Callers suppress auto-refresh when this
-    /// returns true, but manual refreshes still go through.
-    static func isRateLimited() -> Bool {
+    /// response from a `gh api` call. Production callers pass an owner so one
+    /// account's REST budget does not suppress every other account.
+    static func isRateLimited(owner: String? = nil) -> Bool {
         rateLimitLock.lock()
         defer { rateLimitLock.unlock() }
-        guard let until = rateLimitBackoffUntil else { return false }
-        if Date() >= until {
-            rateLimitBackoffUntil = nil
-            return false
+
+        let now = Date()
+        let expired = rateLimitBackoffUntilByOwner
+            .filter { now >= $0.value }
+            .map(\.key)
+        for key in expired {
+            rateLimitBackoffUntilByOwner.removeValue(forKey: key)
         }
-        return true
+
+        guard let owner else {
+            return !rateLimitBackoffUntilByOwner.isEmpty
+        }
+        return rateLimitBackoffUntilByOwner[rateLimitKey(for: owner)] != nil
     }
 
-    static func recordRateLimitBackoff(seconds: TimeInterval = rateLimitBackoffSeconds) {
+    static func recordRateLimitBackoff(owner: String? = nil, seconds: TimeInterval = rateLimitBackoffSeconds) {
         rateLimitLock.lock()
-        rateLimitBackoffUntil = Date().addingTimeInterval(seconds)
+        rateLimitBackoffUntilByOwner[rateLimitKey(for: owner)] = Date().addingTimeInterval(seconds)
         rateLimitLock.unlock()
     }
 
-    /// Clears any active backoff. Test-only seam — production callers rely on the
+    /// Clears active backoff. Test-only seam — production callers rely on the
     /// window expiring naturally.
-    static func clearRateLimitBackoff() {
+    static func clearRateLimitBackoff(owner: String? = nil) {
         rateLimitLock.lock()
-        rateLimitBackoffUntil = nil
+        if let owner {
+            rateLimitBackoffUntilByOwner.removeValue(forKey: rateLimitKey(for: owner))
+        } else {
+            rateLimitBackoffUntilByOwner = [:]
+        }
         rateLimitLock.unlock()
+    }
+
+    private static func rateLimitKey(for owner: String?) -> String {
+        guard let owner, !owner.isEmpty else {
+            return "__global__"
+        }
+        return owner.lowercased()
     }
 
     private static func isRateLimitError(_ text: String) -> Bool {
@@ -524,9 +542,11 @@ enum GitHub {
         return lower.contains("rate limit") || lower.contains("api rate limit")
     }
 
-    private static func recordRateLimitIfNeeded(_ res: ShellResult) {
+    private static func recordRateLimitIfNeeded(_ res: ShellResult, owner: String) {
         let msg = res.stderr.isEmpty ? res.stdout : res.stderr
-        if isRateLimitError(msg) { recordRateLimitBackoff() }
+        if isRateLimitError(msg) {
+            recordRateLimitBackoff(owner: owner)
+        }
     }
 
     /// List every repo `owner` can see: the repos it owns, plus repos it has been
@@ -535,9 +555,9 @@ enum GitHub {
     static func listRepos(owner: String) -> Result<[Repo], CommandError> {
         listRepos(owner: owner,
                   ensureActive: ensureActiveAccount,
-                  ownedRepos: ownedRepos,
-                  collaboratorRepos: collaboratorRepos,
-                  organizationMemberRepos: organizationMemberRepos)
+                  ownedRepos: { ownedRepos(owner: owner) },
+                  collaboratorRepos: { collaboratorRepos(owner: owner) },
+                  organizationMemberRepos: { organizationMemberRepos(owner: owner) })
     }
 
     static func listRepos(owner: String,
@@ -576,13 +596,13 @@ enum GitHub {
 
     /// Repos owned by the active account. Uses the REST endpoint instead of
     /// `gh repo list --limit ...` so it can paginate without a silent cap.
-    private static func ownedRepos() -> Result<[Repo], CommandError> {
+    private static func ownedRepos(owner: String) -> Result<[Repo], CommandError> {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=owner&per_page=100",
             "--paginate", "--slurp",
         ])
         guard res.ok else {
-            recordRateLimitIfNeeded(res)
+            recordRateLimitIfNeeded(res, owner: owner)
             let msg = res.stderr.isEmpty ? res.stdout : res.stderr
             return .failure(CommandError(message: msg.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
@@ -595,24 +615,24 @@ enum GitHub {
     /// Repos the active account collaborates on but does not own. `affiliation=
     /// collaborator` excludes owned and org-member repos, so there is no overlap
     /// with the owned REST list. Best-effort: returns [] on any error.
-    private static func collaboratorRepos() -> [Repo] {
+    private static func collaboratorRepos(owner: String) -> [Repo] {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=collaborator&per_page=100",
             "--paginate", "--slurp",
         ])
-        if !res.ok { recordRateLimitIfNeeded(res) }
+        if !res.ok { recordRateLimitIfNeeded(res, owner: owner) }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }
 
     /// Repos the active account has access to through organization membership.
     /// Best-effort: returns [] on any error.
-    private static func organizationMemberRepos() -> [Repo] {
+    private static func organizationMemberRepos(owner: String) -> [Repo] {
         let res = Shell.run([
             "gh", "api", "user/repos?affiliation=organization_member&per_page=100",
             "--paginate", "--slurp",
         ])
-        if !res.ok { recordRateLimitIfNeeded(res) }
+        if !res.ok { recordRateLimitIfNeeded(res, owner: owner) }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }
@@ -871,13 +891,15 @@ enum GitHub {
     }
 
     /// True when the working tree has any uncommitted or untracked changes.
-    /// Network-free; returns `false` when the path is not a usable git repo.
-    static func hasUncommittedChanges(at path: String) -> Bool {
+    /// Network-free; failures are explicit so destructive callers can fail closed.
+    static func hasUncommittedChanges(at path: String) -> Result<Bool, CommandError> {
         let res = Shell.run([
             "git", "--no-optional-locks", "-C", path, "status", "--porcelain"
         ])
-        guard res.ok else { return false }
-        return !res.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard res.ok else {
+            return .failure(CommandError(message: conciseMessage(res, fallback: "git status failed")))
+        }
+        return .success(!res.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
     /// Dirty count + ahead/behind. With `refreshRemote`, first fetches the branch's
@@ -990,13 +1012,20 @@ enum GitHub {
                 }
                 try fm.copyItem(atPath: plan.sourcePath, toPath: plan.workingPath)
                 log.append("Copied project to \(plan.workingPath)")
-                // The source is a clone of a *different* repo. Its copied `.git`
-                // carries that repo's full history and foreign origin; re-homing
-                // and pushing it would republish another (possibly private) repo's
-                // history into this brand-new repo. Drop the copied `.git` so the
-                // new project starts a fresh, single-commit history instead.
-                if plan.sourceOrigin != nil {
-                    let copiedGit = (plan.workingPath as NSString).appendingPathComponent(".git")
+                let copiedGit = (plan.workingPath as NSString).appendingPathComponent(".git")
+                let copiedOrigin = originURL(at: plan.workingPath)
+                let shouldDropCopiedGit = copiedOrigin.map {
+                    !remoteLooksLike($0,
+                                     owner: owner,
+                                     repoName: plan.repoName,
+                                     expectedSSHHost: plan.account.sshHost)
+                } ?? (plan.sourceOrigin != nil)
+                if fm.fileExists(atPath: copiedGit), shouldDropCopiedGit {
+                    // The source is a clone of a *different* repo. Its copied `.git`
+                    // carries that repo's full history and foreign origin; re-homing
+                    // and pushing it would republish another (possibly private) repo's
+                    // history into this brand-new repo. Drop the copied `.git` so the
+                    // new project starts a fresh, single-commit history instead.
                     try? fm.removeItem(atPath: copiedGit)
                     // Gate on the postcondition, not the removal error: a `.git` that
                     // was already absent (stale plan) is fine, but one that survived a
@@ -1195,7 +1224,7 @@ enum GitHub {
         guard host.hasPrefix("github-") else { return false }
         let alias = host.dropFirst("github-".count)
         guard !alias.isEmpty else { return false }
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-")
         return alias.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 

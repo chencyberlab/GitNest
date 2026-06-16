@@ -71,6 +71,21 @@ final class RepoActionCoordinator: ObservableObject {
         busyRepoPaths.remove(context.busyPathKey)
     }
 
+    private func ensureCurrentClone(_ repo: Repo, context: RepoActionContext, action: String) async -> Bool {
+        let account = context.account
+        let path = context.path
+        let state = await runBlocking {
+            AppModel.localFolderState(for: repo, path: path, expectedSSHHost: account.sshHost)
+        }
+        guard case .cloned = state else {
+            logStore.append("✗ Cannot \(action) \(repo.name): \(path) is no longer a clone of \(repo.nameWithOwner).")
+            await repoManager.refreshClonedStatus(for: account)
+            await repoManager.refreshStatuses(for: account)
+            return false
+        }
+        return true
+    }
+
     static func busyPathKey(for path: String, caseSensitiveOverride: Bool? = nil) -> String {
         let isCaseSensitive = caseSensitiveOverride ?? volumeSupportsCaseSensitiveNames(at: path) ?? true
         return isCaseSensitive ? path : path.lowercased()
@@ -125,7 +140,26 @@ final class RepoActionCoordinator: ObservableObject {
         let account = context.account
         let path = context.path
 
-        let dirty = await runBlocking { GitHub.hasUncommittedChanges(at: path) }
+        guard await ensureCurrentClone(repo, context: context, action: "pull") else { return }
+
+        let dirtyResult = await runBlocking { GitHub.hasUncommittedChanges(at: path) }
+        let dirty: Bool
+        switch dirtyResult {
+        case .success(let value):
+            dirty = value
+        case .failure(let error):
+            logStore.append("⚠ Pull blocked for \(repo.name): could not verify working tree cleanliness (\(error.message)).")
+            alertStore.showPullWarning(AlertStore.PullWarning(
+                repoName: repo.name,
+                message: """
+                GitNest could not verify whether \(repo.name) has local changes.
+
+                Pulling now could overwrite or merge into your local work, so nothing was changed. Check the repository status and try again.
+                """
+            ))
+            await repoManager.refreshStatuses(for: account)
+            return
+        }
         if dirty {
             logStore.append("⚠ Pull blocked for \(repo.name): uncommitted or untracked changes.")
             alertStore.showPullWarning(AlertStore.PullWarning(
@@ -161,6 +195,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "fetch") else { return }
         logStore.append("Fetching \(repo.name)…")
         let res = await runBlocking { GitHub.fetch(at: path) }
         logStore.report(res, ok: "fetched \(repo.name)")
@@ -172,6 +207,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "push") else { return }
         logStore.append("Pushing \(repo.name)…")
         let res = await runBlocking { GitHub.push(at: path) }
         logStore.report(res, ok: "pushed \(repo.name)")
@@ -371,6 +407,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "commit") else { return }
         logStore.append("Committing \(repo.name): “\(message)”…")
         let res = await runBlocking { GitHub.commitAll(at: path, message: message) }
         logStore.report(res, ok: "committed \(repo.name)")
@@ -401,7 +438,13 @@ final class RepoActionCoordinator: ObservableObject {
         let path = repoManager.localPath(repo, in: account)
         let gitDir = (path as NSString).appendingPathComponent(".git")
         guard FileManager.default.fileExists(atPath: gitDir) else { return false }
-        return await runBlocking { GitHub.hasUncommittedChanges(at: path) }
+        let changes = await runBlocking { GitHub.hasUncommittedChanges(at: path) }
+        switch changes {
+        case .success(let hasChanges):
+            return hasChanges
+        case .failure:
+            return false
+        }
     }
 
     /// Save the working tree's changes onto the stash stack. Clears the change badge
@@ -415,6 +458,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "stash changes in") else { return false }
         logStore.append("Stashing changes in \(repo.name)…")
         let res = await runBlocking { GitHub.stashPush(at: path, message: message) }
         let nothingToStash = res.ok && (res.stdout + res.stderr).contains("No local changes to save")
@@ -456,6 +500,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "run git stash \(running) in") else { return }
         logStore.append("Running git stash \(running) stash@{\(index)} in \(repo.name)…")
         let res: ShellResult? = await runBlocking {
             GitHub.stashHash(at: path, index: index) == expectedHash ? run(path) : nil
@@ -480,6 +525,7 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        guard await ensureCurrentClone(repo, context: context, action: "drop a stash in") else { return }
         logStore.append("Dropping stash@{\(index)} in \(repo.name)…")
         let res: ShellResult? = await runBlocking {
             GitHub.stashHash(at: path, index: index) == expectedHash ? GitHub.stashDrop(at: path, index: index) : nil
