@@ -82,6 +82,12 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob"))
         XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-alice"))
         XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-carol"))
+        // Negated alternates are processed left-to-right: a later positive pattern
+        // can re-include a host excluded by an earlier negated one.
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob,github-alice"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-bob", pattern: "!github-bob,github-alice"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,!github-alice"))
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-bob", pattern: "github-bob,!github-alice"))
     }
 
     func testFoldersOverlapDetectsSymlinkEquivalentPaths() throws {

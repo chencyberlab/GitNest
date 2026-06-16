@@ -358,16 +358,26 @@ enum AccountSetup {
         let trimmed = pattern.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
 
+        // Comma-separated alternates on one Host line (OpenSSH 7.6+). They are
+        // evaluated left-to-right; the final matching pattern wins, so a later
+        // negated pattern can override an earlier positive one.
+        if trimmed.contains(",") {
+            let parts = trimmed.split(separator: ",").map(String.init)
+            var lastMatchWasPositive = false
+            for part in parts {
+                let cleanPart = part.trimmingCharacters(in: .whitespaces)
+                let isNegated = cleanPart.hasPrefix("!")
+                let inner = isNegated ? String(cleanPart.dropFirst()) : cleanPart
+                if hostMatchesPattern(host: host, pattern: inner) {
+                    lastMatchWasPositive = !isNegated
+                }
+            }
+            return lastMatchWasPositive
+        }
+
         // OpenSSH negation: `!pattern` matches when the inner pattern does not.
         if trimmed.hasPrefix("!") {
             return !hostMatchesPattern(host: host, pattern: String(trimmed.dropFirst()))
-        }
-
-        // Comma-separated alternates on one Host line (OpenSSH 7.6+).
-        if trimmed.contains(",") {
-            return trimmed.split(separator: ",").contains { part in
-                hostMatchesPattern(host: host, pattern: String(part))
-            }
         }
 
         if trimmed.caseInsensitiveCompare(host) == .orderedSame { return true }
