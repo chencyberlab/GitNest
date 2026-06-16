@@ -62,18 +62,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let bundleID = Bundle.main.bundleIdentifier else { return false }
         let currentPID = ProcessInfo.processInfo.processIdentifier
         let siblings = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
-        guard let primaryPID = Self.primaryProcessID(candidatePIDs: siblings.map(\.processIdentifier)),
-              primaryPID != currentPID,
+        guard let primaryPID = Self.primaryProcessIDForDuplicate(currentPID: currentPID,
+                                                                 candidatePIDs: siblings.map(\.processIdentifier)),
               let primary = siblings.first(where: { $0.processIdentifier == primaryPID }) else {
             return false
         }
         let options: NSApplication.ActivationOptions = [.activateAllWindows, .activateIgnoringOtherApps]
-        primary.activate(options: options)
+        _ = primary.unhide()
+        guard primary.activate(options: options) else { return false }
         NSApplication.shared.terminate(nil)
         return true
     }
 
     nonisolated static func primaryProcessID(candidatePIDs: [pid_t]) -> pid_t? {
         candidatePIDs.min()
+    }
+
+    nonisolated static func primaryProcessIDForDuplicate(currentPID: pid_t, candidatePIDs: [pid_t]) -> pid_t? {
+        guard let primaryPID = primaryProcessID(candidatePIDs: candidatePIDs),
+              primaryPID != currentPID else { return nil }
+        return primaryPID
     }
 }
