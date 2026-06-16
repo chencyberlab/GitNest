@@ -216,6 +216,10 @@ final class AppModel: ObservableObject {
         await accountManager.logAuthStatus()
     }
 
+    func openGitHubProfile(_ account: Account) {
+        accountManager.openGitHubProfile(account)
+    }
+
     func configureRepoAutoRefresh(seconds: Int) {
         repoManager.configureRepoAutoRefresh(seconds: seconds, appIsActive: appIsActive)
     }

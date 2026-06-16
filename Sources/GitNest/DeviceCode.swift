@@ -60,7 +60,8 @@ enum DeviceCodeWatcher {
                                currentChangeCount: () -> Int = { NSPasteboard.general.changeCount },
                                readClipboard: () -> String? = { NSPasteboard.general.string(forType: .string) }) async -> String? {
         var lastChangeCount = startingChangeCount
-        for _ in 0..<maxIterations {
+        let iterations = max(0, maxIterations)
+        for _ in 0..<iterations {
             if Task.isCancelled { return nil }
             let current = currentChangeCount()
             if current != lastChangeCount {

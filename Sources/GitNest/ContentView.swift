@@ -224,7 +224,7 @@ private struct DetailView: View {
     // MARK: Header
 
     private func header(_ account: Account) -> some View {
-        let ready = model.accountManager.accountReady(account)
+        let ready = model.accountReady(account)
         let gateHint = connectionGateHint(account)
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
@@ -268,11 +268,11 @@ private struct DetailView: View {
     /// Why the action buttons are greyed out (nil once the account is ready) —
     /// surfaced as the buttons' tooltip so the disabled state isn't a mystery.
     private func connectionGateHint(_ account: Account) -> String? {
-        if model.accountManager.accountReady(account) { return nil }
-        if model.accountManager.accountChecking(account) {
+        if model.accountReady(account) { return nil }
+        if model.accountChecking(account) {
             return "Checking SSH and GitHub connection for \(account.alias)…"
         }
-        if !model.accountManager.accountStatusKnown(account) {
+        if !model.accountStatusKnown(account) {
             return "Connection status has not been checked for \(account.alias) yet. Select the card or press Refresh."
         }
         return "SSH or GitHub isn't ready for \(account.alias). Fix it on the account card (SSH / GitHub login), then Refresh."

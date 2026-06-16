@@ -101,4 +101,16 @@ final class DeviceCodeTests: XCTestCase {
         let code = await task.value
         XCTAssertNil(code)
     }
+
+    func testWatchClipboardWithNonPositiveIterationsReturnsNilWithoutTrapping() async {
+        // `0..<maxIterations` would trap for a negative bound; the clamp turns it
+        // into a no-op poll that returns nil instead of crashing.
+        let code = await DeviceCodeWatcher.watchClipboard(
+            startingChangeCount: 0,
+            maxIterations: -1,
+            currentChangeCount: { 1 },          // a code is "present"…
+            readClipboard: { "57C6-CEA6" }      // …but the loop never runs to see it
+        )
+        XCTAssertNil(code)
+    }
 }

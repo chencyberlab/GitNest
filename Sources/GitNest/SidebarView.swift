@@ -145,7 +145,7 @@ struct SidebarView: View {
             Button("Continue and open login page") {
                 let target = account
                 ghLoginTarget = nil
-                Task { await model.accountManager.reauthenticateGh(for: target) }
+                Task { await model.reauthenticateGh(for: target) }
             }
             Button("Cancel", role: .cancel) {
                 ghLoginTarget = nil
@@ -234,7 +234,7 @@ struct SidebarView: View {
                     Text(account.email).font(.system(size: 11)).foregroundStyle(theme.textMuted)
                     Text(account.sshHost).font(.system(size: 10)).foregroundStyle(theme.textTertiary)
                     if let greeting = model.sshGreetings[account.alias] {
-                        let ok = model.accountManager.accountSSHReady(account)
+                        let ok = model.accountSSHReady(account)
                         authBadge(
                             ok: ok,
                             label: "SSH",
@@ -264,7 +264,7 @@ struct SidebarView: View {
                                          help: "Open github.com/\(account.alias) in your browser",
                                          tint: theme.accent,
                                          fill: theme.accentSubtle) {
-                            model.accountManager.openGitHubProfile(account)
+                            model.openGitHubProfile(account)
                         }
                     }
                     .padding(.top, 2)
@@ -327,14 +327,14 @@ struct SidebarView: View {
     }
 
     private func accountSummaryStatus(_ account: Account) -> AccountSummaryStatus {
-        if model.accountManager.accountChecking(account) {
+        if model.accountChecking(account) {
             return .loading
         }
-        guard model.accountManager.accountStatusKnown(account) else {
+        guard model.accountStatusKnown(account) else {
             return .notLoaded
         }
-        let sshReady = model.accountManager.accountSSHReady(account)
-        let ghReady = model.accountManager.accountGhReady(account)
+        let sshReady = model.accountSSHReady(account)
+        let ghReady = model.accountGhReady(account)
         if sshReady && ghReady {
             return .ready
         }
