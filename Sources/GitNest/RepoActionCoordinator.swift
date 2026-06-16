@@ -71,14 +71,18 @@ final class RepoActionCoordinator: ObservableObject {
         busyRepoPaths.remove(context.busyPathKey)
     }
 
-    private func ensureCurrentClone(_ repo: Repo, context: RepoActionContext, action: String) async -> Bool {
+    private func ensureCurrentClone(_ repo: Repo,
+                                    context: RepoActionContext,
+                                    action: String,
+                                    failureMessage: String? = nil) async -> Bool {
         let account = context.account
         let path = context.path
         let state = await runBlocking {
             AppModel.localFolderState(for: repo, path: path, expectedSSHHost: account.sshHost)
         }
         guard case .cloned = state else {
-            logStore.append("✗ Cannot \(action) \(repo.name): \(path) is no longer a clone of \(repo.nameWithOwner).")
+            logStore.append(failureMessage
+                            ?? "✗ Cannot \(action) \(repo.name): \(path) is no longer a clone of \(repo.nameWithOwner).")
             await repoManager.refreshClonedStatus(for: account)
             await repoManager.refreshStatuses(for: account)
             return false
@@ -385,15 +389,12 @@ final class RepoActionCoordinator: ObservableObject {
         // (origin-matched) rather than an unrelated folder that landed at the same
         // path since the last status sweep. Trash is recoverable, but trashing the
         // wrong folder is a surprise we can cheaply avoid.
-        let state = await runBlocking {
-            AppModel.localFolderState(for: repo, path: path, expectedSSHHost: account.sshHost)
-        }
-        guard case .cloned = state else {
-            logStore.append("✗ Not moving \(path) to Trash: it is no longer a clone of \(repo.nameWithOwner).")
-            await repoManager.refreshClonedStatus(for: account)
-            await repoManager.refreshStatuses(for: account)
-            return
-        }
+        guard await ensureCurrentClone(
+            repo,
+            context: context,
+            action: "move to Trash",
+            failureMessage: "✗ Not moving \(path) to Trash: it is no longer a clone of \(repo.nameWithOwner)."
+        ) else { return }
         logStore.append("Moving \(repo.name) folder to Trash…")
         let res = await runBlocking { FileOps.moveToTrash(path) }
         logStore.report(res, ok: "moved \(repo.name) to Trash")
