@@ -134,6 +134,25 @@ final class RepoManager: ObservableObject {
             repoSortField = field
             repoSortAscending = (field == .name)
         }
+        if let alias = accountManager.selectedAccount?.alias {
+            saveSortState(for: alias)
+        }
+    }
+
+    private static func sortDefaultsKey(for alias: String) -> String { "repoSort-\(alias)" }
+
+    func saveSortState(for alias: String) {
+        let field = repoSortField == .name ? "name" : "updated"
+        let direction = repoSortAscending ? "asc" : "desc"
+        UserDefaults.standard.set("\(field)|\(direction)", forKey: Self.sortDefaultsKey(for: alias))
+    }
+
+    private func loadSortState(for alias: String) {
+        guard let raw = UserDefaults.standard.string(forKey: Self.sortDefaultsKey(for: alias)) else { return }
+        let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count == 2 else { return }
+        repoSortField = parts[0] == "name" ? .name : .updated
+        repoSortAscending = parts[1] == "asc"
     }
 
     // MARK: Repo loading
@@ -277,6 +296,15 @@ final class RepoManager: ObservableObject {
         isRefreshingRepos = false
     }
 
+    /// Stop every scheduled timer/dismiss task. Called once from the app delegate's
+    /// `applicationWillTerminate` so background work doesn't outlive the process.
+    func stopAllTimers() {
+        stopStatusAutoRefresh()
+        stopRepoAutoRefresh()
+        repoRefreshMessageDismiss?.cancel()
+        repoRefreshMessageDismiss = nil
+    }
+
     /// Single entry point for the repo-refresh status line. With `autoDismiss` the
     /// message clears itself after `refreshMessageLingerSeconds` (used for the
     /// success confirmation so it doesn't linger). Any pending dismissal is
@@ -308,7 +336,7 @@ final class RepoManager: ObservableObject {
     /// result. Per-owner in-flight guards in loadRepos keep this from stacking on a
     /// manual load already running.
     func autoRefreshRepoListTick() async {
-        guard repoAutoRefreshSeconds > 0, canAutoRefresh else { return }
+        guard repoAutoRefreshSeconds > 0, canAutoRefresh, !GitHub.isRateLimited() else { return }
         let selected = accountManager.selectedAccount?.alias
         let targets = accountManager.accounts
             .filter { repoAutoRefreshAccounts.contains($0.alias) }
@@ -322,6 +350,7 @@ final class RepoManager: ObservableObject {
     /// Whether `alias` is due for an auto-refresh, based on its *effective*
     /// interval. Used by both the timer tick and the on-switch refresh.
     func shouldAutoRefreshRepos(for alias: String) -> Bool {
+        guard !GitHub.isRateLimited() else { return false }
         let interval = effectiveRefreshInterval(for: alias)
         guard interval > 0 else { return false }
         guard let last = repoLastRefreshAt[alias] else { return true }
@@ -386,7 +415,7 @@ final class RepoManager: ObservableObject {
                 // unchanged (and the fresh parse hasn't found something newer,
                 // e.g. `[gone]`).
                 if !refreshRemote, status.remoteState == .unchecked, status.hasUpstream,
-                   let prev = previous[target.id], prev.remoteState == .checked,
+                   let prev = previous[target.id], prev.remoteState == .checked, prev.hasUpstream,
                    prev.upstreamRemote == status.upstreamRemote {
                     status.remoteState = .checked
                 }
@@ -481,6 +510,7 @@ final class RepoManager: ObservableObject {
     /// Restore the visible repo state from the given account's cache.
     func restoreRepoState(for account: Account) {
         let alias = account.alias
+        loadSortState(for: alias)
         repos = repoCache[alias] ?? []
         clonedRepos = clonedReposCache[alias] ?? []
         repoStatuses = repoStatusesCache[alias] ?? [:]

@@ -100,6 +100,11 @@ final class AppModel: ObservableObject {
     var lifecycleStarted = false
     static let accountOrderDefaultsKey = "accountOrder"
 
+    /// The `gh` account that was active when the app started. Captured lazily in
+    /// `startLifecycle` and restored on termination so the app doesn't leave `gh`
+    /// pointing at the last account it happened to switch to.
+    private var initialGhLogin: String?
+
     /// Whether the app is currently the active application. Auto-refresh timers
     /// are paused while the app is in the background to avoid unnecessary CPU,
     /// network, and GitHub API usage.
@@ -233,12 +238,50 @@ final class AppModel: ObservableObject {
         observeAppActivation()
         if !lifecycleStarted {
             lifecycleStarted = true
+            // Capture the pre-app active gh account through the serialized chain so
+            // it can't observe a transient switch from a concurrent status sweep
+            // (each sweep restores the account it switched from, so a chain-ordered
+            // read always sees the genuine starting account). Restored on terminate.
+            Task { [weak self] in
+                guard let self else { return }
+                self.initialGhLogin = await self.ghChain.serialized { GitHub.currentLogin() }
+            }
+            checkRequiredTools()
             refreshAll(statusMode: statusMode)
             repoManager.startStatusAutoRefresh(appIsActive: appIsActive)
         } else {
             repoManager.startStatusAutoRefresh(appIsActive: appIsActive)
         }
         repoManager.configureRepoAutoRefresh(seconds: repoAutoRefreshSeconds, appIsActive: appIsActive)
+    }
+
+    private func checkRequiredTools() {
+        Task { [weak self] in
+            guard let self else { return }
+            let missing = await runBlocking { () -> [String] in
+                ["gh", "git", "ssh"].filter { Shell.resolveExecutable($0) == nil }
+            }
+            if !missing.isEmpty {
+                let list = missing.joined(separator: ", ")
+                self.logStore.append("⚠ Missing required tools: \(list). Please install them and restart GitNest.")
+            }
+        }
+    }
+
+    /// Cancel timers and the in-flight auth process on app termination. Restoring
+    /// the original `gh` active account is done synchronously with a short timeout
+    /// because `applicationWillTerminate` must return promptly; this is the one
+    /// deliberate exception to the "don't block the main actor" rule.
+    func prepareForTermination() {
+        repoManager.stopAllTimers()
+        authProcessController.cancel()
+        if let login = initialGhLogin, !login.isEmpty {
+            Self.restoreActiveAccount(login: login)
+        }
+    }
+
+    private nonisolated static func restoreActiveAccount(login: String) {
+        _ = Shell.run(["gh", "auth", "switch", "-u", login], timeout: 5)
     }
 
     /// Pause/resume auto-refresh timers when the app moves to/from the background.
@@ -286,9 +329,13 @@ final class AppModel: ObservableObject {
         repoManager.startStatusAutoRefresh(appIsActive: appIsActive)
         repoManager.configureRepoAutoRefresh(seconds: Int(repoManager.repoAutoRefreshSeconds), appIsActive: appIsActive)
         // Refresh the visible account immediately so the UI is current after
-        // the app returns to the foreground.
+        // the app returns to the foreground. Skip when a project init/fork or
+        // add-account flow is active — `canAutoRefresh` is already false in those
+        // states and a foreground refresh shouldn't step on them either.
         Task { [weak self] in
-            guard let self, let account = self.selectedAccount else { return }
+            guard let self,
+                  let account = self.selectedAccount,
+                  self.repoManager.canAutoRefresh else { return }
             if !self.repos.isEmpty {
                 await self.repoManager.refreshStatuses(for: account)
             }

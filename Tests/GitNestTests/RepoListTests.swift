@@ -88,6 +88,18 @@ final class RepoListTests: XCTestCase {
         XCTAssertEqual(repos?.map(\.visibility), ["private", "public"])
     }
 
+    func testRateLimitBackoffSuppressesAutoRefresh() {
+        // Clear any leftover backoff from previous tests.
+        GitHub.recordRateLimitBackoff(seconds: -1)
+        XCTAssertFalse(GitHub.isRateLimited())
+
+        GitHub.recordRateLimitBackoff(seconds: 60)
+        XCTAssertTrue(GitHub.isRateLimited())
+
+        GitHub.recordRateLimitBackoff(seconds: -1)
+        XCTAssertFalse(GitHub.isRateLimited())
+    }
+
     private func repo(owner: String, name: String, updatedAt: String) -> Repo {
         Repo(
             name: name,

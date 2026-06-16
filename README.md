@@ -100,7 +100,7 @@ It shells out to tools you already have:
 | --- | --- |
 | List repos | `gh api user/repos?affiliation=owner&per_page=100 --paginate --slurp` after `gh auth switch -u <account>`, merged with `gh api user/repos?affiliation=collaborator&per_page=100 --paginate --slurp` for shared repos — also run automatically on the repo auto-refresh interval |
 | Auth check | `ssh -T git@github-<account>` |
-| Clone | `git clone https://github.com/OWNER/REPO.git <account-folder>/REPO` |
+| Clone | `git clone git@github-<account>:OWNER/REPO.git <account-folder>/REPO` |
 | Init project | `gh auth switch -u <account>`, verify active `gh` login, `git init`, `gh repo create`, `git push -u origin <branch>` |
 | Pull | `git -C <local-path> pull` |
 | Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch`; repo-list loads also run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` first so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only. |
@@ -185,6 +185,13 @@ tuning constants live in `AppModel.swift`: `backgroundRefreshFloorSeconds` (the
 
 Requires macOS 13 or later, the Swift toolchain, and `gh`, `git`, and `ssh` on
 `PATH`. Installing Xcode or the Xcode command-line tools is enough for Swift:
+
+> **Note on SSH host keys:** The bundled `.app` pins GitHub's SSH host keys via
+> `StrictHostKeyChecking=yes` and a bundled `known_hosts` file. If GitHub rotates
+> its host keys, SSH checks will fail until the bundled file is updated. You can
+> work around this by editing `~/.ssh/config` for the affected host alias to use
+> `StrictHostKeyChecking accept-new` or by updating the `Resources/known_hosts`
+> file before building.
 
 ```bash
 xcode-select --install

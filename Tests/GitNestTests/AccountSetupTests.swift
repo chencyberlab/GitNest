@@ -47,13 +47,34 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(AccountSetup.containsHostEntry(host: "github-alice", in: config))
     }
 
-    func testContainsHostEntryDoesNotMatchWildcardsAsExactHost() {
+    func testContainsHostEntryMatchesWildcardPatterns() {
         let config = """
         Host github-*
             HostName github.com
         """
 
+        XCTAssertTrue(AccountSetup.containsHostEntry(host: "github-alice", in: config))
+    }
+
+    func testContainsHostEntryDoesNotMatchUnrelatedWildcardPatterns() {
+        let config = """
+        Host githubz-*
+            HostName github.com
+        """
+
         XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: config))
+    }
+
+    func testContainsHostEntryDoesNotMatchUniversalCatchAll() {
+        // The near-universal `Host *` block (kept for AddKeysToAgent/UseKeychain)
+        // doesn't configure this host's HostName/IdentityFile, so the wizard must
+        // still write its dedicated github-<alias> block — it must NOT count as a
+        // pre-existing entry.
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host *\n    AddKeysToAgent yes"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "*"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "?"))
+        // A real host-specific wildcard still matches.
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-*"))
     }
 
     func testFoldersOverlapDetectsSameOrNestedPaths() {
@@ -154,5 +175,34 @@ final class AccountSetupTests: XCTestCase {
             return XCTFail("Expected failure for overlapping folder")
         }
         XCTAssertTrue(error.message.contains("overlaps"))
+    }
+
+    func testWriteGitConfigRejectsEmptyNameOrEmail() {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestEmptyIdentityTest-\(UUID().uuidString)")
+            .path
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let emptyName = AccountSetup.writeGitConfig(
+            alias: "new",
+            name: "   ",
+            email: "new@example.com",
+            folder: root
+        )
+        guard case .failure(let nameError) = emptyName else {
+            return XCTFail("Expected failure for empty name")
+        }
+        XCTAssertTrue(nameError.message.contains("user.name"))
+
+        let emptyEmail = AccountSetup.writeGitConfig(
+            alias: "new",
+            name: "New",
+            email: "  ",
+            folder: root
+        )
+        guard case .failure(let emailError) = emptyEmail else {
+            return XCTFail("Expected failure for empty email")
+        }
+        XCTAssertTrue(emailError.message.contains("user.email"))
     }
 }

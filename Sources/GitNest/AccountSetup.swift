@@ -151,6 +151,15 @@ enum AccountSetup {
                                email: String,
                                folder: String,
                                existingAccountFolders: [String] = []) -> Result<GitConfigWriteResult, CommandError> {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            return .failure(CommandError(message: "user.name cannot be empty"))
+        }
+        guard !trimmedEmail.isEmpty else {
+            return .failure(CommandError(message: "user.email cannot be empty"))
+        }
+
         let accountCfg = accountGitconfigPath(alias: alias)
         let host = "github-\(alias)"
         let expandedFolder = (folder as NSString).expandingTildeInPath
@@ -194,7 +203,7 @@ enum AccountSetup {
             return .failure(CommandError(message: short(r)))
         }
 
-        for kv in [("user.name", name), ("user.email", email)] {
+        for kv in [("user.name", trimmedName), ("user.email", trimmedEmail)] {
             let r = Shell.run(["git", "config", "--file", accountCfg, kv.0, kv.1])
             guard r.ok else { return fail(r) }
         }
@@ -320,12 +329,47 @@ enum AccountSetup {
             guard parts.first?.caseInsensitiveCompare("Host") == .orderedSame else { continue }
             for pattern in parts.dropFirst() {
                 let trimmed = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                if trimmed.caseInsensitiveCompare(host) == .orderedSame {
+                if hostMatchesPattern(host: host, pattern: trimmed) {
                     return true
                 }
             }
         }
         return false
+    }
+
+    /// True when `host` matches an SSH `Host` pattern. Patterns use `*` (any string)
+    /// and `?` (one character), matching case-insensitively. An exact host name also
+    /// matches. This prevents the wizard from appending a duplicate block when the
+    /// user already has a wildcard such as `Host github-*`.
+    ///
+    /// A pattern made up *only* of wildcards (e.g. the near-universal `Host *`
+    /// catch-all macOS users keep for `AddKeysToAgent`/`UseKeychain`) is NOT treated
+    /// as a match: it doesn't configure this host's `HostName`/`IdentityFile`, so the
+    /// wizard must still write its dedicated `Host github-<alias>` block. Requiring at
+    /// least one literal character keeps `github-*` matching while excluding `*`/`?`.
+    static func hostMatchesPattern(host: String, pattern: String) -> Bool {
+        if pattern.caseInsensitiveCompare(host) == .orderedSame { return true }
+        guard pattern.contains("*") || pattern.contains("?") else { return false }
+        guard pattern.contains(where: { $0 != "*" && $0 != "?" }) else { return false }
+
+        var regex = ""
+        for char in pattern {
+            switch char {
+            case "*":
+                regex.append(".*")
+            case "?":
+                regex.append(".")
+            case "\\", ".", "+", "[", "]", "{", "}", "(", ")", "^", "$", "|":
+                regex.append("\\" + String(char))
+            default:
+                regex.append(char)
+            }
+        }
+        guard let re = try? NSRegularExpression(pattern: "^" + regex + "$", options: [.caseInsensitive]) else {
+            return false
+        }
+        let range = NSRange(location: 0, length: (host as NSString).length)
+        return re.firstMatch(in: host, options: [], range: range) != nil
     }
 
     static func sshLogin(from greeting: String) -> String? {

@@ -107,7 +107,7 @@ final class RepoActionCoordinator: ObservableObject {
 
         logStore.append("Cloning \(repo.nameWithOwner) → \(account.folder)…")
         let folder = account.folder
-        let res = await runBlocking { GitHub.clone(repo: repo, into: folder) }
+        let res = await runBlocking { GitHub.clone(repo: repo, sshHost: account.sshHost, into: folder) }
         logStore.report(res, ok: "cloned \(repo.name)")
         await repoManager.refreshClonedStatus(for: account)
         await repoManager.refreshStatuses(for: account, refreshRemote: true)

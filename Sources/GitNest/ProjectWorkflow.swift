@@ -11,7 +11,7 @@ final class ProjectWorkflow: ObservableObject {
     private let repoManager: RepoManager
     private let initAndPushProject: @Sendable (ProjectInitPlan, RepoVisibilityChoice) -> ShellResult
     private let forkRepo: @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>
-    private let cloneRepo: @Sendable (Repo, String) -> ShellResult
+    private let cloneRepo: @Sendable (Repo, Account) -> ShellResult
     private let setUpstream: @Sendable (RepoReference, String) -> ShellResult
     private let refreshReposAfterInit: @MainActor (Account) async -> Void
     private let refreshReposAfterFork: @MainActor (Account) async -> Void
@@ -25,8 +25,8 @@ final class ProjectWorkflow: ObservableObject {
          forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError> = {
              GitHub.fork(source: $0, intoAccount: $1)
          },
-         cloneRepo: @escaping @Sendable (Repo, String) -> ShellResult = {
-             GitHub.clone(repo: $0, into: $1)
+         cloneRepo: @escaping @Sendable (Repo, Account) -> ShellResult = {
+             GitHub.clone(repo: $0, sshHost: $1.sshHost, into: $1.folder)
          },
          setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult = {
              GitHub.setUpstream(source: $0, at: $1)
@@ -151,7 +151,7 @@ final class ProjectWorkflow: ObservableObject {
             await repoManager.refreshStatuses(for: account, refreshRemote: true)
             return false
         case .absent:
-            let cloneRes = await runBlocking { cloneRepo(repo, account.folder) }
+            let cloneRes = await runBlocking { cloneRepo(repo, account) }
             if cloneRes.ok {
                 logStore.report(cloneRes, ok: "cloned \(repo.name)")
             } else if case .cloned = await forkCloneDestinationState(repo: repo, account: account) {

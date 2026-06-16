@@ -105,12 +105,50 @@ enum GitConfig {
 
     private static func value(_ line: String) -> String? {
         guard let eq = line.firstIndex(of: "=") else { return nil }
-        var value = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
-        if value.count >= 2, value.first == "\"", value.last == "\"" {
-            value.removeFirst()
-            value.removeLast()
+        let raw = String(line[line.index(after: eq)...]).trimmingCharacters(in: .whitespaces)
+        return unescapeGitConfigValue(raw)
+    }
+
+    /// Unquote and unescape a git config value the same way `git config` does.
+    /// `\"` becomes `"`, `\\` becomes `\`, `\n` becomes newline, `\t` becomes tab,
+    /// `\b` becomes backspace, and surrounding quotes are removed. Keeps other
+    /// backslash sequences literal so that unusual but valid values round-trip
+    /// through `git config` writes.
+    static func unescapeGitConfigValue(_ raw: String) -> String {
+        guard raw.count >= 2, raw.first == "\"", raw.last == "\"" else { return raw }
+        var value = raw
+        value.removeFirst()
+        value.removeLast()
+
+        var output = ""
+        var index = value.startIndex
+        while index < value.endIndex {
+            let char = value[index]
+            if char == "\\", value.index(after: index) < value.endIndex {
+                let next = value[value.index(after: index)]
+                switch next {
+                case "\"":
+                    output.append("\"")
+                case "\\":
+                    output.append("\\")
+                case "n":
+                    output.append("\n")
+                case "t":
+                    output.append("\t")
+                case "b":
+                    output.append("\u{08}")
+                default:
+                    // Unknown escape: git keeps the backslash + char literally.
+                    output.append(char)
+                    output.append(next)
+                }
+                index = value.index(after: value.index(after: index))
+            } else {
+                output.append(char)
+                index = value.index(after: index)
+            }
         }
-        return value
+        return output
     }
 
     /// Remove inline comments (`#` or `;`) only outside quoted strings, then trim.

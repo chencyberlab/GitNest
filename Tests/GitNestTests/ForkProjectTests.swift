@@ -253,6 +253,8 @@ final class ForkProjectTests: XCTestCase {
         XCTAssertNil(RepoReference.parse("owner/Repo Name"))
         XCTAssertNil(RepoReference.parse("owner/."))
         XCTAssertNil(RepoReference.parse("owner/.."))
+        XCTAssertNil(RepoReference.parse("owner/.hidden"))
+        XCTAssertNil(RepoReference.parse("owner/-bad"))
     }
 
     func testRepoReferenceTrimsWhitespace() {
@@ -264,7 +266,7 @@ final class ForkProjectTests: XCTestCase {
     @MainActor
     private func makeWorkflow(
         forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>,
-        cloneRepo: @escaping @Sendable (Repo, String) -> ShellResult,
+        cloneRepo: @escaping @Sendable (Repo, Account) -> ShellResult,
         setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult
     ) -> ProjectWorkflow {
         let ghChain = GhChain()

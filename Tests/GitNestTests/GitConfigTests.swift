@@ -126,6 +126,14 @@ final class GitConfigTests: XCTestCase {
         XCTAssertTrue(accounts.isEmpty)
     }
 
+    func testUnescapeGitConfigValueHandlesQuotedEscapes() {
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"Alice\\\"s\""), "Alice\"s")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"a@b\\com\""), "a@b\\com")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"line1\\nline2\""), "line1\nline2")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("\"tab\\there\""), "tab\there")
+        XCTAssertEqual(GitConfig.unescapeGitConfigValue("plain"), "plain")
+    }
+
     func testLoadAccountsHandlesUnderscoreFolderConvention() {
         let global = """
         [includeIf "gitdir:/Users/dev/github_work/"]

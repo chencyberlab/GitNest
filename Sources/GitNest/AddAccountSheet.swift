@@ -65,7 +65,7 @@ struct AddAccountSheet: View {
         .padding(22)
         .frame(width: 560)
         .background(theme.surface)
-        .interactiveDismissDisabled(setupCoordinator.addAccountBusy && setupCoordinator.addAccountStep == .finish)
+        .interactiveDismissDisabled(setupCoordinator.addAccountBusy)
     }
 
     // MARK: Header / step indicator
@@ -218,6 +218,12 @@ struct AddAccountSheet: View {
         HStack {
             Button(setupCoordinator.addAccountStep == .finish ? "Close" : "Cancel") { setupCoordinator.cancelAddAccount() }
                 .buttonStyle(SubtleButtonStyle())
+                // Only block cancellation during the .finish config-write window,
+                // which mutates ~/.ssh/config and ~/.gitconfig across two awaits and
+                // must not be interrupted. The sign-in step is also "busy", but its
+                // gh auth poll can run for minutes and is *designed* to be cancellable
+                // (cancelAddAccount kills it and frees the gh chain) — keep Cancel
+                // enabled there so the user is never locked out of aborting sign-in.
                 .disabled(setupCoordinator.addAccountBusy && setupCoordinator.addAccountStep == .finish)
             Spacer()
             primaryButton

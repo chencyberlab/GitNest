@@ -223,6 +223,7 @@ extension RepoReference {
     private static func isValidRepo(_ name: String) -> Bool {
         guard !name.isEmpty, name.count <= 100 else { return false }
         guard name != ".", name != "..", name.lowercased() != ".git" else { return false }
+        guard !name.hasPrefix("."), !name.hasPrefix("-") else { return false }
         let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._-"))
         return name.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
@@ -276,15 +277,19 @@ struct RepoStatus: Sendable, Equatable {
             if line.hasPrefix("##") {
                 let rest = line.dropFirst(2).trimmingCharacters(in: .whitespaces)
                 status.hasUpstream = rest.contains("...")
-                status.upstreamRemote = upstreamRemote(from: rest)
                 // Tracking info "[ahead N, behind M]" or "[gone]" appears only after
                 // the upstream name. Parse the trailing bracket region only after the
                 // "..." marker so brackets inside branch names are not misread.
+                // `upstreamRemote` is set from the parsed upstream ref below; with no
+                // "..." there is no upstream, so it stays nil.
                 if let marker = rest.range(of: "...") {
-                    let afterUpstream = rest[marker.upperBound...]
-                    let upstream = afterUpstream.split(whereSeparator: { $0 == " " || $0 == "\t" }).first
-                    let upstreamEnd = upstream?.endIndex ?? afterUpstream.startIndex
-                    let tracking = afterUpstream[upstreamEnd...].trimmingCharacters(in: .whitespaces)
+                    let afterUpstream = String(rest[marker.upperBound...])
+                    // The upstream reference may contain spaces or slashes (e.g.
+                    // "origin/my branch"). Split it from the trailing "[...]"
+                    // tracking info first, then extract the remote from the part
+                    // before the first '/'.
+                    let (upstreamRef, tracking) = splitUpstreamAndTracking(afterUpstream)
+                    status.upstreamRemote = upstreamRemote(from: upstreamRef)
                     if tracking.hasPrefix("["), tracking.hasSuffix("]") {
                         let inner = tracking.dropFirst().dropLast()
                         for part in inner.split(separator: ",") {
@@ -304,11 +309,27 @@ struct RepoStatus: Sendable, Equatable {
         return status
     }
 
-    private static func upstreamRemote(from branchLine: String) -> String? {
-        guard let marker = branchLine.range(of: "...") else { return nil }
-        let tail = branchLine[marker.upperBound...]
-        guard let upstream = tail.split(whereSeparator: { $0 == " " || $0 == "\t" }).first,
-              let slash = upstream.firstIndex(of: "/") else { return nil }
+    /// Split the upstream reference from the trailing "[...]" tracking block.
+    /// The upstream reference itself may contain spaces; tracking is only
+    /// recognized when it is a bracketed suffix preceded by whitespace.
+    private static func splitUpstreamAndTracking(_ text: String) -> (upstream: String, tracking: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard let open = trimmed.lastIndex(of: "["),
+              open > trimmed.startIndex,
+              let before = trimmed.index(open, offsetBy: -1, limitedBy: trimmed.startIndex),
+              (trimmed[before] == " " || trimmed[before] == "\t"),
+              let close = trimmed.lastIndex(of: "]"),
+              close > open,
+              close == trimmed.index(before: trimmed.endIndex) else {
+            return (trimmed, "")
+        }
+        let upstream = String(trimmed[..<before]).trimmingCharacters(in: .whitespaces)
+        let tracking = String(trimmed[open...])
+        return (upstream, tracking)
+    }
+
+    private static func upstreamRemote(from upstream: String) -> String? {
+        guard let slash = upstream.firstIndex(of: "/") else { return nil }
         let remote = upstream[..<slash]
         return remote.isEmpty ? nil : String(remote)
     }
@@ -367,7 +388,10 @@ struct ProjectInitPlan: Identifiable, Sendable {
 
     private static func normalizedPath(_ path: String) -> String {
         let expanded = (path as NSString).expandingTildeInPath
-        return URL(fileURLWithPath: expanded).standardizedFileURL.path
+        // Resolve symlinks so a source folder that is a symlink to the account
+        // root (or vice versa) is recognized for what it is.
+        let resolved = URL(fileURLWithPath: expanded).resolvingSymlinksInPath()
+        return resolved.standardizedFileURL.path
     }
 
     private static func path(_ child: String, isInside parent: String) -> Bool {
@@ -450,6 +474,42 @@ enum GitHub {
         return ShellResult(exitCode: 0, stdout: "gh active account: \(login)", stderr: "")
     }
 
+    /// Shared rate-limit backoff state. Writes happen only inside the serialized
+    /// `ghChain`, but the lock keeps the check itself thread-safe for tests and
+    /// any future non-serialized readers.
+    private static let rateLimitLock = NSLock()
+    private static var rateLimitBackoffUntil: Date?
+
+    /// Seconds to wait after hitting a rate limit before allowing auto-refresh
+    /// to try again. GitHub's REST rate-limit window is one hour; this is a
+    /// conservative but not punishing back-off for a background poll.
+    static let rateLimitBackoffSeconds: TimeInterval = 60
+
+    /// True while the app is within the backoff window following a rate-limit
+    /// response from a `gh api` call. Callers suppress auto-refresh when this
+    /// returns true, but manual refreshes still go through.
+    static func isRateLimited() -> Bool {
+        rateLimitLock.lock()
+        defer { rateLimitLock.unlock() }
+        guard let until = rateLimitBackoffUntil else { return false }
+        if Date() >= until {
+            rateLimitBackoffUntil = nil
+            return false
+        }
+        return true
+    }
+
+    static func recordRateLimitBackoff(seconds: TimeInterval = rateLimitBackoffSeconds) {
+        rateLimitLock.lock()
+        rateLimitBackoffUntil = Date().addingTimeInterval(seconds)
+        rateLimitLock.unlock()
+    }
+
+    private static func isRateLimitError(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.contains("rate limit") || lower.contains("api rate limit")
+    }
+
     /// List every repo `owner` can see: the repos it owns, plus repos it has been
     /// added to as a collaborator (owned by someone else). Switches to that
     /// account first so private repos are visible.
@@ -504,6 +564,7 @@ enum GitHub {
         ])
         guard res.ok else {
             let msg = res.stderr.isEmpty ? res.stdout : res.stderr
+            if isRateLimitError(msg) { recordRateLimitBackoff() }
             return .failure(CommandError(message: msg.trimmingCharacters(in: .whitespacesAndNewlines)))
         }
         guard let repos = decodeSlurpedRestRepos(res.stdout) else {
@@ -520,6 +581,7 @@ enum GitHub {
             "gh", "api", "user/repos?affiliation=collaborator&per_page=100",
             "--paginate", "--slurp",
         ])
+        if !res.ok, isRateLimitError(res.stderr) { recordRateLimitBackoff() }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }
@@ -531,6 +593,7 @@ enum GitHub {
             "gh", "api", "user/repos?affiliation=organization_member&per_page=100",
             "--paginate", "--slurp",
         ])
+        if !res.ok, isRateLimitError(res.stderr) { recordRateLimitBackoff() }
         guard res.ok, let repos = decodeSlurpedRestRepos(res.stdout) else { return [] }
         return repos
     }
@@ -547,10 +610,12 @@ enum GitHub {
         return nil
     }
 
-    /// Clone into the account's folder using an https URL — the per-folder rewrite
-    /// rule routes it to the correct SSH key automatically.
-    static func clone(repo: Repo, into folder: String) -> ShellResult {
-        let url = "https://github.com/\(repo.nameWithOwner).git"
+    /// Clone into the account's folder using the per-account SSH alias
+    /// (`git@github-<alias>:owner/repo.git`). The dedicated SSH config host
+    /// selects the right key, and the `url.<alias>.insteadOf` rule also makes
+    /// this URL rewrite back to `github.com` for git's own networking.
+    static func clone(repo: Repo, sshHost: String, into folder: String) -> ShellResult {
+        let url = "git@\(sshHost):\(repo.nameWithOwner).git"
         let dest = (folder as NSString).appendingPathComponent(repo.name)
         if FileManager.default.fileExists(atPath: dest) {
             return ShellResult(exitCode: 1, stdout: "", stderr: "already exists: \(dest)")
@@ -563,9 +628,24 @@ enum GitHub {
         return Shell.run(["git", "clone", url, dest])
     }
 
+    /// Capability cache: does this `gh` CLI understand `--default-branch-only`
+    /// for `gh repo fork`? Detected lazily from `gh repo fork --help`.
+    private static var defaultBranchOnlyForkSupported: Bool?
+
+    static func supportsDefaultBranchOnlyFork() -> Bool {
+        if let cached = defaultBranchOnlyForkSupported { return cached }
+        let help = Shell.run(["gh", "repo", "fork", "--help"])
+        let supported = help.ok && (help.stdout + help.stderr).contains("--default-branch-only")
+        defaultBranchOnlyForkSupported = supported
+        return supported
+    }
+
     /// Fork `source` into the active user's account and return the resulting repo.
     /// Does not clone; callers should clone separately using the returned `Repo`.
     /// Waits up to `timeoutSeconds` for the fork to become available via the API.
+    /// The `defaultBranchOnly` flag is silently ignored on older `gh` CLIs that
+    /// don't support it, so the fork still succeeds rather than failing with an
+    /// unknown-flag error.
     static func fork(source: RepoReference,
                      intoAccount alias: String,
                      defaultBranchOnly: Bool = true,
@@ -582,7 +662,7 @@ enum GitHub {
         }
 
         var forkArgs = ["gh", "repo", "fork", source.nameWithOwner, "--clone=false"]
-        if defaultBranchOnly {
+        if defaultBranchOnly, supportsDefaultBranchOnlyFork() {
             forkArgs.append("--default-branch-only")
         }
 

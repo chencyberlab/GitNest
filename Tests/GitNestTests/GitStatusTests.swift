@@ -73,4 +73,26 @@ final class GitStatusTests: XCTestCase {
         XCTAssertEqual(status.upstreamRemote, "origin")
         XCTAssertNotEqual(status.remoteState, .upstreamGone)
     }
+
+    func testRepoStatusParsesUpstreamBranchNameWithSpaces() {
+        // Upstream branch names can contain spaces; the parser must not split on
+        // whitespace inside the upstream reference.
+        let output = "## main...origin/my branch [ahead 2]"
+
+        let status = RepoStatus.parse(porcelainBranch: output)
+
+        XCTAssertEqual(status.upstreamRemote, "origin")
+        XCTAssertEqual(status.ahead, 2)
+        XCTAssertTrue(status.hasUpstream)
+    }
+
+    func testRepoStatusHasNoUpstreamRemoteWithoutTrackingBranch() {
+        // A branch with no upstream ("## branch" with no "...") must report no
+        // upstream and a nil remote — never a spurious remote parsed from the
+        // branch name (e.g. "feature/x" must not yield remote "feature").
+        let status = RepoStatus.parse(porcelainBranch: "## feature/x")
+
+        XCTAssertFalse(status.hasUpstream)
+        XCTAssertNil(status.upstreamRemote)
+    }
 }

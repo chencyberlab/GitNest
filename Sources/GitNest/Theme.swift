@@ -99,9 +99,29 @@ struct Theme: EnvironmentKey {
     static func title(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold) }
 
     // MARK: Resolution
+
+    /// `NSColor(name:dynamicProvider:)` is relatively expensive and the theme's
+    /// properties are read on every view render. Cache the resolved `Color` per
+    /// (palette, token) so the dynamic provider is created only once.
+    private static let colorCacheLock = NSLock()
+    private static var colorCache: [ColorCacheKey: Color] = [:]
+
+    private struct ColorCacheKey: Hashable {
+        let paletteID: String
+        let keyPath: KeyPath<ColorThemeTokens, String?>
+    }
+
     private func adaptive(_ keyPath: KeyPath<ColorThemeTokens, String?>,
                           system fallback: NSColor = .clear) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
+        let cacheKey = ColorCacheKey(paletteID: palette.id, keyPath: keyPath)
+        Theme.colorCacheLock.lock()
+        if let cached = Theme.colorCache[cacheKey] {
+            Theme.colorCacheLock.unlock()
+            return cached
+        }
+        Theme.colorCacheLock.unlock()
+
+        let color = Color(nsColor: NSColor(name: nil) { appearance in
             let tokens = appearance.isDarkMode ? self.palette.dark : self.palette.light
             guard let hex = tokens[keyPath: keyPath] else {
                 switch keyPath {
@@ -115,6 +135,11 @@ struct Theme: EnvironmentKey {
             }
             return NSColor(hex: hex)
         })
+
+        Theme.colorCacheLock.lock()
+        Theme.colorCache[cacheKey] = color
+        Theme.colorCacheLock.unlock()
+        return color
     }
 }
 
