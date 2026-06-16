@@ -49,16 +49,23 @@ enum DeviceCodeWatcher {
     /// Watch the clipboard for up to `maxIterations` * `intervalNanoseconds`.
     /// Returns the first code that appears alone on the clipboard, or `nil` if
     /// the loop expires or the task is cancelled.
+    ///
+    /// `currentChangeCount` / `readClipboard` default to the system pasteboard
+    /// but are injectable, so tests can drive an in-memory clipboard instead of
+    /// reading (and clobbering) the real, shared one. Same closure-seam style as
+    /// the shell-backed dependencies in `ProjectWorkflow` — no protocol needed.
     static func watchClipboard(startingChangeCount: Int,
                                maxIterations: Int,
-                               intervalNanoseconds: UInt64 = 500_000_000) async -> String? {
+                               intervalNanoseconds: UInt64 = 500_000_000,
+                               currentChangeCount: () -> Int = { NSPasteboard.general.changeCount },
+                               readClipboard: () -> String? = { NSPasteboard.general.string(forType: .string) }) async -> String? {
         var lastChangeCount = startingChangeCount
         for _ in 0..<maxIterations {
             if Task.isCancelled { return nil }
-            let current = NSPasteboard.general.changeCount
+            let current = currentChangeCount()
             if current != lastChangeCount {
                 lastChangeCount = current
-                if let clip = NSPasteboard.general.string(forType: .string),
+                if let clip = readClipboard(),
                    let code = DeviceCode.extract(fromClipboard: clip) {
                     return code
                 }

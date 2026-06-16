@@ -41,51 +41,59 @@ final class DeviceCodeTests: XCTestCase {
     }
 
     // MARK: - Clipboard watcher
+    //
+    // These drive an in-memory clipboard through the injectable change-count /
+    // read closures, so they never read or overwrite the real system pasteboard.
+    // That global is shared state: the earlier versions clobbered whatever the
+    // user had copied and could flake when another process touched the clipboard.
+    // Progress is driven by poll count, not wall-clock, so they're deterministic.
 
     func testWatchClipboardReturnsCodeWhenClipboardChangesToCode() async {
-        let startingChangeCount = NSPasteboard.general.changeCount
-        let task = Task {
-            await DeviceCodeWatcher.watchClipboard(
-                startingChangeCount: startingChangeCount,
-                maxIterations: 200,
-                intervalNanoseconds: 1_000_000
-            )
-        }
-
-        // Simulate `gh auth login --web` copying the code to the clipboard
-        // after the watcher has already started polling.
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("57C6-CEA6", forType: .string)
-
-        let code = await task.value
+        var changeCount = 0
+        var contents: String?
+        var polls = 0
+        let code = await DeviceCodeWatcher.watchClipboard(
+            startingChangeCount: 0,
+            maxIterations: 10,
+            intervalNanoseconds: 1_000,
+            currentChangeCount: {
+                // Simulate `gh auth login --web` copying the code to the clipboard
+                // a couple of polls after the watcher has already started.
+                polls += 1
+                if polls == 2 { contents = "57C6-CEA6"; changeCount += 1 }
+                return changeCount
+            },
+            readClipboard: { contents }
+        )
         XCTAssertEqual(code, "57C6-CEA6")
     }
 
     func testWatchClipboardReturnsNilWhenClipboardChangesToNonCodeContent() async {
-        let startingChangeCount = NSPasteboard.general.changeCount
-        let task = Task {
-            await DeviceCodeWatcher.watchClipboard(
-                startingChangeCount: startingChangeCount,
-                maxIterations: 200,
-                intervalNanoseconds: 1_000_000
-            )
-        }
-
-        try? await Task.sleep(nanoseconds: 10_000_000)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("not a valid code", forType: .string)
-
-        let code = await task.value
+        var changeCount = 0
+        var contents: String?
+        var polls = 0
+        let code = await DeviceCodeWatcher.watchClipboard(
+            startingChangeCount: 0,
+            maxIterations: 5,
+            intervalNanoseconds: 1_000,
+            currentChangeCount: {
+                polls += 1
+                if polls == 2 { contents = "not a valid code"; changeCount += 1 }
+                return changeCount
+            },
+            readClipboard: { contents }
+        )
         XCTAssertNil(code)
     }
 
     func testWatchClipboardRespectsCancellation() async {
         let task = Task {
             await DeviceCodeWatcher.watchClipboard(
-                startingChangeCount: NSPasteboard.general.changeCount,
+                startingChangeCount: 0,
                 maxIterations: 1000,
-                intervalNanoseconds: 1_000_000
+                intervalNanoseconds: 1_000_000,
+                currentChangeCount: { 0 },
+                readClipboard: { nil }
             )
         }
         task.cancel()
