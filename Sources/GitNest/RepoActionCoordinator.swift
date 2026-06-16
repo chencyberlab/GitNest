@@ -13,6 +13,18 @@ final class RepoActionCoordinator: ObservableObject {
     /// buttons and a double-click can't run two operations on the same repo. Rows
     /// that share a local folder are marked busy together; `busyRepoPaths` is the
     /// backend guard for rows that appear after a refresh while work is in flight.
+    ///
+    /// Known limitation (intentionally unhandled — very rare): `busyRepoPaths` and
+    /// the folder grouping in `beginRepoAction` key on the case-sensitive path
+    /// string. On a case-insensitive volume (APFS default) two repos whose names
+    /// differ only in case — necessarily from *different* owners, since GitHub
+    /// forbids same-owner case collisions — map to one folder (e.g. `alice/Tools`
+    /// and `bob/tools` → `~/Folder/Tools`) but get distinct keys, so simultaneous
+    /// actions on both aren't serialized. In practice this needs both repos absent
+    /// and near-simultaneous clicks; once one is cloned the other is flagged
+    /// `.occupied` by `localFolderState` and stops offering actions, and git's own
+    /// locks / "destination exists" checks backstop the narrow race. If it ever
+    /// needs fixing: fold the key to lower-case on case-insensitive volumes.
     @Published var busyRepos: Set<Repo.ID> = []
     var busyRepoPaths: Set<String> = []
 
