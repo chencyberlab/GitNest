@@ -225,6 +225,9 @@ final class SetupCoordinator: ObservableObject {
         let sshText = result.sshOK ? "OK" : (result.sshLogin.map { "as \($0), expected \(alias)" } ?? "not ready")
         let ghText = result.ghOK ? "OK" : (result.ghLogin.map { "as \($0), expected \(alias)" } ?? "unknown")
         logStore.append("Add account: verify — SSH \(sshText), gh \(ghText).")
+        if let restoreWarning = result.restoreWarning {
+            logStore.append("⚠ Add account: \(restoreWarning)")
+        }
     }
 
     /// Close the wizard, refresh everything, and select the new account.

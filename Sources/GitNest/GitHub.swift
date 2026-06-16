@@ -455,8 +455,9 @@ enum GitHub {
     }
 
     /// Best-effort: make `owner` the active gh account so its private repos are visible.
-    static func switchTo(_ owner: String) {
-        _ = Shell.run(["gh", "auth", "switch", "-u", owner])
+    @discardableResult
+    static func switchTo(_ owner: String) -> ShellResult {
+        Shell.run(["gh", "auth", "switch", "-u", owner])
     }
 
     static func ensureActiveAccount(_ owner: String) -> ShellResult {
@@ -959,7 +960,10 @@ enum GitHub {
     static func createReportedNameCollision(_ result: ShellResult) -> Bool {
         // gh reports this on stderr, but check stdout too so a future gh that routes
         // it differently can't silently turn this back into "any failure = exists".
-        (result.stderr + "\n" + result.stdout).lowercased().contains("already exists")
+        // Match the known collision phrasing and fail closed for anything else.
+        let text = (result.stderr + "\n" + result.stdout).lowercased()
+        return text.contains("name already exists on this account")
+            || text.contains("already exists on this account")
     }
 
     static func initAndPushProject(_ plan: ProjectInitPlan, visibility: RepoVisibilityChoice) -> ShellResult {

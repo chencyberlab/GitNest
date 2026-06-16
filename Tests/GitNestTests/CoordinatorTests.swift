@@ -172,4 +172,18 @@ final class CoordinatorTests: XCTestCase {
 
         XCTAssertEqual(UserDefaults.standard.stringArray(forKey: AccountManager.accountOrderDefaultsKey), ["z", "a"])
     }
+
+    func testRepoActionBusyPathKeyPreservesCaseOnCaseSensitiveVolumes() {
+        XCTAssertEqual(
+            RepoActionCoordinator.busyPathKey(for: "/Users/me/Work/Tools", caseSensitiveOverride: true),
+            "/Users/me/Work/Tools"
+        )
+    }
+
+    func testRepoActionBusyPathKeyFoldsCaseOnCaseInsensitiveVolumes() {
+        XCTAssertEqual(
+            RepoActionCoordinator.busyPathKey(for: "/Users/me/Work/Tools", caseSensitiveOverride: false),
+            "/users/me/work/tools"
+        )
+    }
 }

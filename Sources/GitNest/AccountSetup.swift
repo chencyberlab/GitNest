@@ -67,6 +67,7 @@ enum AccountSetup {
         let sshText: String
         let sshLogin: String?
         let ghLogin: String?
+        let restoreWarning: String?
 
         var sshOK: Bool { loginMatches(sshLogin, expectedAlias: expectedAlias) }
         var ghOK: Bool { loginMatches(ghLogin, expectedAlias: expectedAlias) }
@@ -258,10 +259,12 @@ enum AccountSetup {
         _ = Shell.run(["gh", "auth", "switch", "-u", alias])
         let who = Shell.run(["gh", "api", "user", "--jq", ".login"])
         let login = who.ok ? who.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        var restoreWarningText: String?
         if let original, !original.isEmpty, original.caseInsensitiveCompare(alias) != .orderedSame {
-            GitHub.switchTo(original)
+            let restore = GitHub.switchTo(original)
+            restoreWarningText = restoreWarning(afterSwitchResult: restore, restoring: original)
         }
-        return verification(expectedAlias: alias, sshText: greeting, ghLogin: login)
+        return verification(expectedAlias: alias, sshText: greeting, ghLogin: login, restoreWarning: restoreWarningText)
     }
 
     // MARK: Helpers
@@ -416,11 +419,22 @@ enum AccountSetup {
         return nsText.substring(with: match.range(at: 1)).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    static func verification(expectedAlias: String, sshText: String, ghLogin: String?) -> Verification {
+    static func verification(expectedAlias: String,
+                             sshText: String,
+                             ghLogin: String?,
+                             restoreWarning: String? = nil) -> Verification {
         Verification(expectedAlias: expectedAlias,
                      sshText: sshText,
                      sshLogin: sshLogin(from: sshText),
-                     ghLogin: ghLogin)
+                     ghLogin: ghLogin,
+                     restoreWarning: restoreWarning)
+    }
+
+    static func restoreWarning(afterSwitchResult result: ShellResult, restoring alias: String) -> String? {
+        guard !result.ok else { return nil }
+        let detail = short(result)
+        let reason = detail.isEmpty ? "unknown error" : detail
+        return "could not restore active gh account to \(alias): \(reason)"
     }
 
     static func loginMatches(_ login: String?, expectedAlias: String) -> Bool {

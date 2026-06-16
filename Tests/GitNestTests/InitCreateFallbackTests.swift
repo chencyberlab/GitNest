@@ -21,6 +21,8 @@ final class InitCreateFallbackTests: XCTestCase {
         XCTAssertFalse(GitHub.createReportedNameCollision(
             result(stderr: "HTTP 403: API rate limit exceeded")))
         XCTAssertFalse(GitHub.createReportedNameCollision(
+            result(stderr: "request failed: cache entry already exists locally")))
+        XCTAssertFalse(GitHub.createReportedNameCollision(
             result(stderr: "error connecting to api.github.com")))
         XCTAssertFalse(GitHub.createReportedNameCollision(
             result(stderr: "You are not authorized to create repositories")))

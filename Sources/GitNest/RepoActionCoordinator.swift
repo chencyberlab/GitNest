@@ -6,6 +6,7 @@ final class RepoActionCoordinator: ObservableObject {
     struct RepoActionContext {
         let account: Account
         let path: String
+        let busyPathKey: String
         let repoIDs: Set<Repo.ID>
     }
 
@@ -14,17 +15,9 @@ final class RepoActionCoordinator: ObservableObject {
     /// that share a local folder are marked busy together; `busyRepoPaths` is the
     /// backend guard for rows that appear after a refresh while work is in flight.
     ///
-    /// Known limitation (intentionally unhandled — very rare): `busyRepoPaths` and
-    /// the folder grouping in `beginRepoAction` key on the case-sensitive path
-    /// string. On a case-insensitive volume (APFS default) two repos whose names
-    /// differ only in case — necessarily from *different* owners, since GitHub
-    /// forbids same-owner case collisions — map to one folder (e.g. `alice/Tools`
-    /// and `bob/tools` → `~/Folder/Tools`) but get distinct keys, so simultaneous
-    /// actions on both aren't serialized. In practice this needs both repos absent
-    /// and near-simultaneous clicks; once one is cloned the other is flagged
-    /// `.occupied` by `localFolderState` and stops offering actions, and git's own
-    /// locks / "destination exists" checks backstop the narrow race. If it ever
-    /// needs fixing: fold the key to lower-case on case-insensitive volumes.
+    /// On case-insensitive volumes, fold busy-path keys to lowercase so two repo
+    /// identities that resolve to the same physical folder still serialize actions.
+    /// Keep the original path in the context for actual git/file operations.
     @Published var busyRepos: Set<Repo.ID> = []
     var busyRepoPaths: Set<String> = []
 
@@ -47,7 +40,8 @@ final class RepoActionCoordinator: ObservableObject {
         guard let account = accountManager.selectedAccount else {
             return busyRepos.contains(repo.id)
         }
-        return busyRepos.contains(repo.id) || busyRepoPaths.contains(repoManager.localPath(repo, in: account))
+        let path = repoManager.localPath(repo, in: account)
+        return busyRepos.contains(repo.id) || busyRepoPaths.contains(Self.busyPathKey(for: path))
     }
 
     func beginRepoAction(_ repo: Repo, in explicitAccount: Account? = nil) -> RepoActionContext? {
@@ -57,23 +51,35 @@ final class RepoActionCoordinator: ObservableObject {
             return nil
         }
         let path = repoManager.localPath(repo, in: account)
+        let key = Self.busyPathKey(for: path)
         let sourceRepos = accountManager.selectedAccount?.alias == account.alias
             ? repoManager.repos
             : (repoManager.repoCache[account.alias] ?? [])
-        var ids = Set(sourceRepos.filter { repoManager.localPath($0, in: account) == path }.map(\.id))
+        var ids = Set(sourceRepos.filter { Self.busyPathKey(for: repoManager.localPath($0, in: account)) == key }.map(\.id))
         ids.insert(repo.id)
         guard busyRepos.isDisjoint(with: ids),
-              busyRepoPaths.insert(path).inserted else {
+              busyRepoPaths.insert(key).inserted else {
             logStore.append("⚠ \(repo.name): another action is already running — skipped.")
             return nil
         }
         busyRepos.formUnion(ids)
-        return RepoActionContext(account: account, path: path, repoIDs: ids)
+        return RepoActionContext(account: account, path: path, busyPathKey: key, repoIDs: ids)
     }
 
     func finishRepoAction(_ context: RepoActionContext) {
         busyRepos.subtract(context.repoIDs)
-        busyRepoPaths.remove(context.path)
+        busyRepoPaths.remove(context.busyPathKey)
+    }
+
+    static func busyPathKey(for path: String, caseSensitiveOverride: Bool? = nil) -> String {
+        let isCaseSensitive = caseSensitiveOverride ?? volumeSupportsCaseSensitiveNames(at: path) ?? true
+        return isCaseSensitive ? path : path.lowercased()
+    }
+
+    private static func volumeSupportsCaseSensitiveNames(at path: String) -> Bool? {
+        let url = URL(fileURLWithPath: path)
+        let values = try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+        return values?.volumeSupportsCaseSensitiveNames
     }
 
     func clone(_ repo: Repo, in account: Account? = nil) async {

@@ -140,6 +140,17 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertFalse(wrongGh.ok)
     }
 
+    func testRestoreWarningIsNilWhenSwitchBackSucceeds() {
+        let ok = ShellResult(exitCode: 0, stdout: "", stderr: "")
+        XCTAssertNil(AccountSetup.restoreWarning(afterSwitchResult: ok, restoring: "alice"))
+    }
+
+    func testRestoreWarningIncludesErrorOutputWhenSwitchBackFails() {
+        let failed = ShellResult(exitCode: 1, stdout: "", stderr: "authentication token missing")
+        let warning = AccountSetup.restoreWarning(afterSwitchResult: failed, restoring: "alice")
+        XCTAssertEqual(warning, "could not restore active gh account to alice: authentication token missing")
+    }
+
     func testBackupDestinationIncludesTimestampAndNonce() {
         let path = "/Users/example/.gitconfig"
         let backup = AccountSetup.backupDestination(for: path,
