@@ -74,7 +74,7 @@ struct RepoListView: View {
             Button("Push to GitHub") {
                 let target = target
                 pushTarget = nil
-                Task { await model.repoActionCoordinator.push(target.repo, in: target.account) }
+                Task { await model.push(target.repo, in: target.account) }
             }
             Button("Cancel", role: .cancel) {
                 pushTarget = nil
@@ -90,7 +90,7 @@ struct RepoListView: View {
         ) { target in
             Button("Move to Trash", role: .destructive) {
                 let target = target; deleteTarget = nil
-                Task { await model.repoActionCoordinator.deleteLocalFolder(target.repo, in: target.account) }
+                Task { await model.deleteLocalFolder(target.repo, in: target.account) }
             }
             Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: { target in
@@ -187,7 +187,7 @@ struct CommitSheet: View {
                     let message = commitMessage
                     let target = target
                     commitTarget = nil
-                    Task { await model.repoActionCoordinator.commit(target.repo, message: message, in: target.account) }
+                    Task { await model.commit(target.repo, message: message, in: target.account) }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)

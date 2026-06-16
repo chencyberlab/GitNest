@@ -272,7 +272,7 @@ final class AccountManager: ObservableObject {
         let clipboardWatcher = Task {
             if let code = await DeviceCodeWatcher.watchClipboard(
                 startingChangeCount: startingClipboardChangeCount,
-                maxIterations: 120
+                maxIterations: 240
             ) {
                 if currentAuthFlowCode != code {
                     logStore.append("One-time code: \(code) (also copied to clipboard)")

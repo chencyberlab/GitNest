@@ -81,7 +81,7 @@ struct InitProjectSheet: View {
                     let trash = moveOriginalToTrash
                     initPlan = nil
                     Task {
-                        await model.projectWorkflow.initProject(
+                        await model.initProject(
                             plan,
                             visibility: visibility,
                             moveOriginalToTrash: trash
@@ -132,7 +132,7 @@ struct ForkProjectSheet: View {
                     showForkSheet = false
                     Task {
                         guard let account else { return }
-                        _ = await model.projectWorkflow.forkProject(source: address, account: account)
+                        _ = await model.forkProject(source: address, account: account)
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())

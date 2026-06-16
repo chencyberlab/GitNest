@@ -69,7 +69,7 @@ struct SidebarView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textMuted).tracking(0.6)
                     Spacer()
-                    Button { model.setupCoordinator.beginAddAccount() } label: {
+                    Button { model.beginAddAccount() } label: {
                         Image(systemName: "plus").font(.system(size: 12, weight: .bold))
                     }
                     .buttonStyle(.plain)

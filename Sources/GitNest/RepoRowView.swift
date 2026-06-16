@@ -96,13 +96,13 @@ struct RepoRowView: View {
     @ViewBuilder
     private func rowContextMenu(cloned: Bool) -> some View {
         Button {
-            model.repoActionCoordinator.openGitHubRepo(repo)
+            model.openGitHubRepo(repo)
         } label: { Label("Open on GitHub", systemImage: "globe") }
         Button {
-            model.repoActionCoordinator.openPullRequests(repo)
+            model.openPullRequests(repo)
         } label: { Label("Pull Requests", systemImage: "arrow.triangle.pull") }
         Button {
-            model.repoActionCoordinator.openIssues(repo)
+            model.openIssues(repo)
         } label: { Label("Issues", systemImage: "smallcircle.filled.circle") }
 
         if cloned {
@@ -117,13 +117,13 @@ struct RepoRowView: View {
 
         Divider()
         Button {
-            model.repoActionCoordinator.copyHTTPSURL(repo)
+            model.copyHTTPSURL(repo)
         } label: { Label("Copy HTTPS URL", systemImage: "doc.on.doc") }
         Button {
-            model.repoActionCoordinator.copySSHURL(repo)
+            model.copySSHURL(repo)
         } label: { Label("Copy SSH URL", systemImage: "doc.on.doc") }
         Button {
-            model.repoActionCoordinator.copyCloneCommand(repo)
+            model.copyCloneCommand(repo)
         } label: { Label("Copy gh clone command", systemImage: "terminal") }
     }
 
@@ -135,10 +135,10 @@ struct RepoRowView: View {
             if cloned {
                 openMenu
                 iconButton("arrow.triangle.2.circlepath", "Fetch from origin (git fetch)") {
-                    Task { await model.repoActionCoordinator.fetch(repo, in: account) }
+                    Task { await model.fetch(repo, in: account) }
                 }
                 iconButton("arrow.down", "Pull (git pull)") {
-                    Task { await model.repoActionCoordinator.pull(repo, in: account) }
+                    Task { await model.pull(repo, in: account) }
                 }
                 iconButton("pencil", "Commit all changes…") {
                     commitMessage = ""
@@ -159,13 +159,13 @@ struct RepoRowView: View {
                                  fill: theme.warningSubtle)
             } else {
                 iconButton("square.and.arrow.down", "Clone into the account folder") {
-                    Task { await model.repoActionCoordinator.clone(repo, in: account) }
+                    Task { await model.clone(repo, in: account) }
                 }
             }
         }
         // A pull/push/commit/clone is already running for this repo — block a second
         // one rather than let two git processes collide on the same local folder.
-        .disabled(model.repoActionCoordinator.isRepoActionBusy(repo))
+        .disabled(model.isRepoActionBusy(repo))
     }
 
     // MARK: Open menu
@@ -175,12 +175,12 @@ struct RepoRowView: View {
             VStack(alignment: .leading, spacing: 0) {
                 openPopoverButton("Finder", systemImage: "folder") {
                     isPresented.wrappedValue = false
-                    model.repoActionCoordinator.openLocalFolder(repo, in: account)
+                    model.openLocalFolder(repo, in: account)
                 }
 
                 openPopoverButton("GitHub", systemImage: "globe") {
                     isPresented.wrappedValue = false
-                    model.repoActionCoordinator.openGitHubRepo(repo)
+                    model.openGitHubRepo(repo)
                 }
 
                 if preferredEditor == .none {
@@ -191,10 +191,10 @@ struct RepoRowView: View {
                                       systemImage: "chevron.left.forwardslash.chevron.right") {
                         isPresented.wrappedValue = false
                         Task {
-                            await model.repoActionCoordinator.openInEditor(repo,
-                                                                           in: account,
-                                                                           editor: preferredEditor,
-                                                                           customAppName: customEditorName)
+                            await model.openInEditor(repo,
+                                                     in: account,
+                                                     editor: preferredEditor,
+                                                     customAppName: customEditorName)
                         }
                     }
                 }
@@ -206,10 +206,10 @@ struct RepoRowView: View {
                                       systemImage: "terminal") {
                         isPresented.wrappedValue = false
                         Task {
-                            await model.repoActionCoordinator.openInTerminal(repo,
-                                                                             in: account,
-                                                                             terminal: preferredTerminal,
-                                                                             customAppName: customTerminalName)
+                            await model.openInTerminal(repo,
+                                                       in: account,
+                                                       terminal: preferredTerminal,
+                                                       customAppName: customTerminalName)
                         }
                     }
                 }

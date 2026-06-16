@@ -30,6 +30,26 @@ extension AppModel {
         repoActionCoordinator.openGitHubRepo(repo)
     }
 
+    func openPullRequests(_ repo: Repo) {
+        repoActionCoordinator.openPullRequests(repo)
+    }
+
+    func openIssues(_ repo: Repo) {
+        repoActionCoordinator.openIssues(repo)
+    }
+
+    func copyHTTPSURL(_ repo: Repo) {
+        repoActionCoordinator.copyHTTPSURL(repo)
+    }
+
+    func copySSHURL(_ repo: Repo) {
+        repoActionCoordinator.copySSHURL(repo)
+    }
+
+    func copyCloneCommand(_ repo: Repo) {
+        repoActionCoordinator.copyCloneCommand(repo)
+    }
+
     func openLocalFolder(_ repo: Repo, in explicitAccount: Account? = nil) {
         repoActionCoordinator.openLocalFolder(repo, in: explicitAccount)
     }

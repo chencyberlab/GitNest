@@ -291,7 +291,7 @@ private struct DetailView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         initVisibility = .private
         moveOriginalToTrash = false
-        Task { initPlan = await model.projectWorkflow.makeInitPlan(sourceURL: url, account: account) }
+        Task { initPlan = await model.makeInitPlan(sourceURL: url, account: account) }
     }
 
     // MARK: Search

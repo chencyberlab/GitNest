@@ -220,6 +220,10 @@ final class AppModel: ObservableObject {
         accountManager.openGitHubProfile(account)
     }
 
+    func beginAddAccount() {
+        setupCoordinator.beginAddAccount()
+    }
+
     func configureRepoAutoRefresh(seconds: Int) {
         repoManager.configureRepoAutoRefresh(seconds: seconds, appIsActive: appIsActive)
     }
