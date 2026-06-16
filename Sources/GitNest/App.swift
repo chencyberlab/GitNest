@@ -39,6 +39,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if activateExistingInstanceAndTerminateIfNeeded() {
+            return
+        }
         // Cache GitHub avatar images so the sidebar doesn't re-fetch them on every
         // appearance. Other network traffic goes through `gh`, not URLSession, so
         // this only affects avatars.
@@ -50,5 +53,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         true
+    }
+
+    /// Enforce a single running process for this bundle. Pick one deterministic
+    /// "primary" PID from all siblings and keep only that process alive. This avoids
+    /// a dual-launch race where two fresh instances each decide to terminate.
+    private func activateExistingInstanceAndTerminateIfNeeded() -> Bool {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
+        let currentPID = ProcessInfo.processInfo.processIdentifier
+        let siblings = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+        guard let primaryPID = Self.primaryProcessID(candidatePIDs: siblings.map(\.processIdentifier)),
+              primaryPID != currentPID,
+              let primary = siblings.first(where: { $0.processIdentifier == primaryPID }) else {
+            return false
+        }
+        let options: NSApplication.ActivationOptions = [.activateAllWindows, .activateIgnoringOtherApps]
+        primary.activate(options: options)
+        NSApplication.shared.terminate(nil)
+        return true
+    }
+
+    nonisolated static func primaryProcessID(candidatePIDs: [pid_t]) -> pid_t? {
+        candidatePIDs.min()
     }
 }
