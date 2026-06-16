@@ -42,6 +42,11 @@ final class RepoManager: ObservableObject {
     static let statusRefreshSeconds: UInt64 = 10
     var statusTimer: Task<Void, Never>?
     var repoAutoRefreshTimer: Task<Void, Never>?
+    // Bumped each time a timer is (re)created. A timer loop clears its own var on
+    // exit only when the generation still matches, so a stop+start race can never
+    // leave a finished-but-non-nil Task wedging the `== nil` restart guards.
+    private var statusTimerGeneration = 0
+    private var repoAutoRefreshGeneration = 0
     var repoAutoRefreshSeconds: UInt64 = 5 * 60
 
     /// Accounts you're not currently viewing refresh no more often than this,
@@ -199,7 +204,14 @@ final class RepoManager: ObservableObject {
     /// the background; each tick waits for the previous scan to finish.
     func startStatusAutoRefresh(appIsActive: Bool) {
         guard statusTimer == nil, appIsActive else { return }
+        statusTimerGeneration &+= 1
+        let generation = statusTimerGeneration
         statusTimer = Task { [weak self] in
+            defer {
+                // Clear the var on natural exit, but only if a newer timer hasn't
+                // replaced this one — otherwise we'd nil out the live timer.
+                if let self, self.statusTimerGeneration == generation { self.statusTimer = nil }
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: Self.statusRefreshSeconds * 1_000_000_000)
                 guard !Task.isCancelled, let self, self.appIsActive else { return }
@@ -241,7 +253,14 @@ final class RepoManager: ObservableObject {
 
         repoAutoRefreshSeconds = UInt64(seconds)
         let interval = repoAutoRefreshSeconds
+        repoAutoRefreshGeneration &+= 1
+        let generation = repoAutoRefreshGeneration
         repoAutoRefreshTimer = Task { [weak self] in
+            defer {
+                // Clear the var on natural exit, but only if a newer timer hasn't
+                // replaced this one — otherwise we'd nil out the live timer.
+                if let self, self.repoAutoRefreshGeneration == generation { self.repoAutoRefreshTimer = nil }
+            }
             while !Task.isCancelled {
                 // Sleep first, using the captured interval, so `self` isn't held
                 // across the wait — matches startStatusAutoRefresh's pattern.

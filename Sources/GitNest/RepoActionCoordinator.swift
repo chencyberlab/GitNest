@@ -327,6 +327,19 @@ final class RepoActionCoordinator: ObservableObject {
         defer { finishRepoAction(context) }
         let account = context.account
         let path = context.path
+        // Re-confirm, at action time, that this path is still a clone of *this* repo
+        // (origin-matched) rather than an unrelated folder that landed at the same
+        // path since the last status sweep. Trash is recoverable, but trashing the
+        // wrong folder is a surprise we can cheaply avoid.
+        let state = await runBlocking {
+            AppModel.localFolderState(for: repo, path: path, expectedSSHHost: account.sshHost)
+        }
+        guard case .cloned = state else {
+            logStore.append("✗ Not moving \(path) to Trash: it is no longer a clone of \(repo.nameWithOwner).")
+            await repoManager.refreshClonedStatus(for: account)
+            await repoManager.refreshStatuses(for: account)
+            return
+        }
         logStore.append("Moving \(repo.name) folder to Trash…")
         let res = await runBlocking { FileOps.moveToTrash(path) }
         logStore.report(res, ok: "moved \(repo.name) to Trash")

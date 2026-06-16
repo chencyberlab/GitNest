@@ -99,6 +99,10 @@ enum AccountSetup {
             guard res.ok else { return .failure(CommandError(message: short(res))) }
             created = true
         }
+        // Enforce 0600 on the private key whether we just created it or are reusing
+        // a pre-existing one — a key the app didn't create could have looser perms,
+        // and ssh refuses a group/world-readable key.
+        _ = Shell.run(["chmod", "600", key])
         guard let pub = try? String(contentsOfFile: pubKeyPath(alias: alias), encoding: .utf8) else {
             return .failure(CommandError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
         }
@@ -132,13 +136,10 @@ enum AccountSetup {
             UseKeychain yes
         """
         let newText = existing.isEmpty ? block + "\n" : existing.trimmingTrailingNewlines() + "\n\n" + block + "\n"
-        do {
-            try newText.write(toFile: path, atomically: true, encoding: .utf8)
-            _ = Shell.run(["chmod", "600", path])
-            return .success(SSHConfigResult(block: block, backupPath: backupPath))
-        } catch {
-            return .failure(CommandError(message: "could not write ~/.ssh/config: \(error.localizedDescription)"))
+        guard writePrivately(newText, to: path) else {
+            return .failure(CommandError(message: "could not write ~/.ssh/config"))
         }
+        return .success(SSHConfigResult(block: block, backupPath: backupPath))
     }
 
     /// Write the per-account gitconfig + global `includeIf` rule and create the
@@ -148,6 +149,7 @@ enum AccountSetup {
         let host = "github-\(alias)"
         let expandedFolder = (folder as NSString).expandingTildeInPath
 
+        let folderExisted = FileManager.default.fileExists(atPath: expandedFolder)
         let mk = Shell.run(["mkdir", "-p", expandedFolder])
         guard mk.ok else { return .failure(CommandError(message: short(mk))) }
 
@@ -160,9 +162,26 @@ enum AccountSetup {
             return .failure(CommandError(message: "could not create config backup: \(error.localizedDescription)"))
         }
 
+        // Any failure past this point restores both config files to their pre-edit
+        // state (and removes a folder this call just created), so a failed run is a
+        // true no-op rather than a half-configured account. This is what makes the
+        // remove-then-add of the includeIf rule below safe: if the add fails,
+        // restoring the global config brings the old rule back instead of leaving
+        // the account loaded by no folder at all.
+        func fail(_ r: ShellResult) -> Result<GitConfigWriteResult, CommandError> {
+            restore(accountBackup, to: accountCfg)
+            restore(globalBackup, to: gitconfigPath())
+            if !folderExisted,
+               let contents = try? FileManager.default.contentsOfDirectory(atPath: expandedFolder),
+               contents.isEmpty {
+                try? FileManager.default.removeItem(atPath: expandedFolder)
+            }
+            return .failure(CommandError(message: short(r)))
+        }
+
         for kv in [("user.name", name), ("user.email", email)] {
             let r = Shell.run(["git", "config", "--file", accountCfg, kv.0, kv.1])
-            guard r.ok else { return .failure(CommandError(message: short(r))) }
+            guard r.ok else { return fail(r) }
         }
 
         // url."git@github-<alias>:".insteadOf = https://github.com/  and  git@github.com:
@@ -171,7 +190,7 @@ enum AccountSetup {
         _ = Shell.run(["git", "config", "--file", accountCfg, "--unset-all", urlKey])
         for value in ["https://github.com/", "git@github.com:"] {
             let r = Shell.run(["git", "config", "--file", accountCfg, "--add", urlKey, value])
-            guard r.ok else { return .failure(CommandError(message: short(r))) }
+            guard r.ok else { return fail(r) }
         }
 
         // Drop any existing includeIf rules that already point at this account's
@@ -187,7 +206,7 @@ enum AccountSetup {
         if !gitdir.hasSuffix("/") { gitdir += "/" }
         let includeKey = "includeIf.gitdir:\(gitdir).path"
         let inc = Shell.run(["git", "config", "--global", includeKey, portablePath(accountCfg)])
-        guard inc.ok else { return .failure(CommandError(message: short(inc))) }
+        guard inc.ok else { return fail(inc) }
 
         return .success(GitConfigWriteResult(accountGitconfigBackupPath: accountBackup,
                                              globalGitconfigBackupPath: globalBackup))
@@ -196,15 +215,67 @@ enum AccountSetup {
     // MARK: Verify
 
     /// Verify the new account end-to-end: SSH greeting + active gh login.
+    ///
+    /// `gh auth switch` changes global on-disk state (the active account), so this
+    /// captures whatever account was active first and restores it afterward — a
+    /// stray call must not leave the user's active `gh` account flipped to the one
+    /// being verified. (Callers also wrap this in `serializedPreservingActiveAccount`;
+    /// restoring here too makes the side effect impossible to leak.)
     static func verify(alias: String) -> Verification {
         let greeting = GitHub.sshGreeting(host: "github-\(alias)")
+        let original = GitHub.currentLogin()
         _ = Shell.run(["gh", "auth", "switch", "-u", alias])
         let who = Shell.run(["gh", "api", "user", "--jq", ".login"])
         let login = who.ok ? who.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+        if let original, !original.isEmpty, original.caseInsensitiveCompare(alias) != .orderedSame {
+            GitHub.switchTo(original)
+        }
         return verification(expectedAlias: alias, sshText: greeting, ghLogin: login)
     }
 
     // MARK: Helpers
+
+    /// Write `text` to `path` so the file is mode 0600 the instant it appears —
+    /// never momentarily world-readable, and without downgrading a file that was
+    /// already hardened. A 0600 temp file is created in the same directory and
+    /// `rename(2)`d over the destination (atomic, replaces in place).
+    static func writePrivately(_ text: String, to path: String) -> Bool {
+        let fm = FileManager.default
+        let dir = (path as NSString).deletingLastPathComponent
+        let tmp = (dir as NSString).appendingPathComponent(".gitnest-tmp-\(UUID().uuidString.prefix(8))")
+        guard fm.createFile(atPath: tmp,
+                            contents: Data(text.utf8),
+                            attributes: [.posixPermissions: 0o600]) else { return false }
+        let renamed = tmp.withCString { t in path.withCString { p in rename(t, p) } }
+        if renamed != 0 {
+            try? fm.removeItem(atPath: tmp)
+            return false
+        }
+        return true
+    }
+
+    /// Restore a file from a backup taken by `backup(_:)`. When `backup` is nil the
+    /// file didn't exist before this run, so its creation is undone instead.
+    static func restore(_ backup: String?, to path: String) {
+        let fm = FileManager.default
+        guard let backup else {
+            try? fm.removeItem(atPath: path)
+            return
+        }
+        // Copy to a sibling temp then rename over `path`, so there is never a window
+        // where `path` is missing — a concurrent `git` reading ~/.gitconfig (e.g. a
+        // background status sweep) could otherwise transiently fail.
+        let tmp = path + ".gitnest-restore-\(UUID().uuidString.prefix(8))"
+        do {
+            try? fm.removeItem(atPath: tmp)
+            try fm.copyItem(atPath: backup, toPath: tmp)
+            if tmp.withCString({ t in path.withCString { p in rename(t, p) } }) != 0 {
+                try? fm.removeItem(atPath: tmp)
+            }
+        } catch {
+            try? fm.removeItem(atPath: tmp)
+        }
+    }
 
     /// Timestamped backup before editing a file (no-op when the file is absent).
     @discardableResult

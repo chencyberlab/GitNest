@@ -15,7 +15,7 @@ struct InitProjectSheet: View {
     private func planWarning(_ plan: ProjectInitPlan) -> String? {
         if let reason = plan.blockingReason { return reason }
         if let origin = plan.sourceOrigin {
-            return "This folder is a clone of a different repo (\(origin)). It will be copied and re-pointed to a new GitHub repo under \(plan.account.alias), which preserves history."
+            return "This folder is a clone of a different repo (\(origin)). Its existing Git history will NOT be copied — a fresh repo is created under \(plan.account.alias) so the other repo's history isn't republished."
         }
         return nil
     }

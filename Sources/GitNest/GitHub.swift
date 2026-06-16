@@ -335,9 +335,10 @@ struct ProjectInitPlan: Identifiable, Sendable {
     /// stale sheet cannot initialize the wrong folder.
     var blockingReason: String? = nil
     /// When the source folder is itself a clone of a *different* repo, its origin
-    /// URL. Copying keeps `.git`, so that repo's full history would be re-pushed to
-    /// the new repo — surfaced in the confirmation so it isn't a silent surprise.
-    /// nil when it's not a clone (or already points at the target repo).
+    /// URL. The copy path drops that repo's `.git` so its history is NOT republished
+    /// to the new repo; this is surfaced in the confirmation so the user knows the
+    /// new project starts fresh. nil when it's not a clone (or already points at the
+    /// target repo).
     var sourceOrigin: String? = nil
 
     var sourceName: String {
@@ -853,6 +854,16 @@ enum GitHub {
         return existing.isEmpty ? nil : existing
     }
 
+    /// Whether a failed `gh repo create` failed *because the name is already taken*
+    /// (vs. rate limit, auth, network, name policy). Only a real collision justifies
+    /// adopting an existing repo and pushing into it. gh phrases this as e.g.
+    /// "GraphQL: Name already exists on this account (createRepository)".
+    static func createReportedNameCollision(_ result: ShellResult) -> Bool {
+        // gh reports this on stderr, but check stdout too so a future gh that routes
+        // it differently can't silently turn this back into "any failure = exists".
+        (result.stderr + "\n" + result.stdout).lowercased().contains("already exists")
+    }
+
     static func initAndPushProject(_ plan: ProjectInitPlan, visibility: RepoVisibilityChoice) -> ShellResult {
         var log: [String] = []
         let fm = FileManager.default
@@ -877,6 +888,24 @@ enum GitHub {
                 }
                 try fm.copyItem(atPath: plan.sourcePath, toPath: plan.workingPath)
                 log.append("Copied project to \(plan.workingPath)")
+                // The source is a clone of a *different* repo. Its copied `.git`
+                // carries that repo's full history and foreign origin; re-homing
+                // and pushing it would republish another (possibly private) repo's
+                // history into this brand-new repo. Drop the copied `.git` so the
+                // new project starts a fresh, single-commit history instead.
+                if plan.sourceOrigin != nil {
+                    let copiedGit = (plan.workingPath as NSString).appendingPathComponent(".git")
+                    try? fm.removeItem(atPath: copiedGit)
+                    // Gate on the postcondition, not the removal error: a `.git` that
+                    // was already absent (stale plan) is fine, but one that survived a
+                    // failed removal must NOT fall through — willCopy skips the
+                    // origin-mismatch guard below, so we'd republish the foreign repo's
+                    // history. Only proceed once the foreign `.git` is provably gone.
+                    guard !fm.fileExists(atPath: copiedGit) else {
+                        return failure("could not start fresh history: copied .git is still present at \(copiedGit)", log)
+                    }
+                    log.append("Started fresh history (did not copy the source's existing Git history)")
+                }
             } else {
                 log.append("Using existing project folder \(plan.workingPath)")
             }
@@ -940,7 +969,11 @@ enum GitHub {
         let create = Shell.run(["gh", "repo", "create", repoFullName, visibility.ghFlag])
         if create.ok {
             log.append("Created \(visibility.rawValue) GitHub repo \(repoFullName)")
-        } else if repoView(nameWithOwner: repoFullName) != nil {
+        } else if createReportedNameCollision(create), repoView(nameWithOwner: repoFullName) != nil {
+            // Only adopt a pre-existing repo when gh actually reported a name
+            // collision. Treating *any* create failure as "already exists" would
+            // mask real errors (rate limit, network, name policy) and silently
+            // push into a coincidentally same-named repo the user already owns.
             log.append("GitHub repo \(repoFullName) already exists")
         } else {
             return failure("GitHub repo create failed", log, create)
