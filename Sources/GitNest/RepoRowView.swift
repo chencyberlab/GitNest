@@ -34,8 +34,8 @@ struct RepoRowView: View {
     var body: some View {
         let selected = model.selectedRepo == repo.id
         let status = model.repoStatuses[repo.id]
-        let cloned = model.repoManager.isCloned(repo)
-        let conflict = model.repoManager.folderConflict(repo)
+        let cloned = model.isCloned(repo)
+        let conflict = model.folderConflict(repo)
         let attention = status?.needsAttention ?? false
         let shared = isShared(repo)
         return HStack(spacing: 10) {

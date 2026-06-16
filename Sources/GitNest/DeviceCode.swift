@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// Parsing for the one-time device code used by `gh auth login --web`
 /// (e.g. "! First copy your one-time code: 57C6-CEA6").
@@ -33,5 +34,37 @@ enum DeviceCode {
             return nil
         }
         return trimmed.uppercased()
+    }
+}
+
+/// Polls the clipboard for a GitHub device code while an auth flow runs.
+/// Only reads the pasteboard when its `changeCount` advances, so it does not
+/// repeatedly trigger macOS clipboard-privacy alerts.
+///
+/// `@MainActor` so the `NSPasteboard` reads stay on the main thread (the loop's
+/// `await Task.sleep` releases the actor while suspended, so polling doesn't
+/// block it). This matches the callers, which are themselves main-actor isolated.
+@MainActor
+enum DeviceCodeWatcher {
+    /// Watch the clipboard for up to `maxIterations` * `intervalNanoseconds`.
+    /// Returns the first code that appears alone on the clipboard, or `nil` if
+    /// the loop expires or the task is cancelled.
+    static func watchClipboard(startingChangeCount: Int,
+                               maxIterations: Int,
+                               intervalNanoseconds: UInt64 = 500_000_000) async -> String? {
+        var lastChangeCount = startingChangeCount
+        for _ in 0..<maxIterations {
+            if Task.isCancelled { return nil }
+            let current = NSPasteboard.general.changeCount
+            if current != lastChangeCount {
+                lastChangeCount = current
+                if let clip = NSPasteboard.general.string(forType: .string),
+                   let code = DeviceCode.extract(fromClipboard: clip) {
+                    return code
+                }
+            }
+            try? await Task.sleep(nanoseconds: intervalNanoseconds)
+        }
+        return nil
     }
 }

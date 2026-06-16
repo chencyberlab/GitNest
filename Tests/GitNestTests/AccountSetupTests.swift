@@ -132,4 +132,27 @@ final class AccountSetupTests: XCTestCase {
 
         XCTAssertEqual(keys, ["includeIf.gitdir:~/Developer/github-work/.path"])
     }
+
+    func testWriteGitConfigRejectsFolderOverlappingExistingAccount() {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestOverlapTest-\(UUID().uuidString)")
+            .path
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let existing = (root as NSString).appendingPathComponent("existing")
+        let nested = (existing as NSString).appendingPathComponent("nested")
+
+        let result = AccountSetup.writeGitConfig(
+            alias: "new",
+            name: "New",
+            email: "new@example.com",
+            folder: nested,
+            existingAccountFolders: [existing]
+        )
+
+        guard case .failure(let error) = result else {
+            return XCTFail("Expected failure for overlapping folder")
+        }
+        XCTAssertTrue(error.message.contains("overlaps"))
+    }
 }

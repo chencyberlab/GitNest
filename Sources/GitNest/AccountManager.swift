@@ -269,7 +269,17 @@ final class AccountManager: ObservableObject {
         logStore.append("Starting gh auth login (web) for \(account.alias)…")
         currentAuthFlowCode = nil
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
-        let clipboardWatcher = Task { await watchClipboardForDeviceCode(after: startingClipboardChangeCount) }
+        let clipboardWatcher = Task {
+            if let code = await DeviceCodeWatcher.watchClipboard(
+                startingChangeCount: startingClipboardChangeCount,
+                maxIterations: 120
+            ) {
+                if currentAuthFlowCode != code {
+                    logStore.append("One-time code: \(code) (also copied to clipboard)")
+                    currentAuthFlowCode = code
+                }
+            }
+        }
         let authProcess = authProcessController.start()
         let login = await runBlocking { GitHub.authLoginWebWithClipboard(handle: authProcess) }
         authProcessController.finish(authProcess)
@@ -301,25 +311,4 @@ final class AccountManager: ObservableObject {
         await logAuthStatus()
     }
 
-    /// Watch the clipboard for a GitHub device code while an auth flow runs.
-    /// Only reads the pasteboard when its `changeCount` advances, so it does not
-    /// repeatedly trigger macOS clipboard-privacy alerts.
-    private func watchClipboardForDeviceCode(after startingChangeCount: Int) async {
-        var lastChangeCount = startingChangeCount
-        for _ in 0..<120 { // up to ~60 seconds
-            if Task.isCancelled { return }
-            let current = NSPasteboard.general.changeCount
-            if current != lastChangeCount {
-                lastChangeCount = current
-                if let clip = NSPasteboard.general.string(forType: .string),
-                   let code = DeviceCode.extract(fromClipboard: clip),
-                   currentAuthFlowCode != code {
-                    logStore.append("One-time code: \(code) (also copied to clipboard)")
-                    currentAuthFlowCode = code
-                    return
-                }
-            }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-    }
 }

@@ -254,7 +254,7 @@ private struct DetailView: View {
                 .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
 
                 Button {
-                    Task { await model.repoManager.loadRepos(for: account) }
+                    Task { await model.loadRepos(for: account) }
                 } label: {
                     Label("Load repos", systemImage: "tray.and.arrow.down")
                 }

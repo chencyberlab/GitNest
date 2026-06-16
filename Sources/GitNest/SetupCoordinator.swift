@@ -84,8 +84,14 @@ final class SetupCoordinator: ObservableObject {
             NSWorkspace.shared.open(url)
         }
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
-        let watcher = Task { await watchClipboardForAddAccountCode(session: session,
-                                                                   after: startingClipboardChangeCount) }
+        let watcher = Task {
+            let code = await DeviceCodeWatcher.watchClipboard(
+                startingChangeCount: startingClipboardChangeCount,
+                maxIterations: 240
+            )
+            guard isCurrentAddAccountSession(session) else { return }
+            if let code { addAccountDeviceCode = code }
+        }
         let authProcess = authProcessController.start()
         let result = await ghChain.serialized { () -> AddAccountLoginResult in
             let login = GitHub.authLoginWebWithClipboard(handle: authProcess)
@@ -176,7 +182,14 @@ final class SetupCoordinator: ObservableObject {
         // the name fallback in id.displayName.
         let trimmedEmail = addAccountEmail.trimmingCharacters(in: .whitespacesAndNewlines)
         let email = trimmedEmail.isEmpty ? id.noreplyEmail : trimmedEmail
-        let write = await runBlocking { AccountSetup.writeGitConfig(alias: alias, name: name, email: email, folder: folder) }
+        let existingFolders = accountManager.accounts.map(\.folder)
+        let write = await runBlocking {
+            AccountSetup.writeGitConfig(alias: alias,
+                                        name: name,
+                                        email: email,
+                                        folder: folder,
+                                        existingAccountFolders: existingFolders)
+        }
         guard isCurrentAddAccountSession(session) else { return }
         if case .failure(let e) = write {
             addAccountError = e.message; addAccountBusy = false; return
@@ -219,23 +232,4 @@ final class SetupCoordinator: ObservableObject {
         }
     }
 
-    func watchClipboardForAddAccountCode(session: UUID, after startingChangeCount: Int) async {
-        var lastChangeCount = startingChangeCount
-        for _ in 0..<240 { // ~120s
-            if Task.isCancelled || !isCurrentAddAccountSession(session) { return }
-            // Only read when the pasteboard actually advances — otherwise this would
-            // re-read (and re-assign the code, re-rendering the sheet) every 500ms,
-            // and on macOS 15.4+ each read can surface a pasteboard-privacy alert.
-            let current = NSPasteboard.general.changeCount
-            if current != lastChangeCount {
-                lastChangeCount = current
-                if let clip = NSPasteboard.general.string(forType: .string),
-                   let code = DeviceCode.extract(fromClipboard: clip) {
-                    addAccountDeviceCode = code
-                    return   // captured — stop polling
-                }
-            }
-            try? await Task.sleep(nanoseconds: 500_000_000)
-        }
-    }
 }

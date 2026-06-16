@@ -144,10 +144,25 @@ enum AccountSetup {
 
     /// Write the per-account gitconfig + global `includeIf` rule and create the
     /// folder. Backs up `~/.gitconfig` first; uses `git config` so files stay valid.
-    static func writeGitConfig(alias: String, name: String, email: String, folder: String) -> Result<GitConfigWriteResult, CommandError> {
+    /// Pass the folders of any already-configured accounts so the new folder cannot
+    /// silently overlap an existing one (defense in depth: the UI also checks this).
+    static func writeGitConfig(alias: String,
+                               name: String,
+                               email: String,
+                               folder: String,
+                               existingAccountFolders: [String] = []) -> Result<GitConfigWriteResult, CommandError> {
         let accountCfg = accountGitconfigPath(alias: alias)
         let host = "github-\(alias)"
         let expandedFolder = (folder as NSString).expandingTildeInPath
+
+        for existing in existingAccountFolders {
+            let expandedExisting = (existing as NSString).expandingTildeInPath
+            if foldersOverlap(expandedFolder, expandedExisting) {
+                return .failure(CommandError(
+                    message: "Chosen folder overlaps with an existing account folder: \(expandedExisting)"
+                ))
+            }
+        }
 
         let folderExisted = FileManager.default.fileExists(atPath: expandedFolder)
         let mk = Shell.run(["mkdir", "-p", expandedFolder])
