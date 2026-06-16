@@ -208,14 +208,9 @@ extension RepoReference {
         name.lowercased().hasSuffix(".git") ? String(name.dropLast(4)) : name
     }
 
-    /// GitHub account and organization names are intentionally stricter than repo names.
+    /// GitHub account and organization names use the same rules as user logins.
     private static func isValidOwner(_ name: String) -> Bool {
-        guard !name.isEmpty, name.count <= 39 else { return false }
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-")
-        guard name.unicodeScalars.allSatisfy({ allowed.contains($0) }) else { return false }
-        guard !name.hasPrefix("-"), !name.hasSuffix("-") else { return false }
-        guard !name.contains("--") else { return false }
-        return true
+        isValidGitHubLogin(name)
     }
 
     /// Repository names can contain dots, underscores, and repeated hyphens.

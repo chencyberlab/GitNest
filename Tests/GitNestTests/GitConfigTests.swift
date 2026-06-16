@@ -176,4 +176,70 @@ final class GitConfigTests: XCTestCase {
         XCTAssertEqual(accounts.count, 1)
         XCTAssertEqual(accounts.first?.folder, "/tmp/github_alice")
     }
+
+    // MARK: - Alias validation
+
+    /// An alias read from disk (a hand-edited or externally-managed gitconfig)
+    /// flows into file paths (`id_<alias>`), the SSH host suffix, and
+    /// `gh auth switch -u <alias>`. A malformed alias must be rejected rather
+    /// than load an account whose key paths would point somewhere surprising.
+    /// `Shell.run`'s argv array already prevents injection — this guards the
+    /// filesystem/account-identity invariants.
+    func testLoadAccountsRejectsAliasFromUrlKeyThatIsNotAValidLogin() {
+        // An `insteadOf` url whose host suffix contains ".. would make
+        // ~/.ssh/id_../ and github-.. resolve outside the account's namespace.
+        let global = """
+        [includeIf "gitdir:/tmp/github_traversal/"]
+            path = /tmp/.gitconfig-traversal
+        """
+        let accountConfig = """
+        [user]
+            name = Traversal
+            email = trav@example.com
+        [url "git@github-..:"]
+            insteadOf = https://github.com/
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { _ in accountConfig }
+
+        XCTAssertTrue(accounts.isEmpty, "an alias containing '..' must not be loaded")
+    }
+
+    func testLoadAccountsRejectsFolderConventionAliasThatIsNotAValidLogin() {
+        // No url key: alias falls back to the folder convention. A folder named
+        // "github_bad alias" (space) yields an invalid login-shaped alias.
+        let global = """
+        [includeIf "gitdir:/tmp/github_bad alias/"]
+            path = /tmp/.gitconfig-badalias
+        """
+        let accountConfig = """
+        [user]
+            name = Bad
+            email = bad@example.com
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { _ in accountConfig }
+
+        XCTAssertTrue(accounts.isEmpty, "an alias with a space must not be loaded")
+    }
+
+    /// A name fallback that happens to be a valid login is still accepted — only
+    /// genuinely malformed aliases are rejected, so normal accounts load fine.
+    func testLoadAccountsAcceptsValidAliasDerivedFromNameFallback() {
+        let global = """
+        [includeIf "gitdir:/tmp/Projects/"]
+            path = /tmp/.gitconfig-dev
+        """
+        // No url key and no folder convention: alias falls back to name, which
+        // is a valid login here.
+        let accountConfig = """
+        [user]
+            name = dev
+            email = dev@example.com
+        """
+
+        let accounts = GitConfig.loadAccounts(from: global) { _ in accountConfig }
+
+        XCTAssertEqual(accounts.map(\.alias), ["dev"])
+    }
 }

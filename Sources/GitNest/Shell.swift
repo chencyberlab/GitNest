@@ -143,6 +143,18 @@ enum Shell {
             environment.removeValue(forKey: key)
         }
 
+        // `gh` treats these as higher priority than the stored oauth token and the
+        // active account set by `gh auth switch`. This app's whole purpose is
+        // multi-account management via per-account verification — an inherited
+        // GH_TOKEN would silently make every `gh api` call authenticate as the
+        // token's owner, defeating `ensureActiveAccount`/`GhChain` and landing
+        // operations (push, fork, repo create) on the wrong account. GH_HOST
+        // likewise overrides the host this app assumes is github.com throughout.
+        // Scrub them so `gh auth switch` is the sole source of identity.
+        for key in Self.scrubbedGhEnvKeys {
+            environment.removeValue(forKey: key)
+        }
+
         let currentPath = environment["PATH"] ?? ""
         environment["PATH"] = developerPath + (currentPath.isEmpty ? "" : ":\(currentPath)")
         // There is no terminal to answer a username/password prompt on, so make
@@ -150,6 +162,23 @@ enum Shell {
         environment["GIT_TERMINAL_PROMPT"] = "0"
         return environment
     }
+
+    /// `gh` environment variables that override the active account, host, or the
+    /// config directory those are stored in. Removed in `sanitizedEnvironment` so
+    /// per-account identity is controlled only by `gh auth switch` against this
+    /// user's own `gh` config. GH_CONFIG_DIR would point `gh` at a different
+    /// hosts.yml entirely — a different set of stored accounts/tokens — which
+    /// defeats the multi-account invariant the same way a stray token does.
+    /// Benign `gh` prefs (GH_EDITOR, GH_PAGER, GH_BROWSER) are intentionally left
+    /// alone — they don't affect which account `gh` uses.
+    private static let scrubbedGhEnvKeys: Set<String> = [
+        "GH_TOKEN",
+        "GITHUB_TOKEN",
+        "GH_HOST",
+        "GH_ENTERPRISE_TOKEN",
+        "GITHUB_ENTERPRISE_TOKEN",
+        "GH_CONFIG_DIR"
+    ]
 
     private static func commandEnvironment() -> [String: String] {
         sanitizedEnvironment(from: ProcessInfo.processInfo.environment)

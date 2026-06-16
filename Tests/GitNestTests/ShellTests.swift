@@ -89,7 +89,7 @@ final class ShellTests: XCTestCase {
         let env = Shell.sanitizedEnvironment(from: [
             "PATH": "/custom/bin",
             "HOME": "/Users/test",
-            "GH_TOKEN": "keep-me",
+            "GH_EDITOR": "nano",   // a benign gh pref — must be preserved
             "GIT_DIR": "/tmp/wrong.git",
             "GIT_WORK_TREE": "/tmp/wrong-worktree",
             "GIT_INDEX_FILE": "/tmp/wrong-index",
@@ -118,9 +118,36 @@ final class ShellTests: XCTestCase {
         XCTAssertNil(env["GIT_COMMITTER_NAME"])
         XCTAssertNil(env["GIT_COMMITTER_EMAIL"])
         XCTAssertNil(env["GIT_ASKPASS"])
-        XCTAssertEqual(env["GH_TOKEN"], "keep-me")
         XCTAssertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        XCTAssertEqual(env["GH_EDITOR"], "nano")
         XCTAssertTrue(env["PATH"]?.hasSuffix(":/custom/bin") == true)
+    }
+
+    /// `gh` token/host env vars take priority over `gh auth switch`, so a stray
+    /// GH_TOKEN would defeat this multi-account app's per-account verification
+    /// (ensureActiveAccount, GhChain) and silently authenticate as the token's
+    /// owner. They must be scrubbed so identity is controlled only by `gh auth
+    /// switch`; benign gh prefs (GH_EDITOR, GH_PAGER) are preserved.
+    func testSanitizedEnvironmentScrubsGhIdentityOverrides() {
+        let env = Shell.sanitizedEnvironment(from: [
+            "GH_TOKEN": "ghp_secret",
+            "GITHUB_TOKEN": "ghp_other",
+            "GH_HOST": "enterprise.example.com",
+            "GH_ENTERPRISE_TOKEN": "ghp_ent",
+            "GITHUB_ENTERPRISE_TOKEN": "ghp_ent2",
+            "GH_CONFIG_DIR": "/tmp/other-gh-config",   // would point gh at a different account store
+            "GH_EDITOR": "vim",   // benign prefs survive
+            "GH_PAGER": "less"
+        ])
+
+        XCTAssertNil(env["GH_TOKEN"])
+        XCTAssertNil(env["GITHUB_TOKEN"])
+        XCTAssertNil(env["GH_HOST"])
+        XCTAssertNil(env["GH_ENTERPRISE_TOKEN"])
+        XCTAssertNil(env["GITHUB_ENTERPRISE_TOKEN"])
+        XCTAssertNil(env["GH_CONFIG_DIR"])
+        XCTAssertEqual(env["GH_EDITOR"], "vim")
+        XCTAssertEqual(env["GH_PAGER"], "less")
     }
 
     func testChildInheritsOnlyStandardDescriptors() {

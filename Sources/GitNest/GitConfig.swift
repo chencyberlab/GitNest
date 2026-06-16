@@ -94,7 +94,15 @@ enum GitConfig {
         }
 
         if alias.isEmpty { alias = folderAlias(folder) ?? name }   // fall back to folder convention
-        guard !alias.isEmpty else { return nil }
+        // The alias is read from disk (a hand-edited or externally-managed
+        // gitconfig), not derived from a GitHub login like the wizard path. It
+        // flows into file paths (`id_<alias>`, `~/.gitconfig-<alias>`), the SSH
+        // host suffix (`github-<alias>`), and `gh auth switch -u <alias>`. Reject
+        // a malformed alias rather than load an account whose key paths would
+        // point somewhere surprising (e.g. an alias containing ".."). The argv
+        // array already prevents command injection — this keeps the filesystem
+        // and account-identity invariants honest too.
+        guard !alias.isEmpty, isValidGitHubLogin(alias) else { return nil }
         return Account(alias: alias, name: name, email: email, folder: folder)
     }
 
