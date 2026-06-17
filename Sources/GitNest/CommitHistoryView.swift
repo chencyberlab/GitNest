@@ -7,7 +7,7 @@ import SwiftUI
 struct CommitHistoryContent: View {
     let repo: Repo
     let account: Account
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
@@ -120,7 +120,7 @@ struct CommitHistoryContent: View {
 
     private func load() async {
         phase = .loading
-        switch await model.recentCommits(for: repo, in: account) {
+        switch await repoActionCoordinator.recentCommits(for: repo, in: account) {
         case .success(let commits):
             phase = commits.isEmpty ? .empty : .loaded(commits)
         case .failure(let error):

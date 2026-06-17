@@ -7,6 +7,7 @@ struct ChangeSummaryButton: View {
     let repo: Repo
     let account: Account
     let count: Int
+    @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @EnvironmentObject private var model: AppModel
     @Environment(\.theme) private var theme
     @State private var showing = false
@@ -41,7 +42,7 @@ struct ChangeSummaryButton: View {
 struct ChangeSummaryContent: View {
     let repo: Repo
     let account: Account
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
@@ -179,7 +180,7 @@ struct ChangeSummaryContent: View {
 
     private func load() async {
         phase = .loading
-        switch await model.changedFiles(for: repo, in: account) {
+        switch await repoActionCoordinator.changedFiles(for: repo, in: account) {
         case .success(let files):
             phase = files.isEmpty ? .empty : .loaded(GitChanges.grouped(files))
         case .failure(let error):
