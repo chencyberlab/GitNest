@@ -729,16 +729,18 @@ enum GitHub {
     /// don't support it, so the fork still succeeds rather than failing with an
     /// unknown-flag error.
     ///
-    /// This is split into two phases so the serialized gh chain is held only for
-    /// the account-touching work (the `gh auth switch` + `gh repo fork`), not for
-    /// the up-to-`timeoutSeconds` API-read poll that follows. Callers run
-    /// `fork(...)` inside `ghChain.serializedPreservingActiveAccount` and then
-    /// `waitForFork(...)` outside it — see `ProjectWorkflow.forkProject`. The poll
-    /// is a plain `gh repo view` read against the just-verified active account, so
-    /// it needs no account switching and is safe to run off the chain.
+    /// The whole call (switch + fork + poll) runs inside the caller's
+    /// `ghChain.serializedPreservingActiveAccount` hop. The poll must stay there
+    /// too: `gh repo view` of a *private* fork requires the forking account to be
+    /// active, and `serializedPreservingActiveAccount` only restores the original
+    /// account once this returns — so splitting the poll off the chain would read
+    /// as the wrong user and time out on private forks. Holding the chain for the
+    /// poll is the intended trade-off; the exponential backoff in `waitForRepo`
+    /// keeps the hold short in practice (most forks land in seconds).
     static func fork(source: RepoReference,
                      intoAccount alias: String,
-                     defaultBranchOnly: Bool = true) -> Result<ForkRequestOutcome, CommandError> {
+                     defaultBranchOnly: Bool = true,
+                     timeoutSeconds: UInt64 = 60) -> Result<ForkOutcome, CommandError> {
         let accountCheck = ensureActiveAccount(alias)
         guard accountCheck.ok else {
             let detail = (accountCheck.stdout + accountCheck.stderr)
@@ -764,7 +766,7 @@ enum GitHub {
                 fallbackRepo: source.repo,
                 source: source
             ) {
-                return .success(.existingFork(ForkOutcome(repo: existing, alreadyExisted: true)))
+                return .success(ForkOutcome(repo: existing, alreadyExisted: true))
             }
 
             let msg = (forkRes.stderr + forkRes.stdout)
@@ -782,34 +784,9 @@ enum GitHub {
             currentUser: currentUser,
             fallbackRepo: source.repo
         )
-        return .success(.created(
-            ForkRequest(nameWithOwner: forkedNameWithOwner, alreadyExisted: alreadyExisted)
-        ))
-    }
-
-    /// Outcome of the chain-held fork-create phase. `.existingFork` is the final
-    /// result (an existing fork was detected from `gh repo fork`'s failure output,
-    /// no polling needed); `.created` hands off to `waitForFork` for the poll.
-    enum ForkRequestOutcome: Sendable {
-        case existingFork(ForkOutcome)
-        case created(ForkRequest)
-    }
-
-    /// The fork GitHub just created (or reported as already existing), pending the
-    /// API-read poll that confirms it is queryable.
-    struct ForkRequest: Sendable {
-        let nameWithOwner: String
-        let alreadyExisted: Bool
-    }
-
-    /// Poll the GitHub API until the fork exists or the timeout elapses. Runs
-    /// *outside* the gh chain — `gh repo view` is a read against the account that
-    /// `fork` already verified is active, so it needs no account switching and must
-    /// not block other gh work for up to `timeoutSeconds`.
-    static func waitForFork(_ request: ForkRequest,
-                            timeoutSeconds: UInt64 = 60) -> Result<ForkOutcome, CommandError> {
-        waitForRepo(nameWithOwner: request.nameWithOwner, timeoutSeconds: timeoutSeconds)
-            .map { ForkOutcome(repo: $0, alreadyExisted: request.alreadyExisted) }
+        return waitForRepo(nameWithOwner: forkedNameWithOwner,
+                           timeoutSeconds: timeoutSeconds)
+            .map { ForkOutcome(repo: $0, alreadyExisted: alreadyExisted) }
     }
 
     static func forkedRepoNameWithOwner(from output: String,

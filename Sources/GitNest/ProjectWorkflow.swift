@@ -16,8 +16,7 @@ final class ProjectWorkflow: ObservableObject {
     private let logStore: LogStore
     private let repoManager: RepoManager
     private let initAndPushProject: @Sendable (ProjectInitPlan, RepoVisibilityChoice) -> ShellResult
-    private let forkRepo: @Sendable (RepoReference, String) -> Result<GitHub.ForkRequestOutcome, CommandError>
-    private let waitForFork: @Sendable (GitHub.ForkRequest) -> Result<ForkOutcome, CommandError>
+    private let forkRepo: @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>
     private let cloneRepo: @Sendable (Repo, Account) -> ShellResult
     private let setUpstream: @Sendable (RepoReference, String) -> ShellResult
     private let refreshReposAfterInit: @MainActor (Account) async -> Void
@@ -29,11 +28,8 @@ final class ProjectWorkflow: ObservableObject {
          initAndPushProject: @escaping @Sendable (ProjectInitPlan, RepoVisibilityChoice) -> ShellResult = {
              GitHub.initAndPushProject($0, visibility: $1)
          },
-         forkRepo: @escaping @Sendable (RepoReference, String) -> Result<GitHub.ForkRequestOutcome, CommandError> = {
+         forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError> = {
              GitHub.fork(source: $0, intoAccount: $1)
-         },
-         waitForFork: @escaping @Sendable (GitHub.ForkRequest) -> Result<ForkOutcome, CommandError> = {
-             GitHub.waitForFork($0)
          },
          cloneRepo: @escaping @Sendable (Repo, Account) -> ShellResult = {
              GitHub.clone(repo: $0, sshHost: $1.sshHost, into: $1.folder)
@@ -48,7 +44,6 @@ final class ProjectWorkflow: ObservableObject {
         self.repoManager = repoManager
         self.initAndPushProject = initAndPushProject
         self.forkRepo = forkRepo
-        self.waitForFork = waitForFork
         self.cloneRepo = cloneRepo
         self.setUpstream = setUpstream
         self.refreshReposAfterInit = refreshReposAfterInit ?? { [repoManager] account in
@@ -142,28 +137,12 @@ final class ProjectWorkflow: ObservableObject {
         defer { isForkingProject = false }
         logStore.append("Forking \(ref.nameWithOwner) into \(account.alias)'s account…")
 
-        // Phase 1 (chain-held): switch to the account and run `gh repo fork`. This
-        // is the only step that touches gh's active account, so it's the only step
-        // that needs the serialized chain.
+        // The whole fork (switch + `gh repo fork` + API-read poll) runs in one
+        // chain hop. The poll must stay in the chain: `gh repo view` of a private
+        // fork needs the forking account active, and the chain restores the
+        // original account only once this returns.
         let forkRepo = self.forkRepo
-        let createResult = await ghChain.serializedPreservingActiveAccount { forkRepo(ref, account.alias) }
-
-        // Phase 2 (off-chain): if a new fork was created, poll the API until it is
-        // queryable. This can take up to a minute and is a plain `gh repo view`
-        // read against the already-active account — running it *outside* the chain
-        // keeps other gh work (status checks, repo listings) responsive while we
-        // wait. An existing-fork short-circuit skips the poll entirely.
-        let waitForFork = self.waitForFork
-        let forkResult: Result<ForkOutcome, CommandError>
-        switch createResult {
-        case .failure(let error):
-            forkResult = .failure(error)
-        case .success(.existingFork(let outcome)):
-            forkResult = .success(outcome)
-        case .success(.created(let request)):
-            forkResult = await runBlocking { waitForFork(request) }
-        }
-
+        let forkResult = await ghChain.serializedPreservingActiveAccount { forkRepo(ref, account.alias) }
         guard case .success(let outcome) = forkResult else {
             if case .failure(let error) = forkResult {
                 logStore.append("✗ Fork failed: \(error.message)")

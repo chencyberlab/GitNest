@@ -184,16 +184,15 @@ final class AccountManager: ObservableObject {
     func loadAccountStatus(_ account: Account, session: UUID) async {
         let alias = account.alias
         // Clear the in-flight marker on every exit path — but only while this is
-        // still the current session *and* the account is still present. A newer
-        // batch bumps accountStatusSessionID and clears the whole set itself, then
-        // re-inserts aliases for its own in-flight checks; removing here in that
-        // case would wipe an entry we no longer own. Matching the early-return
-        // guards' exact predicate (`isCurrentAccountStatusSession`) keeps the
-        // "still same session" cleanup airtight: a same-session check whose account
-        // was removed mid-flight still clears its own stale entry, while a newer
-        // session's alias can never be touched.
+        // still the current session. A newer batch bumps accountStatusSessionID and
+        // clears the whole set itself, then re-inserts aliases for its own in-flight
+        // checks; removing here in that case would wipe an entry we no longer own.
+        // Guarding on the session (not the stricter `isCurrentAccountStatusSession`,
+        // which also requires the account to still be present) is deliberate: a
+        // same-session check whose account was removed mid-flight must still clear
+        // the entry *this* task inserted, or it leaks in accountStatusChecksPending.
         defer {
-            if isCurrentAccountStatusSession(session, alias: alias) {
+            if session == accountStatusSessionID {
                 accountStatusChecksPending.remove(alias)
             }
         }

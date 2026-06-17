@@ -98,11 +98,11 @@ extension GitHub {
     }
 
     /// True when `raw` is git's "no upstream configured" failure text. Tolerant of
-    /// the branch name git interpolates into the message. Match the stable phrase
-    /// rather than the exact wording so a future git rephrasing nearby doesn't
-    /// silently turn this back into a shown error.
+    /// the branch name git interpolates into the message. Matched on the stable
+    /// phrase git has used for years (verified against git's actual exit-128
+    /// output: `fatal: no upstream configured for branch '<name>'`); detached HEAD
+    /// and other `git log` failures use different wording and stay as errors.
     static func hasNoUpstreamMessage(_ raw: String) -> Bool {
-        let lower = raw.lowercased()
-        return lower.contains("no upstream configured") || lower.contains("no upstream branch")
+        raw.lowercased().contains("no upstream configured")
     }
 }
