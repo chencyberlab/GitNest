@@ -54,29 +54,13 @@ final class CoordinatorTests: XCTestCase {
 
     // MARK: AppModel re-publishing
 
-    /// Rows read the busy state through `repoActionCoordinator` but observe only
-    /// `AppModel`, so `AppModel` must mirror `busyRepos` for the action buttons to
-    /// disable/enable. This pins that re-publish so it can't silently regress again.
-    func testAppModelMirrorsRepoActionBusyState() async {
-        let model = AppModel()
-        XCTAssertTrue(model.busyRepos.isEmpty)
-
-        model.repoActionCoordinator.busyRepos.insert("owner/repo")
-        await Task.yield()   // let the Combine assign propagate
-        XCTAssertTrue(model.busyRepos.contains("owner/repo"))
-
-        model.repoActionCoordinator.busyRepos.removeAll()
-        await Task.yield()
-        XCTAssertTrue(model.busyRepos.isEmpty)
-    }
-
     func testAddAccountSheetDismissalRoutesThroughCancel() {
         let model = AppModel()
         model.setupCoordinator.beginAddAccount()
         model.setupCoordinator.addAccountBusy = true
         let session = model.setupCoordinator.addAccountSessionID
 
-        model.addAccountActiveBinding.wrappedValue = false
+        model.setupCoordinator.addAccountActiveBinding.wrappedValue = false
 
         XCTAssertFalse(model.setupCoordinator.addAccountActive)
         XCTAssertFalse(model.setupCoordinator.addAccountBusy)
@@ -87,13 +71,12 @@ final class CoordinatorTests: XCTestCase {
         let model = AppModel()
         model.alertStore.showPullWarning(AlertStore.PullWarning(repoName: "tools", message: "boom"))
         await Task.yield()
-        XCTAssertNotNil(model.pullWarning)
+        XCTAssertNotNil(model.alertStore.pullWarning)
 
-        model.dismissPullWarning()
+        model.alertStore.dismissPullWarning()
         await Task.yield()
 
         XCTAssertNil(model.alertStore.pullWarning)
-        XCTAssertNil(model.pullWarning)
     }
 
     // MARK: AlertStore

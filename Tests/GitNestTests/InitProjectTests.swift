@@ -79,7 +79,7 @@ final class InitProjectTests: XCTestCase {
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
 
-        let plan = await AppModel().makeInitPlan(sourceURL: source, account: account)
+        let plan = await AppModel().projectWorkflow.makeInitPlan(sourceURL: source, account: account)
 
         XCTAssertEqual(plan.repoName, String(repeating: "a", count: 100))
         XCTAssertFalse(plan.willCopy)
@@ -91,7 +91,7 @@ final class InitProjectTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
 
-        let plan = await AppModel().makeInitPlan(sourceURL: root, account: account)
+        let plan = await AppModel().projectWorkflow.makeInitPlan(sourceURL: root, account: account)
 
         XCTAssertEqual(plan.sourcePath, root.standardizedFileURL.path)
         XCTAssertEqual(plan.workingPath, root.standardizedFileURL.path)
@@ -105,7 +105,7 @@ final class InitProjectTests: XCTestCase {
         let accountFolder = root.appendingPathComponent("github-me")
         let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
 
-        let plan = await AppModel().makeInitPlan(sourceURL: root, account: account)
+        let plan = await AppModel().projectWorkflow.makeInitPlan(sourceURL: root, account: account)
 
         XCTAssertEqual(plan.sourcePath, root.standardizedFileURL.path)
         XCTAssertNotNil(plan.blockingReason)

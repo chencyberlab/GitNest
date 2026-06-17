@@ -9,7 +9,8 @@ import SwiftUI
 struct StashContent: View {
     let repo: Repo
     let account: Account
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
+    @EnvironmentObject private var repoManager: RepoManager
     @Environment(\.theme) private var theme
 
     @State private var phase: Phase = .loading
@@ -39,7 +40,7 @@ struct StashContent: View {
     /// `treeDirty` (accurate now); falls back to the cached sweep status only until
     /// that first load lands, so a just-made edit can't wrongly disable the button.
     private var hasChanges: Bool {
-        treeDirty ?? ((model.repoStatuses[repo.id]?.changedFiles ?? 0) > 0)
+        treeDirty ?? ((repoManager.repoStatuses[repo.id]?.changedFiles ?? 0) > 0)
     }
 
     var body: some View {
@@ -105,7 +106,7 @@ struct StashContent: View {
         armedDrop = nil
         let note = noteDraft
         Task {
-            let stashed = await perform { await model.stashPush(repo, message: note, in: account) }
+            let stashed = await perform { await repoActionCoordinator.stashPush(repo, message: note, in: account) }
             if stashed { noteDraft = "" }   // keep the typed note if the stash was a no-op/failure
         }
     }
@@ -178,10 +179,10 @@ struct StashContent: View {
                         .foregroundStyle(theme.textTertiary)
                     Spacer()
                     actionChip("Apply", theme.accent) {
-                        Task { await perform { await model.stashApply(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
+                        Task { await perform { await repoActionCoordinator.stashApply(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
                     }
                     actionChip("Pop", theme.accent) {
-                        Task { await perform { await model.stashPop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
+                        Task { await perform { await repoActionCoordinator.stashPop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
                     }
                     actionChip("Drop", theme.error) { armedDrop = entry.index }
                 }
@@ -202,7 +203,7 @@ struct StashContent: View {
             Spacer()
             actionChip("Cancel", theme.textMuted) { armedDrop = nil }
             actionChip("Delete", theme.error, filled: true) {
-                Task { await perform { await model.stashDrop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
+                Task { await perform { await repoActionCoordinator.stashDrop(repo, at: entry.index, expectedHash: entry.hash, in: account) } }
             }
         }
     }
@@ -244,8 +245,8 @@ struct StashContent: View {
         // never leave a stale row showing the delete confirm — nor arm a row that
         // renumbered into the previously-armed index.
         armedDrop = nil
-        treeDirty = await model.hasLocalChanges(for: repo, in: account)
-        switch await model.stashList(for: repo, in: account) {
+        treeDirty = await repoActionCoordinator.hasLocalChanges(for: repo, in: account)
+        switch await repoActionCoordinator.stashList(for: repo, in: account) {
         case .success(let entries):
             phase = entries.isEmpty ? .empty : .loaded(entries)
         case .failure(let error):

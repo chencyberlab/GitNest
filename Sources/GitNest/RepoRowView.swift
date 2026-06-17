@@ -3,6 +3,8 @@ import SwiftUI
 /// A single repository row in the repo list: icon, name, status pills, and actions.
 struct RepoRowView: View {
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var repoManager: RepoManager
+    @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
 
     let repo: Repo
@@ -32,10 +34,10 @@ struct RepoRowView: View {
     }
 
     var body: some View {
-        let selected = model.selectedRepo == repo.id
-        let status = model.repoStatuses[repo.id]
-        let cloned = model.isCloned(repo)
-        let conflict = model.folderConflict(repo)
+        let selected = repoManager.selectedRepo == repo.id
+        let status = repoManager.repoStatuses[repo.id]
+        let cloned = repoManager.isCloned(repo)
+        let conflict = repoManager.folderConflict(repo)
         let attention = status?.needsAttention ?? false
         let shared = isShared(repo)
         return HStack(spacing: 10) {
@@ -74,17 +76,17 @@ struct RepoRowView: View {
                 .padding(.trailing, 12)
         }
         .contentShape(Rectangle())
-        .onTapGesture { model.selectRepo(repo.id) }
+        .onTapGesture { repoManager.selectedRepo = repo.id }
         .padding(.horizontal, 4)
         .contextMenu { rowContextMenu(cloned: cloned) }
         .popover(item: $activePopover, arrowEdge: .bottom) { which in
             switch which {
             case .history:
                 CommitHistoryContent(repo: repo, account: account)
-                    .environmentObject(model)
+                    .gitNestEnvironment(model)
             case .incoming:
                 IncomingCommitsContent(repo: repo, account: account)
-                    .environmentObject(model)
+                    .gitNestEnvironment(model)
             }
         }
     }
@@ -96,13 +98,13 @@ struct RepoRowView: View {
     @ViewBuilder
     private func rowContextMenu(cloned: Bool) -> some View {
         Button {
-            model.openGitHubRepo(repo)
+            repoActionCoordinator.openGitHubRepo(repo)
         } label: { Label("Open on GitHub", systemImage: "globe") }
         Button {
-            model.openPullRequests(repo)
+            repoActionCoordinator.openPullRequests(repo)
         } label: { Label("Pull Requests", systemImage: "arrow.triangle.pull") }
         Button {
-            model.openIssues(repo)
+            repoActionCoordinator.openIssues(repo)
         } label: { Label("Issues", systemImage: "smallcircle.filled.circle") }
 
         if cloned {
@@ -117,13 +119,13 @@ struct RepoRowView: View {
 
         Divider()
         Button {
-            model.copyHTTPSURL(repo)
+            repoActionCoordinator.copyHTTPSURL(repo)
         } label: { Label("Copy HTTPS URL", systemImage: "doc.on.doc") }
         Button {
-            model.copySSHURL(repo)
+            repoActionCoordinator.copySSHURL(repo)
         } label: { Label("Copy SSH URL", systemImage: "doc.on.doc") }
         Button {
-            model.copyCloneCommand(repo)
+            repoActionCoordinator.copyCloneCommand(repo)
         } label: { Label("Copy gh clone command", systemImage: "terminal") }
     }
 
@@ -135,10 +137,10 @@ struct RepoRowView: View {
             if cloned {
                 openMenu
                 iconButton("arrow.triangle.2.circlepath", "Fetch from origin (git fetch)") {
-                    Task { await model.fetch(repo, in: account) }
+                    Task { await repoActionCoordinator.fetch(repo, in: account) }
                 }
                 iconButton("arrow.down", "Pull (git pull)") {
-                    Task { await model.pull(repo, in: account) }
+                    Task { await repoActionCoordinator.pull(repo, in: account) }
                 }
                 iconButton("pencil", "Commit all changes…") {
                     commitMessage = ""
@@ -159,13 +161,13 @@ struct RepoRowView: View {
                                  fill: theme.warningSubtle)
             } else {
                 iconButton("square.and.arrow.down", "Clone into the account folder") {
-                    Task { await model.clone(repo, in: account) }
+                    Task { await repoActionCoordinator.clone(repo, in: account) }
                 }
             }
         }
         // A pull/push/commit/clone is already running for this repo — block a second
         // one rather than let two git processes collide on the same local folder.
-        .disabled(model.isRepoActionBusy(repo))
+        .disabled(repoActionCoordinator.isRepoActionBusy(repo))
     }
 
     // MARK: Open menu
@@ -175,12 +177,12 @@ struct RepoRowView: View {
             VStack(alignment: .leading, spacing: 0) {
                 openPopoverButton("Finder", systemImage: "folder") {
                     isPresented.wrappedValue = false
-                    model.openLocalFolder(repo, in: account)
+                    repoActionCoordinator.openLocalFolder(repo, in: account)
                 }
 
                 openPopoverButton("GitHub", systemImage: "globe") {
                     isPresented.wrappedValue = false
-                    model.openGitHubRepo(repo)
+                    repoActionCoordinator.openGitHubRepo(repo)
                 }
 
                 if preferredEditor == .none {
@@ -191,7 +193,7 @@ struct RepoRowView: View {
                                       systemImage: "chevron.left.forwardslash.chevron.right") {
                         isPresented.wrappedValue = false
                         Task {
-                            await model.openInEditor(repo,
+                            await repoActionCoordinator.openInEditor(repo,
                                                      in: account,
                                                      editor: preferredEditor,
                                                      customAppName: customEditorName)
@@ -206,7 +208,7 @@ struct RepoRowView: View {
                                       systemImage: "terminal") {
                         isPresented.wrappedValue = false
                         Task {
-                            await model.openInTerminal(repo,
+                            await repoActionCoordinator.openInTerminal(repo,
                                                        in: account,
                                                        terminal: preferredTerminal,
                                                        customAppName: customTerminalName)
@@ -228,7 +230,7 @@ struct RepoRowView: View {
     private var stashMenu: some View {
         ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
             StashContent(repo: repo, account: account)
-                .environmentObject(model)
+                .gitNestEnvironment(model)
         }
     }
 

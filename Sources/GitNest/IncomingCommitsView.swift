@@ -9,7 +9,8 @@ import SwiftUI
 struct IncomingCommitsContent: View {
     let repo: Repo
     let account: Account
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
+    @EnvironmentObject private var repoManager: RepoManager
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
@@ -171,7 +172,7 @@ struct IncomingCommitsContent: View {
         // Use the row's already-computed status to say so plainly, instead of letting
         // git's raw "fatal: no upstream configured…" reach the user (the row's own
         // badge already reports these states the friendly way).
-        if let status = model.repoStatuses[repo.id] {
+        if let status = repoManager.repoStatuses[repo.id] {
             if status.remoteState == .upstreamGone {
                 phase = .unavailable("The upstream branch no longer exists on GitHub (deleted or renamed). Push the branch again to re-establish it.")
                 return
@@ -181,7 +182,7 @@ struct IncomingCommitsContent: View {
                 return
             }
         }
-        switch await model.incomingCommits(for: repo, in: account) {
+        switch await repoActionCoordinator.incomingCommits(for: repo, in: account) {
         case .success(let commits):
             phase = commits.isEmpty ? .upToDate : .loaded(commits)
         case .failure(let error):

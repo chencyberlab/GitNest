@@ -30,6 +30,23 @@ final class SetupCoordinator: ObservableObject {
     /// Existing accounts, exposed so the add-account sheet can check for folder overlaps.
     var accounts: [Account] { accountManager.accounts }
 
+    /// Two-way binding for the add-account sheet: reads the source of truth and
+    /// calls `cancelAddAccount()` when the sheet is dismissed, so the in-flight
+    /// `gh auth login` poll is killed and the chain is freed. Lives on the
+    /// coordinator (not AppModel) so views can bind directly to the source.
+    var addAccountActiveBinding: Binding<Bool> {
+        Binding(
+            get: { self.addAccountActive },
+            set: { isPresented in
+                if isPresented {
+                    self.addAccountActive = true
+                } else if self.addAccountActive {
+                    self.cancelAddAccount()
+                }
+            }
+        )
+    }
+
     init(ghChain: GhChain,
          logStore: LogStore,
          accountManager: AccountManager,

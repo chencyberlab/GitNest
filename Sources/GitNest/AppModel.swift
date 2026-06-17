@@ -1,4 +1,3 @@
-import SwiftUI
 import AppKit
 import Combine
 
@@ -38,46 +37,6 @@ enum AccountStatusLoadMode: String, CaseIterable, Identifiable, Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @Published var accounts: [Account] = []
-    @Published var selectedAccount: Account?
-    @Published var sshGreetings: [String: String] = [:]
-    @Published var ghIndicators: [String: AccountManager.GhAuthIndicator] = [:]
-    @Published var accountStatusChecksPending: Set<String> = []
-
-    @Published var repos: [Repo] = []
-    @Published var repoSearch: String = ""
-    @Published var selectedRepo: Repo.ID?
-
-    /// Column the repo list sorts by, and direction. Cloned repos always group
-    /// on top regardless; this only orders within the cloned and remote groups.
-    @Published var repoSortField: RepoSortField = .updated
-    @Published var repoSortAscending: Bool = false   // updated default: newest first
-
-    /// Repos narrowed by the wild-search query, then sorted (cloned on top).
-    /// This is a cached derivative of `repos`, `repoSearch`, `repoSortField`,
-    /// `repoSortAscending`, and `clonedRepos`; it is recomputed only when one of
-    /// those inputs changes, avoiding O(n log n) work on every view update.
-    @Published var filteredRepos: [Repo] = []
-
-    /// Header click: same column flips direction; a new column resets to its
-    /// natural default (names A→Z, dates newest-first).
-    func sortBy(_ field: RepoSortField) {
-        repoManager.sortBy(field)
-    }
-
-    @Published var isLoadingRepos = false
-    @Published var isRefreshingRepos = false
-    @Published var isCheckingRepoRemotes = false
-    @Published var repoRefreshMessage: String?
-    @Published var isInitializingProject = false
-    @Published var isForkingProject = false
-    @Published var log: String = ""
-    /// Whether the most recently appended log line was a failure/warning. The
-    /// collapsed Output status line uses this to stay pinned on problems while
-    /// progress/success lines fade away on their own.
-    @Published var lastLogWasError = false
-    @Published var pullWarning: AlertStore.PullWarning?
-
     let ghChain: GhChain
     let logStore: LogStore
     let alertStore: AlertStore
@@ -88,17 +47,7 @@ final class AppModel: ObservableObject {
     let authProcessController: AuthProcessController
     let setupCoordinator: SetupCoordinator
 
-    /// Add-account wizard state (driven by AddAccountSheet via setupCoordinator).
-    @Published var addAccountActive = false
-    @Published var clonedRepos: Set<Repo.ID> = []   // repo owner/name values present on disk for the selected account
-    @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]   // repo owner/name -> local/upstream state
-    @Published var repoFolderConflicts: [Repo.ID: RepoFolderConflict] = [:]
-    /// Mirror of `repoActionCoordinator.busyRepos`. Rows read the busy state through
-    /// the coordinator but observe only `AppModel`, so this re-publish is what makes
-    /// their action buttons disable/enable when an action starts or finishes.
-    @Published var busyRepos: Set<Repo.ID> = []
     var lifecycleStarted = false
-    static let accountOrderDefaultsKey = "accountOrder"
 
     /// The `gh` account that was active when the app started. Captured as the
     /// first `ghChain` job in `startLifecycle` (before any account checks switch
@@ -136,78 +85,14 @@ final class AppModel: ObservableObject {
                                                  logStore: logStore,
                                                  accountManager: accountManager,
                                                  authProcessController: authProcessController)
-        logStore.$log.assign(to: &$log)
-        logStore.$lastWasError.assign(to: &$lastLogWasError)
-        alertStore.$pullWarning.assign(to: &$pullWarning)
-        accountManager.$accounts.assign(to: &$accounts)
-        accountManager.$selectedAccount.assign(to: &$selectedAccount)
-        accountManager.$sshGreetings.assign(to: &$sshGreetings)
-        accountManager.$ghIndicators.assign(to: &$ghIndicators)
-        accountManager.$accountStatusChecksPending.assign(to: &$accountStatusChecksPending)
-        repoManager.$repos.assign(to: &$repos)
-        repoManager.$repoSearch.assign(to: &$repoSearch)
-        repoManager.$selectedRepo.assign(to: &$selectedRepo)
-        repoManager.$repoSortField.assign(to: &$repoSortField)
-        repoManager.$repoSortAscending.assign(to: &$repoSortAscending)
-        repoManager.$filteredRepos.assign(to: &$filteredRepos)
-        repoManager.$clonedRepos.assign(to: &$clonedRepos)
-        repoManager.$repoStatuses.assign(to: &$repoStatuses)
-        repoManager.$repoFolderConflicts.assign(to: &$repoFolderConflicts)
-        repoManager.$isLoadingRepos.assign(to: &$isLoadingRepos)
-        repoManager.$isRefreshingRepos.assign(to: &$isRefreshingRepos)
-        repoManager.$isCheckingRepoRemotes.assign(to: &$isCheckingRepoRemotes)
-        repoManager.$repoRefreshMessage.assign(to: &$repoRefreshMessage)
-        repoActionCoordinator.$busyRepos.assign(to: &$busyRepos)
-        projectWorkflow.$isInitializingProject.assign(to: &$isInitializingProject)
-        projectWorkflow.$isForkingProject.assign(to: &$isForkingProject)
-        setupCoordinator.$addAccountActive.assign(to: &$addAccountActive)
         bindAutoRefreshGate()
-    }
-
-    // MARK: - UI write intents
-    //
-    // `selectedRepo`, `repoSearch`, and `addAccountActive` are one-way mirrors
-    // of their owning managers (see the `assign(to:)` wiring in `init`). The UI
-    // reads the mirror but must write through to the source of truth, so route
-    // writes here rather than mutating the mirror. Mutating the mirror would not
-    // propagate to the manager, and the previous two-way Combine bindings that
-    // tried to bridge it caused an infinite `willSet` feedback loop that crashed
-    // the app with a stack overflow.
-
-    func selectRepo(_ id: Repo.ID?) {
-        repoManager.selectedRepo = id
-    }
-
-    func setRepoSearch(_ text: String) {
-        repoManager.repoSearch = text
-    }
-
-    func dismissPullWarning() {
-        alertStore.dismissPullWarning()
-    }
-
-    /// Two-way binding for the search field: reads the mirror, writes the source.
-    var repoSearchBinding: Binding<String> {
-        Binding(get: { self.repoSearch }, set: { self.repoManager.repoSearch = $0 })
-    }
-
-    /// Two-way binding for the add-account sheet: reads the mirror, writes the source.
-    var addAccountActiveBinding: Binding<Bool> {
-        Binding(
-            get: { self.addAccountActive },
-            set: { isPresented in
-                if isPresented {
-                    self.setupCoordinator.addAccountActive = true
-                } else if self.setupCoordinator.addAccountActive {
-                    self.setupCoordinator.cancelAddAccount()
-                }
-            }
-        )
     }
 
     private func bindAutoRefreshGate() {
         Publishers
-            .CombineLatest3($isInitializingProject, $isForkingProject, $addAccountActive)
+            .CombineLatest3(projectWorkflow.$isInitializingProject,
+                            projectWorkflow.$isForkingProject,
+                            setupCoordinator.$addAccountActive)
             .sink { [weak self] initializing, forking, adding in
                 self?.repoManager.canAutoRefresh = !initializing && !forking && !adding
             }
@@ -216,18 +101,6 @@ final class AppModel: ObservableObject {
 
     func configureAccountStatusLoadMode(_ mode: AccountStatusLoadMode) {
         accountManager.configureAccountStatusLoadMode(mode)
-    }
-
-    func logAuthStatus() async {
-        await accountManager.logAuthStatus()
-    }
-
-    func openGitHubProfile(_ account: Account) {
-        accountManager.openGitHubProfile(account)
-    }
-
-    func beginAddAccount() {
-        setupCoordinator.beginAddAccount()
     }
 
     func configureRepoAutoRefresh(seconds: Int) {
@@ -246,7 +119,7 @@ final class AppModel: ObservableObject {
                 guard let self else { return }
                 self.initialGhLogin = await self.ghChain.serialized { GitHub.currentLogin() }
                 self.checkRequiredTools()
-                self.refreshAll(statusMode: statusMode)
+                self.accountManager.refreshAll(statusMode: statusMode)
                 self.repoManager.startStatusAutoRefresh(appIsActive: self.appIsActive)
             }
         } else {
@@ -333,19 +206,15 @@ final class AppModel: ObservableObject {
         // states and a foreground refresh shouldn't step on them either.
         Task { [weak self] in
             guard let self,
-                  let account = self.selectedAccount,
+                  let account = self.accountManager.selectedAccount,
                   self.repoManager.canAutoRefresh else { return }
-            if !self.repos.isEmpty {
+            if !self.repoManager.repos.isEmpty {
                 await self.repoManager.refreshStatuses(for: account)
             }
             if self.repoManager.shouldAutoRefreshRepos(for: account.alias) {
                 await self.repoManager.loadRepos(for: account, silent: true, userInitiated: false)
             }
         }
-    }
-
-    func refreshAll(statusMode: AccountStatusLoadMode? = nil, manual: Bool = false) {
-        accountManager.refreshAll(statusMode: statusMode, manual: manual)
     }
 
     /// Account switch UX: show cached repos immediately if they exist.
@@ -358,39 +227,6 @@ final class AppModel: ObservableObject {
            repoManager.shouldAutoRefreshRepos(for: account.alias) {
             Task { await repoManager.loadRepos(for: account, silent: true, userInitiated: false) }
         }
-    }
-
-    /// Move `alias` to an absolute index in the full account list (clamped to the
-    /// valid range). Used by drag-to-reorder, which computes a precise drop slot.
-    /// No-ops when the order wouldn't change.
-    func moveAccount(alias: String, toIndex index: Int) {
-        accountManager.moveAccount(alias: alias, toIndex: index)
-    }
-
-    func orderedAccounts(_ loaded: [Account]) -> [Account] {
-        accountManager.orderedAccounts(loaded)
-    }
-
-    func saveAccountOrder() {
-        accountManager.saveAccountOrder()
-    }
-
-    func saveVisibleRepoState() {
-        repoManager.saveVisibleRepoState()
-    }
-
-    func restoreRepoState(for account: Account) {
-        repoManager.restoreRepoState(for: account)
-    }
-
-    // MARK: Logging
-
-    func report(_ res: ShellResult, ok: String) {
-        logStore.report(res, ok: ok)
-    }
-
-    func appendLog(_ s: String) {
-        logStore.append(s)
     }
 
     nonisolated static func localFolderState(for repo: Repo,
