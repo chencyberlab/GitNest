@@ -62,52 +62,75 @@ swift-format format --in-place --recursive Sources  # auto-format
 ## 3. Architecture: the layers and the rule that holds them together
 
 GitNest has a strict layering. Data and side effects flow **down**; UI observes
-**up** through `AppModel`. Learn these four layers and which one your change belongs in.
+**up** through the manager that owns the state it needs. Learn these four layers
+and which one your change belongs in.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  VIEW LAYER  (SwiftUI)                                           │
-│  ContentView, SidebarView, RepoListView, RepoRowView, *View,    │
-│  *Sheet, Theme, Tooltip, ContentViewComponents                  │
-│  • Reads @EnvironmentObject AppModel. Writes go THROUGH AppModel.│
-│  • No shell calls, no business logic, no git parsing here.       │
-└───────────────▲─────────────────────────────────────────────────┘
-                │ @Published mirrors (one-way) + intent methods
-┌───────────────┴─────────────────────────────────────────────────┐
-│  FACADE  AppModel (@MainActor, ObservableObject)                │
-│  • Owns the managers/coordinators, wires them in init().        │
-│  • Re-publishes their @Published state via assign(to:).         │
-│  • Thin proxy methods (AppModel+Repos, AppModel+RepoActions).   │
-└───────────────▲─────────────────────────────────────────────────┘
-                │ owns & calls
-┌───────────────┴─────────────────────────────────────────────────┐
-│  COORDINATION LAYER  (@MainActor, ObservableObject)             │
-│  AccountManager, RepoManager, RepoActionCoordinator,            │
-│  ProjectWorkflow, SetupCoordinator, AuthProcessController,      │
-│  LogStore, AlertStore, GhChain                                  │
-│  • State + orchestration. Decides WHEN/WHAT to run.             │
-│  • Calls the domain layer through runBlocking / GhChain.        │
-└───────────────▲─────────────────────────────────────────────────┘
-                │ calls (pure, nonisolated, Sendable)
-┌───────────────┴─────────────────────────────────────────────────┐
-│  DOMAIN LAYER  (enums of static funcs — no instance state)      │
-│  GitHub, GitConfig, AccountSetup, GitChanges, GitLog, GitStash, │
-│  DeviceCode, Search, FileOps, EditorLauncher, TerminalLauncher  │
-│  • Build argv, run via Shell, parse output. Pure + testable.    │
-│  • Split: pure parser (testable) vs the Shell-calling wrapper.  │
-└───────────────▲─────────────────────────────────────────────────┘
-                │ Shell.run([...]) — the ONE process boundary
-┌───────────────┴─────────────────────────────────────────────────┐
-│  PROCESS LAYER  Shell.run (posix_spawn), TaskRunner.runBlocking │
-└─────────────────────────────────────────────────────────────────┘
++------------------------------------------------------------------+
+|  VIEW LAYER  (SwiftUI)                                           |
+|  ContentView, SidebarView, RepoListView, RepoRowView, *View,     |
+|  *Sheet, Theme, Tooltip, ContentViewComponents                   |
+|  • Observes the specific managers it needs (AccountManager,      |
+|    RepoManager, RepoActionCoordinator, ProjectWorkflow, etc.).   |
+|  • Writes go THROUGH the owning manager (or AppModel for         |
+|    lifecycle / cross-manager orchestration).                     |
+|  • No shell calls, no business logic, no git parsing here.       |
++---------------^--------------------------------------------------+
+                | @Published source-of-truth + intent methods
++---------------v--------------------------------------------------+
+|  FACADE  AppModel (@MainActor, ObservableObject)                 |
+|  • Owns the managers/coordinators, wires them in init().         |
+|  • Composition + lifecycle + cross-manager orchestration only.   |
+|  • No longer mirrors manager state; views observe managers       |
+|    directly. Use EnvironmentInjection.gitNestEnvironment to      |
+|    inject AppModel + every manager at the root and at each       |
+|    sheet/popover root.                                           |
++---------------^--------------------------------------------------+
+                | owns & calls
++---------------v--------------------------------------------------+
+|  COORDINATION LAYER  (@MainActor, ObservableObject)              |
+|  AccountManager, RepoManager, RepoActionCoordinator,             |
+|  ProjectWorkflow, SetupCoordinator, AuthProcessController,       |
+|  LogStore, AlertStore, GhChain                                   |
+|  • State + orchestration. Decides WHEN/WHAT to run.              |
+|  • Calls the domain layer through runBlocking / GhChain.         |
++------------------------------------------------------------------+
+                | calls (pure, nonisolated, Sendable)
++---------------v--------------------------------------------------+
+|  DOMAIN LAYER  (enums of static funcs — no instance state)       |
+|  GitHub, GitConfig, AccountSetup, GitChanges, GitLog, GitStash,  |
+|  DeviceCode, Search, FileOps, EditorLauncher, TerminalLauncher   |
+|  • Build argv, run via Shell, parse output. Pure + testable.     |
+|  • Split: pure parser (testable) vs the Shell-calling wrapper.   |
++------------------------------------------------------------------+
+                | Shell.run([...]) — the ONE process boundary
++---------------v--------------------------------------------------+
+|  PROCESS LAYER  Shell.run (posix_spawn), TaskRunner.runBlocking  |
++------------------------------------------------------------------+
 ```
 
 ### The dependency-direction rule
 - A layer may only call **downward**. Domain code must never import SwiftUI, touch
   `AppModel`, or know about UI state. UI must never call `Shell.run` or `GitHub.*`
-  directly — it goes through `AppModel`.
+  directly — it goes through the appropriate coordinator / manager (or `AppModel`
+  for lifecycle-level orchestration).
 - Managers receive their collaborators via **`init` injection** (see
   `AppModel.init()`), never reach for globals or singletons.
+
+### Environment injection
+`Sources/GitNest/EnvironmentInjection.swift` defines `gitNestEnvironment(_:)`.
+Apply it to every view root that needs the full GitNest object graph — the app
+scene, sheet roots, and popover roots — so child views can observe whichever
+manager they need:
+
+```swift
+SomeView()
+    .gitNestEnvironment(model)
+```
+
+Views that only need a subset of managers declare just those
+`@EnvironmentObject`s; `ContentView` and `SidebarView` still need `AppModel` for
+lifecycle and selection orchestration.
 
 ---
 
@@ -233,15 +256,15 @@ become surprising arguments. Reuse them; don't hand a raw string to a command.
 ## 6. Coordination layer conventions
 
 - **`@MainActor final class …: ObservableObject`** with `@Published` state.
-  Collaborators injected via `init`. `AppModel` wires everyone together and mirrors
-  their `@Published` properties up with `assign(to: &$x)` (one-way).
-- **UI write-through, not mirror-mutation.** Some `AppModel` `@Published` properties
-  are *one-way mirrors* of a manager's source of truth (`selectedRepo`, `repoSearch`,
-  `addAccountActive`). The UI reads the mirror but must **write through** to the
-  owning manager via an intent method or a custom `Binding` (see the
-  `repoSearchBinding` / `addAccountActiveBinding` and the "UI write intents" comment
-  in `AppModel.swift`). Mutating a mirror directly does nothing — and a naive two-way
-  Combine binding caused an infinite `willSet` loop that crashed the app. Don't redo that.
+  Collaborators injected via `init`. `AppModel` wires everyone together but does
+  **not** mirror their state; each manager is the single source of truth for its
+  own `@Published` properties.
+- **UI observes the source, not a mirror.** A view declares `@EnvironmentObject`
+  only for the manager(s) whose state it actually reads. Search fields bind
+  directly to `$repoManager.repoSearch`; the add-account sheet uses
+  `setupCoordinator.addAccountActiveBinding`. Never create a two-way Combine
+  binding into a mirrored property — that caused an infinite `willSet` loop in the
+  past.
 - **Mutating per-repo actions go through `RepoActionCoordinator.beginRepoAction` /
   `finishRepoAction`** (use `defer { finishRepoAction(context) }`). This sets the
   busy state that disables the row's buttons and serializes actions per-folder. Every
@@ -328,8 +351,8 @@ parsers, scheduler math, DI-seam orchestration, and `Shell` itself.
 - Test names are full sentences describing the guarantee:
   `testBackgroundAccountIsFlooredToFiveMinutes`, `testToleratesTrailingNUL`.
 - Mark the class (or method) `@MainActor` when touching main-actor types; use
-  `await Task.yield()` to let Combine `assign(to:)` propagate before asserting (see
-  `CoordinatorTests.testAppModelMirrorsRepoActionBusyState`).
+  `await Task.yield()` to let `@Published` updates propagate through the
+  environment before asserting (see `CoordinatorTests`).
 - For concurrency-shared counters in fakes, use a locked box (`LockedCounter` in
   `ForkProjectTests`), not a bare `var`.
 - Prefer the injection seam over hitting real `git`. Where a test genuinely needs a
@@ -406,19 +429,13 @@ cloned repo row. Here is the full, idiomatic path:
    ```
    It's local-only → **no `GhChain`**. (If it touched `gh`, it would need it.)
 
-3. **Facade (`AppModel+RepoActions.swift`):** add the one-line proxy.
-   ```swift
-   func discardChanges(_ repo: Repo, in account: Account? = nil) async {
-       await repoActionCoordinator.discardChanges(repo, in: account)
-   }
-   ```
+3. **View (`RepoRowView` / its menu):** inject `RepoActionCoordinator` and add the
+   button, gated on `isCloned` and `!repoActionCoordinator.isRepoActionBusy(repo)`,
+   with a `.tooltip`, theme styling, and — because it's destructive — a confirmation
+   sheet/alert wired the way `deleteTarget` / `pushTarget` are in `ContentView`.
+   Call `Task { await repoActionCoordinator.discardChanges(repo) }`.
 
-4. **View (`RepoRowView` / its menu):** add the button, gated on `isCloned` and
-   `!model.isRepoActionBusy(repo)`, with a `.tooltip`, theme styling, and — because
-   it's destructive — a confirmation sheet/alert wired the way `deleteTarget` /
-   `pushTarget` are in `ContentView`. Call `Task { await model.discardChanges(repo) }`.
-
-5. **Tests:** parser test if you parse anything; a coordinator test via the injection
+4. **Tests:** parser test if you parse anything; a coordinator test via the injection
    seam (or a temp-repo integration test) asserting it runs and refreshes. Run
    `swift build && swift test`.
 
@@ -437,10 +454,9 @@ This is the same spine every existing action follows. Stay on it.
 - [ ] No shell string interpolation; user input validated before reaching `git`/`gh`.
 - [ ] Config edits are backed up + reversible; deletes go to Trash; keys never overwritten.
 - [ ] UI uses `Theme` tokens, shared button styles, `.tooltip`, and writes through
-      `AppModel` (not mirror-mutation).
+      the owning manager (or `AppModel` for lifecycle / cross-manager orchestration).
 - [ ] Comments explain the *why* of any non-obvious safeguard; existing load-bearing
       comments preserved.
 - [ ] `README.md` updated if user-facing behavior or a documented command changed.
 
 When in doubt, find the closest existing feature, read it top to bottom, and mirror it.
-```
