@@ -1,7 +1,8 @@
 import SwiftUI
 
 struct LogOutputView: View {
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var logStore: LogStore
+    @EnvironmentObject var accountManager: AccountManager
     @Binding var outputExpanded: Bool
     @Environment(\.theme) private var theme
 
@@ -15,7 +16,7 @@ struct LogOutputView: View {
     static let logBottomAnchor = "logBottom"
 
     var lastLogLine: String? {
-        model.log
+        logStore.log
             .split(whereSeparator: \.isNewline)
             .last
             .map(String.init)
@@ -54,7 +55,7 @@ struct LogOutputView: View {
                 // On-demand raw `gh auth status`, dumped into the log below.
                 Button {
                     withAnimation(.easeOut(duration: 0.15)) { outputExpanded = true }
-                    Task { await model.logAuthStatus() }
+                    Task { await accountManager.logAuthStatus() }
                 } label: {
                     Label("gh auth status", systemImage: "person.badge.key")
                         .font(.system(size: 10, weight: .semibold))
@@ -68,7 +69,7 @@ struct LogOutputView: View {
             if outputExpanded {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        Text(model.log.isEmpty ? "—" : model.log)
+                        Text(logStore.log.isEmpty ? "—" : logStore.log)
                             .font(.system(.caption, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
@@ -83,7 +84,7 @@ struct LogOutputView: View {
                     .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
                         .strokeBorder(theme.border, lineWidth: 1))
                     .padding(.top, 6)
-                    .onChange(of: model.log) { _ in
+                    .onChange(of: logStore.log) { _ in
                         withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(Self.logBottomAnchor, anchor: .bottom) }
                     }
                     .onAppear { proxy.scrollTo(Self.logBottomAnchor, anchor: .bottom) }
@@ -92,7 +93,7 @@ struct LogOutputView: View {
         }
         // Every new log line refreshes the collapsed status: show it, then fade
         // after a delay — unless it's an error/warning, which stays pinned.
-        .onChange(of: model.log) { _ in refreshStatusLine() }
+        .onChange(of: logStore.log) { _ in refreshStatusLine() }
     }
 
     /// Shows the collapsed Output status line and schedules it to fade out, so a
@@ -101,7 +102,7 @@ struct LogOutputView: View {
     func refreshStatusLine() {
         statusFadeTask?.cancel()
         statusLineVisible = true
-        guard !model.lastLogWasError else { statusFadeTask = nil; return }
+        guard !logStore.lastWasError else { statusFadeTask = nil; return }
         statusFadeTask = Task { @MainActor in
             try? await Task.sleep(for: Self.statusFadeDelay)
             guard !Task.isCancelled else { return }

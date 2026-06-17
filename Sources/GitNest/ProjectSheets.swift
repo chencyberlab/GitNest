@@ -7,7 +7,7 @@ struct InitProjectSheet: View {
     @Binding var initVisibility: RepoVisibilityChoice
     @Binding var moveOriginalToTrash: Bool
     @Binding var initPlan: ProjectInitPlan?
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var projectWorkflow: ProjectWorkflow
     @Environment(\.theme) private var theme
 
     /// Builds the warning shown on the init plan sheet from the plan's blocking
@@ -81,7 +81,7 @@ struct InitProjectSheet: View {
                     let trash = moveOriginalToTrash
                     initPlan = nil
                     Task {
-                        await model.initProject(
+                        await projectWorkflow.initProject(
                             plan,
                             visibility: visibility,
                             moveOriginalToTrash: trash
@@ -90,7 +90,7 @@ struct InitProjectSheet: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(model.isInitializingProject || plan.blockingReason != nil)
+                .disabled(projectWorkflow.isInitializingProject || plan.blockingReason != nil)
             }
         }
         .padding(22)
@@ -104,7 +104,8 @@ struct InitProjectSheet: View {
 struct ForkProjectSheet: View {
     @Binding var forkAddress: String
     @Binding var showForkSheet: Bool
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var projectWorkflow: ProjectWorkflow
+    @EnvironmentObject var accountManager: AccountManager
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -128,16 +129,16 @@ struct ForkProjectSheet: View {
                     .buttonStyle(SubtleButtonStyle())
                 Button("Fork") {
                     let address = forkAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let account = model.selectedAccount
+                    let account = accountManager.selectedAccount
                     showForkSheet = false
                     Task {
                         guard let account else { return }
-                        _ = await model.forkProject(source: address, account: account)
+                        _ = await projectWorkflow.forkProject(source: address, account: account)
                     }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
-                .disabled(forkAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || model.isForkingProject)
+                .disabled(forkAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || projectWorkflow.isForkingProject)
             }
         }
         .padding(22)
