@@ -158,7 +158,7 @@ struct SidebarView: View {
             """)
         }
         .sheet(isPresented: model.addAccountActiveBinding) {
-            AddAccountSheet().environmentObject(model.setupCoordinator)
+            AddAccountSheet().gitNestEnvironment(model)
         }
     }
 

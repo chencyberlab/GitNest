@@ -81,10 +81,10 @@ struct RepoRowView: View {
             switch which {
             case .history:
                 CommitHistoryContent(repo: repo, account: account)
-                    .environmentObject(model)
+                    .gitNestEnvironment(model)
             case .incoming:
                 IncomingCommitsContent(repo: repo, account: account)
-                    .environmentObject(model)
+                    .gitNestEnvironment(model)
             }
         }
     }
@@ -228,7 +228,7 @@ struct RepoRowView: View {
     private var stashMenu: some View {
         ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
             StashContent(repo: repo, account: account)
-                .environmentObject(model)
+                .gitNestEnvironment(model)
         }
     }
 

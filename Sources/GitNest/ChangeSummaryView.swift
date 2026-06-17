@@ -31,7 +31,7 @@ struct ChangeSummaryButton: View {
         .accessibilityLabel("\(count) changed files. Show summary.")
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             ChangeSummaryContent(repo: repo, account: account)
-                .environmentObject(model)
+                .gitNestEnvironment(model)
         }
     }
 }

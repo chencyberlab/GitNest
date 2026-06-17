@@ -8,7 +8,7 @@ struct GitNestApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(appDelegate.model)
+                .gitNestEnvironment(appDelegate.model)
                 .frame(minWidth: 920, minHeight: 580)
         }
         .defaultSize(width: 980, height: 660)
