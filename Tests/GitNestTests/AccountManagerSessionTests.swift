@@ -1,12 +1,19 @@
 import XCTest
 @testable import GitNest
 
-/// Pins the session-staleness contract that protects `loadAccountStatus`'s two
-/// `await`s from writing state for an account that was removed, or clobbering a
-/// newer batch's in-flight markers. These guards are the multi-account safety
-/// boundary and were previously untested; a regression here (e.g. the defer's
-/// clearing condition diverging from the early-return guards, as it once did)
-/// can leak `accountStatusChecksPending` entries or let a stale result land.
+/// Pins the session-staleness contract around `loadAccountStatus`. Two distinct
+/// rules cooperate, and they are deliberately *not* the same predicate:
+///
+///  • The in-body `await` guards use `isCurrentAccountStatusSession` (session ID
+///    AND account still present), so a late-resuming check writes no state for a
+///    superseded batch or a removed account.
+///  • The exit-path `defer` uses `clearAccountStatusPending` (session ID ONLY), so
+///    a same-session check whose account was removed mid-flight still drops the
+///    marker it inserted instead of leaking it in `accountStatusChecksPending`.
+///
+/// The looser defer is the bug-prone part: making it match the stricter `await`
+/// guard (as an "enhancement" once did) reintroduces the leak. These tests pin
+/// both rules, including that exact divergence.
 ///
 /// All assertions are network-free: they exercise the session-token and pending-
 /// set mechanics directly, never `loadAccountStatus`'s real ssh/gh calls.
@@ -58,10 +65,12 @@ final class AccountManagerSessionTests: XCTestCase {
                       "the live session for a present account is current")
     }
 
-    /// `isCurrentAccountStatusSession` also requires the account to still be
-    /// configured — a check whose account was removed mid-flight must read as
-    /// stale even under the same session, so its result is dropped and its pending
-    /// marker can be cleaned up by the defer.
+    /// `isCurrentAccountStatusSession` (the guard the in-body `await`s use) also
+    /// requires the account to still be configured — a check whose account was
+    /// removed mid-flight reads as stale even under the same session, so its result
+    /// is dropped. Note this is the *stricter* of the two rules; the defer cleanup
+    /// uses the looser `clearAccountStatusPending` (see below), which is exactly why
+    /// the marker still gets removed in that case.
     func testIsCurrentAccountStatusSessionRequiresAccountStillPresent() {
         let manager = makeManager(accounts: [account("a")])
         let session = manager.accountStatusSessionID
@@ -71,6 +80,43 @@ final class AccountManagerSessionTests: XCTestCase {
 
         XCTAssertFalse(manager.isCurrentAccountStatusSession(session, alias: "a"),
                        "a session check for a removed account must read as stale")
+    }
+
+    /// The leak regression. `loadAccountStatus` inserts a pending marker, then can
+    /// early-return when its account is removed mid-flight (same session). The
+    /// exit-path defer must STILL clear that marker — its condition is the looser
+    /// `clearAccountStatusPending` (session only), not the stricter
+    /// `isCurrentAccountStatusSession` that the early-returns use. If the defer is
+    /// "tidied" to reuse `isCurrentAccountStatusSession`, the removed account's
+    /// marker leaks and pins its card; this test fails in that case.
+    func testClearAccountStatusPendingClearsMarkerWhenAccountRemovedMidFlight() {
+        let manager = makeManager(accounts: [account("a")])
+        let session = manager.accountStatusSessionID
+        manager.accountStatusChecksPending = ["a"]   // as loadAccountStatus's caller inserted it
+
+        // Account removed mid-flight (e.g. user edited ~/.gitconfig); session intact.
+        manager.accounts = []
+
+        manager.clearAccountStatusPending("a", session: session)
+
+        XCTAssertFalse(manager.accountStatusChecksPending.contains("a"),
+                       "a same-session check must drop its own marker even after its account is removed")
+    }
+
+    /// The other side of the divergence: a marker belonging to a newer batch must
+    /// NOT be cleared by a superseded check's defer. After the session is bumped,
+    /// the in-flight set is owned by the new batch, so an old check exiting late
+    /// must leave it untouched.
+    func testClearAccountStatusPendingLeavesMarkerForSupersededSession() {
+        let manager = makeManager(accounts: [account("a")])
+        let oldSession = manager.accountStatusSessionID
+        manager.accountStatusSessionID = UUID()       // a newer batch took over
+        manager.accountStatusChecksPending = ["a"]    // and re-inserted its own marker
+
+        manager.clearAccountStatusPending("a", session: oldSession)
+
+        XCTAssertTrue(manager.accountStatusChecksPending.contains("a"),
+                      "a superseded check must not delete the live batch's in-flight marker")
     }
 
     /// `runAccountStatusCheckIfNeeded` must refuse to act under a stale session,

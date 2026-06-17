@@ -8,13 +8,21 @@ import XCTest
 /// here (e.g. background accounts polling every 30s) would matter.
 @MainActor
 final class RefreshSchedulerTests: XCTestCase {
-    private func makeManager() -> (RepoManager, AccountManager) {
+    private func makeManager(
+        listRepos: (@Sendable (String) -> Result<[Repo], CommandError>)? = nil
+    ) -> (RepoManager, AccountManager) {
         let logStore = LogStore()
         let ghChain = GhChain()
         let accountManager = AccountManager(ghChain: ghChain,
                                             logStore: logStore,
                                             authProcessController: AuthProcessController())
-        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let repoManager: RepoManager
+        if let listRepos {
+            repoManager = RepoManager(ghChain: ghChain, logStore: logStore,
+                                      accountManager: accountManager, listRepos: listRepos)
+        } else {
+            repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        }
         return (repoManager, accountManager)
     }
 
@@ -115,32 +123,47 @@ final class RefreshSchedulerTests: XCTestCase {
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "other"))
     }
 
-    /// A failed refresh must NOT push out the next auto-refresh tick. Only a
-    /// successful refresh records `repoLastRefreshAt`; a transient failure
-    /// (network blip, 5xx — distinct from rate-limit backoff) leaves the account
-    /// due so the next tick retries promptly. This pins that contract by checking
-    /// the observable state `shouldAutoRefreshRepos` reads: no recorded refresh
-    /// time after a failure ⇒ due immediately.
-    func testFailedRefreshDoesNotStampLastRefreshAt() {
-        let (repo, accounts) = makeManager()
-        accounts.selectedAccount = account("vis")
+    /// A *successful* `loadRepos` stamps `repoLastRefreshAt`, so the account is no
+    /// longer due until its interval elapses. Drives the real success branch of
+    /// `loadRepos` (via the injected list fetch) rather than setting the timestamp
+    /// by hand, so it would catch a regression that stopped stamping on success.
+    func testSuccessfulRefreshStampsLastRefreshAt() async {
+        let acct = account("vis")
+        let (repo, accounts) = makeManager(listRepos: { _ in .success([]) })
+        accounts.accounts = [acct]
+        accounts.selectedAccount = acct
         repo.repoAutoRefreshSeconds = 30
-        repo.repoCache["vis"] = repos(10)
 
-        // Before any successful refresh: due.
-        XCTAssertNil(repo.repoLastRefreshAt["vis"])
-        XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"))
+        XCTAssertNil(repo.repoLastRefreshAt["vis"], "no refresh recorded before the first load")
 
-        // A successful refresh stamps the time ⇒ not due until the interval elapses.
-        repo.repoLastRefreshAt["vis"] = Date()
-        XCTAssertFalse(repo.shouldAutoRefreshRepos(for: "vis"))
+        await repo.loadRepos(for: acct)
 
-        // A subsequent failure must clear/leave the prior timestamp such that the
-        // account is retried — modeling the post-failure state as "no fresh
-        // success timestamp" (the state loadRepos now leaves behind on .failure).
-        repo.repoLastRefreshAt.removeValue(forKey: "vis")
+        XCTAssertNotNil(repo.repoLastRefreshAt["vis"], "a successful load must record the refresh time")
+        XCTAssertFalse(repo.shouldAutoRefreshRepos(for: "vis"),
+                       "just refreshed ⇒ not due until the interval elapses")
+    }
+
+    /// A *failed* `loadRepos` must NOT stamp `repoLastRefreshAt`, so the account
+    /// stays due and the next tick retries promptly instead of waiting out the full
+    /// interval. Drives the real failure branch through the injected fetch — the
+    /// previous version of this test deleted the timestamp by hand, so it passed
+    /// even when `loadRepos` stamped unconditionally; this one fails if the stamp
+    /// moves back out of the `.success` case.
+    func testFailedRefreshDoesNotStampLastRefreshAt() async {
+        let acct = account("vis")
+        let (repo, accounts) = makeManager(
+            listRepos: { _ in .failure(CommandError(message: "simulated network blip")) }
+        )
+        accounts.accounts = [acct]
+        accounts.selectedAccount = acct
+        repo.repoAutoRefreshSeconds = 30
+
+        await repo.loadRepos(for: acct)
+
+        XCTAssertNil(repo.repoLastRefreshAt["vis"],
+                     "a failed load must not record a refresh time")
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"),
-                      "a failed refresh must not suppress the next tick")
+                      "a failed refresh must leave the account due for the next tick")
     }
 
     func testLocalStatusRefreshPreservesRemoteFailureUntilLiveCheckSucceeds() async throws {

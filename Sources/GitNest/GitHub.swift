@@ -423,29 +423,14 @@ struct ProjectInitPlan: Identifiable, Sendable {
         // → "new-repo" shares nothing and warns.
         let srcAlnum = String(sourceName.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
         let dstAlnum = String(sanitizedRepoName.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
-        if !dstAlnum.isEmpty, Self.isSubsequence(dstAlnum, of: srcAlnum) { return nil }
+        // Reuses the search bar's subsequence matcher. The `!dstAlnum.isEmpty` guard
+        // keeps the empty case explicit (an all-punctuation name shares nothing and
+        // should warn), independent of how the matcher treats an empty needle.
+        if !dstAlnum.isEmpty, WildcardMatcher.isSubsequence(dstAlnum, of: srcAlnum) { return nil }
         return """
         The folder name “\(sourceName)” isn’t a valid GitHub repo name and was sanitized to “\(sanitizedRepoName)”. \
         Rename the folder (alphanumerics, dots, underscores, and hyphens only) if you want a different repo name.
         """
-    }
-
-    /// True when every character of `needle` appears in `hay` in order. Applied to
-    /// alphanumeric-only views so the punctuation sanitization replaces doesn't
-    /// mask a recognizable derivation.
-    private static func isSubsequence(_ needle: String, of hay: String) -> Bool {
-        guard !needle.isEmpty else { return false }
-        var idx = hay.startIndex
-        for ch in needle {
-            var found = false
-            while idx < hay.endIndex {
-                let cur = hay[idx]
-                idx = hay.index(after: idx)
-                if cur == ch { found = true; break }
-            }
-            if !found { return false }
-        }
-        return true
     }
 
     var warningText: String {

@@ -183,19 +183,10 @@ final class AccountManager: ObservableObject {
 
     func loadAccountStatus(_ account: Account, session: UUID) async {
         let alias = account.alias
-        // Clear the in-flight marker on every exit path — but only while this is
-        // still the current session. A newer batch bumps accountStatusSessionID and
-        // clears the whole set itself, then re-inserts aliases for its own in-flight
-        // checks; removing here in that case would wipe an entry we no longer own.
-        // Guarding on the session (not the stricter `isCurrentAccountStatusSession`,
-        // which also requires the account to still be present) is deliberate: a
-        // same-session check whose account was removed mid-flight must still clear
-        // the entry *this* task inserted, or it leaks in accountStatusChecksPending.
-        defer {
-            if session == accountStatusSessionID {
-                accountStatusChecksPending.remove(alias)
-            }
-        }
+        // Clear the in-flight marker on every exit path. The condition is
+        // deliberately looser than the early-return guards below — see
+        // `clearAccountStatusPending`.
+        defer { clearAccountStatusPending(alias, session: session) }
         let greeting = await runBlocking { GitHub.sshGreeting(host: account.sshHost) }
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
         sshGreetings[alias] = greeting
@@ -230,6 +221,23 @@ final class AccountManager: ObservableObject {
     func isCurrentAccountStatusSession(_ session: UUID, alias: String) -> Bool {
         session == accountStatusSessionID
             && accounts.contains(where: { $0.alias == alias })
+    }
+
+    /// Drops `alias`'s in-flight marker when a `loadAccountStatus` check exits,
+    /// but only while `session` is still the active batch.
+    ///
+    /// This is intentionally looser than `isCurrentAccountStatusSession`, the guard
+    /// the in-body `await`s use: it checks the session ID but NOT that the account
+    /// is still present. The divergence is the whole point. A check whose account
+    /// was removed mid-flight (same session) early-returns without writing state,
+    /// but it still inserted a marker in `accountStatusChecksPending` that only this
+    /// task can remove — gating on account presence here would leak it. A newer
+    /// batch (different session) bumps `accountStatusSessionID`, clears the set, and
+    /// re-inserts its own markers, so the session check keeps us from deleting an
+    /// entry we no longer own.
+    func clearAccountStatusPending(_ alias: String, session: UUID) {
+        guard session == accountStatusSessionID else { return }
+        accountStatusChecksPending.remove(alias)
     }
 
     func runAccountStatusCheckIfNeeded(_ account: Account, session: UUID, force: Bool) async {

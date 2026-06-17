@@ -62,11 +62,21 @@ final class RepoManager: ObservableObject {
     private let ghChain: GhChain
     private let logStore: LogStore
     private let accountManager: AccountManager
+    /// The repo-list fetch, injectable so tests can drive `loadRepos` down its
+    /// success/failure branches without a network call. Production passes the real
+    /// `GitHub.listRepos`.
+    private let listRepos: @Sendable (String) -> Result<[Repo], CommandError>
 
-    init(ghChain: GhChain, logStore: LogStore, accountManager: AccountManager) {
+    init(ghChain: GhChain,
+         logStore: LogStore,
+         accountManager: AccountManager,
+         listRepos: @escaping @Sendable (String) -> Result<[Repo], CommandError> = {
+             GitHub.listRepos(owner: $0)
+         }) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.accountManager = accountManager
+        self.listRepos = listRepos
         bindFilteredRepos()
         rebuildFilteredRepos()
     }
@@ -178,7 +188,8 @@ final class RepoManager: ObservableObject {
         }
 
         logStore.append((silent || hasVisibleRepos) ? "Refreshing repos for \(owner)…" : "Listing repos for \(owner)…")
-        let result = await ghChain.serializedPreservingActiveAccount { GitHub.listRepos(owner: owner) }
+        let listRepos = self.listRepos
+        let result = await ghChain.serializedPreservingActiveAccount { listRepos(owner) }
         if accountManager.selectedAccount?.alias == owner {
             isLoadingRepos = false
             isRefreshingRepos = false
