@@ -250,9 +250,4 @@ final class AppModel: ObservableObject {
         }
         return .occupied(RepoFolderConflict(path: path, origin: origin))
     }
-
-    /// Run blocking shell work off the main actor; result lands back on the main actor.
-    func run<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
-        await runBlocking(work)
-    }
 }

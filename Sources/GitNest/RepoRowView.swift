@@ -4,6 +4,9 @@ import SwiftUI
 struct RepoRowView: View {
     @EnvironmentObject var repoManager: RepoManager
     @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
+    // Needed only to re-inject the object graph into the row's popovers, which get a
+    // fresh environment branch on macOS (see the .gitNestEnvironment calls below).
+    @EnvironmentObject var model: AppModel
     @Environment(\.theme) private var theme
 
     let repo: Repo
@@ -82,8 +85,10 @@ struct RepoRowView: View {
             switch which {
             case .history:
                 CommitHistoryContent(repo: repo, account: account)
+                    .gitNestEnvironment(model)
             case .incoming:
                 IncomingCommitsContent(repo: repo, account: account)
+                    .gitNestEnvironment(model)
             }
         }
     }
@@ -227,6 +232,7 @@ struct RepoRowView: View {
     private var stashMenu: some View {
         ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
             StashContent(repo: repo, account: account)
+                .gitNestEnvironment(model)
         }
     }
 

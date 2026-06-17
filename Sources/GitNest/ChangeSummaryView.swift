@@ -8,6 +8,7 @@ struct ChangeSummaryButton: View {
     let account: Account
     let count: Int
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
+    @EnvironmentObject private var model: AppModel
     @Environment(\.theme) private var theme
     @State private var showing = false
 
@@ -30,7 +31,11 @@ struct ChangeSummaryButton: View {
         .tooltip("\(count) changed file\(count == 1 ? "" : "s") — click for a summary")
         .accessibilityLabel("\(count) changed files. Show summary.")
         .popover(isPresented: $showing, arrowEdge: .bottom) {
+            // Re-inject the object graph: on macOS a popover gets a fresh environment
+            // branch, so @EnvironmentObject lookups inside it aren't guaranteed to
+            // inherit from the presenter. See EnvironmentInjection / AGENTS.md.
             ChangeSummaryContent(repo: repo, account: account)
+                .gitNestEnvironment(model)
         }
     }
 }

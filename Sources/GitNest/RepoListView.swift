@@ -12,6 +12,9 @@ struct RepoActionTarget: Identifiable {
 struct RepoListView: View {
     @EnvironmentObject var repoManager: RepoManager
     @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
+    // Needed only to re-inject the object graph into the commit sheet, which gets a
+    // fresh environment branch on macOS (see the .gitNestEnvironment call below).
+    @EnvironmentObject var model: AppModel
     @Environment(\.theme) private var theme
 
     let account: Account
@@ -65,6 +68,7 @@ struct RepoListView: View {
                 commitMessage: $commitMessage,
                 commitTarget: $commitTarget
             )
+            .gitNestEnvironment(model)
         }
         .confirmationDialog(
             "Push this repository to GitHub?",

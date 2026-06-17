@@ -76,7 +76,8 @@ and which one your change belongs in.
 |    lifecycle / cross-manager orchestration).                     |
 |  • No shell calls, no business logic, no git parsing here.       |
 +---------------^--------------------------------------------------+
-                | @Published source-of-truth + intent methods
+                | AppModel used only for lifecycle + orchestration;
+                | for STATE, views observe the managers below directly
 +---------------v--------------------------------------------------+
 |  FACADE  AppModel (@MainActor, ObservableObject)                 |
 |  • Owns the managers/coordinators, wires them in init().         |

@@ -137,12 +137,14 @@ struct ContentView: View {
                 moveOriginalToTrash: $moveOriginalToTrash,
                 initPlan: $initPlan
             )
+            .gitNestEnvironment(model)
         }
         .sheet(isPresented: $showForkSheet) {
             ForkProjectSheet(
                 forkAddress: $forkAddress,
                 showForkSheet: $showForkSheet
             )
+            .gitNestEnvironment(model)
         }
         .alert(
             pullAlertTitle,
