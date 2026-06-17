@@ -8,7 +8,6 @@ struct ChangeSummaryButton: View {
     let account: Account
     let count: Int
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
-    @EnvironmentObject private var model: AppModel
     @Environment(\.theme) private var theme
     @State private var showing = false
 
@@ -32,7 +31,6 @@ struct ChangeSummaryButton: View {
         .accessibilityLabel("\(count) changed files. Show summary.")
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             ChangeSummaryContent(repo: repo, account: account)
-                .gitNestEnvironment(model)
         }
     }
 }

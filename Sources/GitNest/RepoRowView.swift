@@ -2,7 +2,6 @@ import SwiftUI
 
 /// A single repository row in the repo list: icon, name, status pills, and actions.
 struct RepoRowView: View {
-    @EnvironmentObject var model: AppModel
     @EnvironmentObject var repoManager: RepoManager
     @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
@@ -83,10 +82,8 @@ struct RepoRowView: View {
             switch which {
             case .history:
                 CommitHistoryContent(repo: repo, account: account)
-                    .gitNestEnvironment(model)
             case .incoming:
                 IncomingCommitsContent(repo: repo, account: account)
-                    .gitNestEnvironment(model)
             }
         }
     }
@@ -230,7 +227,6 @@ struct RepoRowView: View {
     private var stashMenu: some View {
         ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
             StashContent(repo: repo, account: account)
-                .gitNestEnvironment(model)
         }
     }
 

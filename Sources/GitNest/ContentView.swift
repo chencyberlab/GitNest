@@ -4,8 +4,6 @@ import AppKit
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var accountManager: AccountManager
-    @EnvironmentObject var repoManager: RepoManager
-    @EnvironmentObject var projectWorkflow: ProjectWorkflow
     @EnvironmentObject var alertStore: AlertStore
     @StateObject var tooltip = TooltipController()
 
