@@ -10,8 +10,8 @@ final class RepoIdentityTests: XCTestCase {
 
         model.repoManager.clonedRepos = [mine.id]
 
-        XCTAssertTrue(model.isCloned(mine))
-        XCTAssertFalse(model.isCloned(shared))
+        XCTAssertTrue(model.repoManager.isCloned(mine))
+        XCTAssertFalse(model.repoManager.isCloned(shared))
     }
 
     func testRefreshClonedStatusReportsSameNameFolderConflict() async throws {
@@ -36,12 +36,12 @@ final class RepoIdentityTests: XCTestCase {
         model.accountManager.selectedAccount = account
         model.repoManager.repos = [mine, shared]
 
-        await model.refreshClonedStatus(for: account)
+        await model.repoManager.refreshClonedStatus(for: account)
 
-        XCTAssertFalse(model.isCloned(mine))
-        XCTAssertTrue(model.isCloned(shared))
-        XCTAssertEqual(model.folderConflict(mine)?.origin, "https://github.com/friend/tools.git")
-        XCTAssertNil(model.folderConflict(shared))
+        XCTAssertFalse(model.repoManager.isCloned(mine))
+        XCTAssertTrue(model.repoManager.isCloned(shared))
+        XCTAssertEqual(model.repoManager.folderConflict(mine)?.origin, "https://github.com/friend/tools.git")
+        XCTAssertNil(model.repoManager.folderConflict(shared))
     }
 
     func testRefreshClonedStatusReportsWrongAccountSSHAliasAsConflict() async throws {
@@ -65,10 +65,10 @@ final class RepoIdentityTests: XCTestCase {
         model.accountManager.selectedAccount = account
         model.repoManager.repos = [target]
 
-        await model.refreshClonedStatus(for: account)
+        await model.repoManager.refreshClonedStatus(for: account)
 
-        XCTAssertFalse(model.isCloned(target))
-        XCTAssertEqual(model.folderConflict(target)?.origin, "git@github-work:me/tools.git")
+        XCTAssertFalse(model.repoManager.isCloned(target))
+        XCTAssertEqual(model.repoManager.folderConflict(target)?.origin, "git@github-work:me/tools.git")
     }
 
     func testBusyRepoActionCoversRowsSharingTheSameLocalPath() async throws {
@@ -105,20 +105,20 @@ final class RepoIdentityTests: XCTestCase {
         model.repoManager.repos = [mine, shared]
         model.repoManager.clonedRepos = [mine.id, shared.id]
 
-        let task = Task { await model.commit(mine, message: "Initial commit") }
+        let task = Task { await model.repoActionCoordinator.commit(mine, message: "Initial commit") }
         var attempts = 0
-        while attempts < 100 && !model.isRepoActionBusy(shared) {
+        while attempts < 100 && !model.repoActionCoordinator.isRepoActionBusy(shared) {
             attempts += 1
             try await Task.sleep(nanoseconds: 20_000_000)
         }
 
-        XCTAssertTrue(model.isRepoActionBusy(mine))
-        XCTAssertTrue(model.isRepoActionBusy(shared))
+        XCTAssertTrue(model.repoActionCoordinator.isRepoActionBusy(mine))
+        XCTAssertTrue(model.repoActionCoordinator.isRepoActionBusy(shared))
 
         await task.value
 
-        XCTAssertFalse(model.isRepoActionBusy(mine))
-        XCTAssertFalse(model.isRepoActionBusy(shared))
+        XCTAssertFalse(model.repoActionCoordinator.isRepoActionBusy(mine))
+        XCTAssertFalse(model.repoActionCoordinator.isRepoActionBusy(shared))
     }
 
     func testRepoActionCanStayScopedToOriginalAccountAfterSelectionChanges() async throws {
@@ -161,7 +161,7 @@ final class RepoIdentityTests: XCTestCase {
         model.repoManager.repoCache[accountA.alias] = [target]
         model.repoManager.clonedReposCache[accountA.alias] = [target.id]
 
-        await model.commit(target, message: "Commit in account A", in: accountA)
+        await model.repoActionCoordinator.commit(target, message: "Commit in account A", in: accountA)
 
         let accountALog = Shell.run(["git", "log", "-1", "--pretty=%s"], cwd: repoA.path)
         let accountBHead = Shell.run(["git", "rev-parse", "--verify", "HEAD"], cwd: repoB.path)
@@ -204,7 +204,7 @@ final class RepoIdentityTests: XCTestCase {
         model.repoManager.repoCache[accountA.alias] = [existing, target]
         model.repoManager.clonedReposCache[accountA.alias] = [existing.id]
 
-        await model.clone(target, in: accountA)
+        await model.repoActionCoordinator.clone(target, in: accountA)
 
         XCTAssertEqual(model.repoManager.clonedRepos, [visible.id])
         XCTAssertFalse(model.repoManager.clonedReposCache[accountA.alias]?.contains(visible.id) == true)
@@ -239,10 +239,10 @@ final class RepoIdentityTests: XCTestCase {
         model.repoManager.repos = [target]
         model.repoManager.clonedRepos = [target.id]
 
-        await model.commit(target, message: "Should not commit")
+        await model.repoActionCoordinator.commit(target, message: "Should not commit")
 
         XCTAssertFalse(Shell.run(["git", "rev-parse", "--verify", "HEAD"], cwd: localRepo.path).ok)
-        XCTAssertTrue(model.log.contains("no longer a clone of me/tools"))
+        XCTAssertTrue(model.logStore.log.contains("no longer a clone of me/tools"))
     }
 
     private func repo(owner: String, name: String) -> Repo {
