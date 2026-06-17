@@ -124,6 +124,31 @@ final class AccountSetupTests: XCTestCase {
             [expand("~/.ssh/id_rsa"), expand("~/.ssh/id_shared")])
     }
 
+    func testForeignIdentityFilesIgnoresCommentedDirectives() {
+        let config = """
+        Host *
+            # IdentityFile ~/.ssh/id_old
+            IdentityFile ~/.ssh/id_rsa
+
+        Host github-alice
+            IdentityFile ~/.ssh/id_alice
+        """
+        let expand = { ($0 as NSString).expandingTildeInPath }
+        // id_old is fully commented out → must not be flagged; id_rsa still is.
+        XCTAssertEqual(
+            AccountSetup.foreignIdentityFiles(host: "github-alice",
+                                              expectedKeyPath: "~/.ssh/id_alice",
+                                              in: config),
+            [expand("~/.ssh/id_rsa")])
+    }
+
+    func testContainsHostEntryIgnoresFullyCommentedHostLines() {
+        // A whole-line-commented Host must not count as already-configured, or the
+        // wizard would skip writing the real block.
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "# Host github-alice"))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "   #Host github-alice"))
+    }
+
     func testForeignIdentityFilesDoesNotAttributeUnrelatedBlocks() {
         let config = """
         Host gitlab.com

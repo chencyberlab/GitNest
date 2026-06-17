@@ -416,8 +416,11 @@ enum AccountSetup {
 
     static func containsHostEntry(host: String, in config: String) -> Bool {
         for raw in config.components(separatedBy: .newlines) {
-            // Drop inline comments and surrounding whitespace.
-            let uncommented = raw.split(separator: "#", maxSplits: 1).first ?? ""
+            // Drop inline comments and surrounding whitespace. `omittingEmptySubsequences:
+            // false` keeps the empty piece before a leading `#`, so a fully-commented
+            // `# Host …` line collapses to "" instead of being read as a live Host entry
+            // (which would make the wizard wrongly skip writing the block).
+            let uncommented = raw.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
             let line = uncommented.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
@@ -513,8 +516,12 @@ enum AccountSetup {
         var seen: Set<String> = []
 
         for rawLine in config.components(separatedBy: .newlines) {
-            // Drop inline comments and surrounding whitespace, mirroring containsHostEntry.
-            let line = (rawLine.split(separator: "#", maxSplits: 1).first.map(String.init) ?? "")
+            // Strip an inline or whole-line comment, then trim. `omittingEmptySubsequences:
+            // false` keeps the empty piece before a leading `#`, so a fully-commented
+            // `# IdentityFile …` line collapses to "" (skipped) instead of being read
+            // as a live directive.
+            let line = (rawLine.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+                .first.map(String.init) ?? "")
                 .trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { continue }
             let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })

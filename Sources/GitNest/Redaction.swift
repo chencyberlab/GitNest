@@ -39,10 +39,13 @@ enum Redaction {
             result = rule.regex.stringByReplacingMatches(
                 in: result, options: [], range: range, withTemplate: rule.template)
         }
-        // Fold the home directory to `~` last, after any token has been masked.
+        // Fold the home directory to `~` last, after any token has been masked. Only
+        // fold `<home>/…` (a real path boundary) so a sibling whose name merely starts
+        // with the home dir's — e.g. `/Users/alice2` when home is `/Users/alice` — is
+        // never corrupted into `~2`.
         let home = NSHomeDirectory()
         if home.count > 1 {   // never collapse a "/" home into nothing
-            result = result.replacingOccurrences(of: home, with: "~")
+            result = result.replacingOccurrences(of: home + "/", with: "~/")
         }
         return result
     }

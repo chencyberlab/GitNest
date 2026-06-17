@@ -27,6 +27,14 @@ final class RedactionTests: XCTestCase {
         XCTAssertEqual(Redaction.scrub("backed up \(home)/.ssh/config"), "backed up ~/.ssh/config")
     }
 
+    func testDoesNotFoldSiblingDirectoryWithSharedPrefix() {
+        let home = NSHomeDirectory()
+        // A sibling whose name merely starts with the home dir's must be left intact —
+        // only `<home>/…` is a real boundary.
+        let sibling = "at \(home)2/repo and \(home)-backup/x"
+        XCTAssertEqual(Redaction.scrub(sibling), sibling)
+    }
+
     func testLeavesOrdinaryTextUntouched() {
         let text = "✓ pulled repo — 3 files changed"
         XCTAssertEqual(Redaction.scrub(text), text)
