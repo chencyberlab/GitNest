@@ -152,9 +152,13 @@ final class SetupCoordinator: ObservableObject {
         case .success(let r):
             addAccountPublicKey = r.publicKey
             addAccountKeyCreated = r.created
-            logStore.append(r.created
-                          ? "Add account: generated SSH key id_\(alias)."
-                          : "Add account: reusing existing SSH key id_\(alias).")
+            if r.created {
+                logStore.append(r.hardened
+                              ? "Add account: generated SSH key id_\(alias) (encrypted; passphrase saved to your login Keychain)."
+                              : "Add account: generated SSH key id_\(alias) (unencrypted — couldn't reach ssh-agent/Keychain to store a passphrase, so it's protected by file permissions only).")
+            } else {
+                logStore.append("Add account: reusing existing SSH key id_\(alias).")
+            }
             addAccountStep = .sshKey
         case .failure(let e):
             addAccountError = "SSH key error: \(e.message)"
@@ -180,6 +184,21 @@ final class SetupCoordinator: ObservableObject {
             if result.wroteBlock { logStore.append("Add account: added ~/.ssh/config host github-\(alias).") }
         case .failure(let e):
             addAccountError = e.message; addAccountBusy = false; return
+        }
+
+        // Advisory (non-blocking): an earlier `Host *`/`Host github-*` block with its
+        // own IdentityFile would also be offered for this host under IdentitiesOnly,
+        // which can let a different key authenticate the wrong account. The greeting
+        // check below still fails closed if that happens; this just names the cause.
+        let foreignKeys = await runBlocking { () -> [String] in
+            let configText = (try? String(contentsOfFile: AccountSetup.sshConfigPath(), encoding: .utf8)) ?? ""
+            return AccountSetup.foreignIdentityFiles(host: "github-\(alias)",
+                                                     expectedKeyPath: AccountSetup.keyPath(alias: alias),
+                                                     in: configText)
+        }
+        guard isCurrentAddAccountSession(session) else { return }
+        if !foreignKeys.isEmpty {
+            logStore.append("⚠ Add account: another ~/.ssh/config block also offers \(foreignKeys.joined(separator: ", ")) for github-\(alias). Under IdentitiesOnly that can let the wrong key authenticate — if verification shows an unexpected account, scope that block (or move it below the github-\(alias) block).")
         }
 
         let name = id.displayName

@@ -453,9 +453,15 @@ struct ProjectInitPlan: Identifiable, Sendable {
 
 /// Thin wrapper over the `gh` CLI (invisible plumbing) and `git` / `ssh`.
 enum GitHub {
+    /// Args for `gh auth status`. Deliberately omits `--show-token`: this output is
+    /// appended to the Output log, and `gh` masks the token only when not asked to
+    /// show it. Kept as a seam so a test can pin the no-`--show-token` invariant
+    /// (the redaction sink in `LogStore` is the backstop, this is the front line).
+    static func authStatusArgs() -> [String] { ["gh", "auth", "status"] }
+
     /// Raw `gh auth status` text — shown so you can see which accounts are logged in.
     static func authStatus() -> ShellResult {
-        Shell.run(["gh", "auth", "status"])
+        Shell.run(authStatusArgs())
     }
 
     /// Starts GitHub CLI web login flow (opens browser) without SSH key prompts.

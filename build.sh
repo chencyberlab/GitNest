@@ -54,7 +54,13 @@ if [[ -f "$KNOWN_HOSTS" ]]; then
   cp "$KNOWN_HOSTS" "${BUNDLE}/Contents/Resources/known_hosts"
   echo "   bundled $KNOWN_HOSTS"
 else
-  echo "   (warning: $KNOWN_HOSTS not found — SSH host-key pinning disabled)"
+  # Fail loud rather than ship a build whose SSH checks silently fall back to the
+  # user's ~/.ssh/known_hosts (no host-key pinning). The file is committed, so a
+  # missing one is an anomaly worth stopping for.
+  echo "ERROR: $KNOWN_HOSTS not found — refusing to ship an unpinned build." >&2
+  echo "       Regenerate it from GitHub's published keys (HTTPS-validated, not TOFU):" >&2
+  echo "         curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | \"github.com \" + .' > $KNOWN_HOSTS" >&2
+  exit 1
 fi
 
 ICON_PLIST_ENTRY=""
@@ -85,8 +91,14 @@ ${ICON_PLIST_ENTRY}
 </plist>
 PLIST
 
-echo ">> Ad-hoc codesigning ..."
-codesign --force --deep --sign - "$BUNDLE" >/dev/null 2>&1 || echo "   (codesign skipped - not required to run locally)"
+# Ad-hoc signature WITH Hardened Runtime (--options runtime). This needs no paid
+# Developer ID and restricts other user-level processes from attaching a debugger
+# or reading this process's memory — i.e. lifting SSH key material or the agent
+# handle out of GitNest at runtime. If a hardened-runtime ad-hoc bundle ever fails
+# to launch on some setup, drop `--options runtime` to fall back to a plain ad-hoc
+# signature.
+echo ">> Ad-hoc codesigning (Hardened Runtime) ..."
+codesign --force --deep --options runtime --sign - "$BUNDLE" >/dev/null 2>&1 || echo "   (codesign skipped - not required to run locally)"
 
 echo "OK: built ./${BUNDLE}"
 echo "    Architecture: $(lipo -archs "${BUNDLE}/Contents/MacOS/${APP_NAME}" 2>/dev/null || uname -m)"

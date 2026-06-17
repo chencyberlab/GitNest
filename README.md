@@ -117,6 +117,15 @@ account's SSH alias, for example:
 git@github-work:work-user/GitNest.git
 ```
 
+> **Note on `gh`'s active account.** `gh auth switch` changes *global* on-disk state
+> that GitNest shares with any `gh` you run in a terminal. GitNest serializes its own
+> `gh` usage (switch → use → restore) and puts the active account back on quit, but it
+> can't coordinate with a `gh auth switch` you run elsewhere *at the same time*. This
+> is safe by construction: every account-sensitive call re-verifies `gh api user`
+> matches the intended account and refuses to proceed otherwise, so the worst case of
+> a concurrent external switch is a refused operation — never an action on the wrong
+> account.
+
 ### Auto-refresh scheduling
 
 A single background timer wakes every interval you pick (Off / 30s / 2m / 5m /
@@ -187,11 +196,18 @@ Requires macOS 13 or later, the Swift toolchain, and `gh`, `git`, and `ssh` on
 `PATH`. Installing Xcode or the Xcode command-line tools is enough for Swift:
 
 > **Note on SSH host keys:** The bundled `.app` pins GitHub's SSH host keys via
-> `StrictHostKeyChecking=yes` and a bundled `known_hosts` file. If GitHub rotates
-> its host keys, SSH checks will fail until the bundled file is updated. You can
-> work around this by editing `~/.ssh/config` for the affected host alias to use
-> `StrictHostKeyChecking accept-new` or by updating the `Resources/known_hosts`
-> file before building.
+> `StrictHostKeyChecking=yes` and a bundled `known_hosts` file. `build.sh` now
+> **refuses to build** if `Resources/known_hosts` is missing, rather than silently
+> shipping an unpinned app. If GitHub rotates its host keys, SSH checks will fail
+> until the pinned file is refreshed — regenerate it from GitHub's published keys
+> over HTTPS (certificate-validated, not trust-on-first-use), then rebuild:
+>
+> ```bash
+> curl -fsSL https://api.github.com/meta | jq -r '.ssh_keys[] | "github.com " + .' > Resources/known_hosts
+> ```
+>
+> As a temporary per-host workaround you can instead set `StrictHostKeyChecking
+> accept-new` in `~/.ssh/config` for the affected alias.
 
 ```bash
 xcode-select --install

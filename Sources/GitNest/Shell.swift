@@ -114,9 +114,14 @@ enum Shell {
     /// when launched from a .app bundle via Finder. No shell also means no
     /// quoting pitfalls and no user dotfile output polluting stdout — `gh`'s
     /// JSON must arrive byte-exact.
+    /// `extraEnv` is merged over the sanitized base environment *after* scrubbing,
+    /// so callers can hand a child process variables the scrub would otherwise strip
+    /// (e.g. an `SSH_ASKPASS` helper for `ssh-add`). It never reintroduces a `gh`
+    /// identity override — callers only pass their own purpose-built keys.
     static func run(_ args: [String], cwd: String? = nil,
                     timeout: TimeInterval = defaultTimeout,
                     killGracePeriod: TimeInterval = defaultKillGracePeriod,
+                    extraEnv: [String: String] = [:],
                     handle: ProcessHandle? = nil) -> ShellResult {
         guard let command = args.first else {
             return ShellResult(exitCode: -1, stdout: "", stderr: "no command given")
@@ -125,11 +130,15 @@ enum Shell {
             return ShellResult(exitCode: 127, stdout: "", stderr: "command not found: \(command)")
         }
 
+        let environment = extraEnv.isEmpty
+            ? commandEnvironment()
+            : commandEnvironment().merging(extraEnv) { _, new in new }
+
         return runExecutable(
             executable: executable,
             arguments: Array(args.dropFirst()),
             cwd: cwd,
-            environment: commandEnvironment(),
+            environment: environment,
             timeout: timeout,
             killGracePeriod: killGracePeriod,
             displayArgs: args,

@@ -14,6 +14,9 @@ final class LogStore: ObservableObject {
     @Published var lastWasError = false
 
     func append(_ message: String) {
+        // Scrub at the sink so every line — progress text, raw gh/git output, error
+        // detail — is credential-free and home-dir-folded regardless of its source.
+        let message = Redaction.scrub(message)
         log += message + "\n"
         // Marker is always at the start of the message, even when the body spans
         // several lines, so this stays correct for multi-line error output.

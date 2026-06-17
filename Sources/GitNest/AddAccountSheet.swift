@@ -145,8 +145,8 @@ struct AddAccountSheet: View {
                 Text("Defaults to GitHub's private no-reply address — keeps your real email off commits.")
                     .font(.system(size: 10)).foregroundStyle(theme.textTertiary)
             }
-            Label("The SSH key is created without a passphrase so Git operations can run unattended. It is protected by file permissions only.",
-                  systemImage: "lock.open")
+            Label("The SSH key is encrypted with a random passphrase saved to your login Keychain, so Git runs unattended while the private key stays protected at rest. (If the agent can't be reached it falls back to file-permission protection only.)",
+                  systemImage: "lock")
                 .font(.system(size: 11))
                 .foregroundStyle(theme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)

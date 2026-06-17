@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Orchestrates adding a new GitHub account to the local multi-account setup:
 /// a dedicated SSH key, the `~/.ssh/config` host alias, the global `includeIf`
@@ -89,23 +90,50 @@ enum AccountSetup {
 
     // MARK: SSH key
 
+    /// Outcome of `ensureKey`.
+    struct KeyResult: Sendable {
+        let publicKey: String
+        /// True when this call generated a brand-new key (vs. reusing an existing one).
+        let created: Bool
+        /// True when a newly-created key was encrypted with a passphrase that was
+        /// stored in the login Keychain (so it's protected at rest yet still usable
+        /// unattended). Always false for a reused key — its state is left untouched —
+        /// and false when seeding the Keychain failed and the key was left
+        /// unencrypted so onboarding still works. Only meaningful when `created`.
+        let hardened: Bool
+    }
+
     /// Create a dedicated ed25519 key for `alias` if one doesn't already exist.
     /// Returns the public key text and whether it was newly created. Never
     /// overwrites an existing key (it's reused, since it may already be on GitHub).
-    static func ensureKey(alias: String, comment: String) -> Result<(publicKey: String, created: Bool), CommandError> {
+    ///
+    /// A newly-created key is encrypted with a random, app-managed passphrase that is
+    /// seeded into the login Keychain + ssh-agent (`AddKeysToAgent`/`UseKeychain` in
+    /// the host block then load it automatically). That keeps the on-disk key useless
+    /// on its own — defeating backup/sync/disk-copy exfiltration — while staying
+    /// unattended. If the Keychain can't be seeded (no agent, headless session), the
+    /// passphrase is stripped back off so the key still works; better an unencrypted
+    /// working key than an encrypted one nothing can unlock.
+    static func ensureKey(alias: String, comment: String) -> Result<KeyResult, CommandError> {
         let dir = sshDir()
         _ = Shell.run(["mkdir", "-p", dir])
         _ = Shell.run(["chmod", "700", dir])
         let key = keyPath(alias: alias)
         var created = false
+        var hardened = false
         if !FileManager.default.fileExists(atPath: key) {
-            // -N "" = no passphrase: the key is protected by its file permissions
-            // alone. There's no passphrase for the keychain (UseKeychain) to store,
-            // so the keychain adds nothing here — a deliberate tradeoff for
-            // unattended, per-account git over SSH.
-            let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", ""])
+            let passphrase = randomPassphrase()
+            let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", passphrase])
             guard res.ok else { return .failure(CommandError(message: short(res))) }
             created = true
+            if seedAgentKeychain(key: key, passphrase: passphrase) {
+                hardened = true
+            } else {
+                // Couldn't store the passphrase, so nothing could supply it later.
+                // Revert to an unencrypted key (we know the passphrase — we just made
+                // it) so unattended git over SSH keeps working, as it did before.
+                _ = stripPassphrase(key: key, oldPassphrase: passphrase)
+            }
         }
         // Enforce 0600 on the private key whether we just created it or are reusing
         // a pre-existing one — a key the app didn't create could have looser perms,
@@ -114,7 +142,64 @@ enum AccountSetup {
         guard let pub = try? String(contentsOfFile: pubKeyPath(alias: alias), encoding: .utf8) else {
             return .failure(CommandError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
         }
-        return .success((pub.trimmingCharacters(in: .whitespacesAndNewlines), created))
+        return .success(KeyResult(publicKey: pub.trimmingCharacters(in: .whitespacesAndNewlines),
+                                  created: created,
+                                  hardened: hardened))
+    }
+
+    /// A cryptographically-random passphrase for a freshly generated key. Lives only
+    /// in memory and in the `ssh-add` child's environment while it is seeded into the
+    /// Keychain — it is never written to disk and is discarded after `ensureKey`.
+    static func randomPassphrase(byteCount: Int = 32) -> String {
+        var bytes = [UInt8](repeating: 0, count: byteCount)
+        if SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes) != errSecSuccess {
+            // SecRandom shouldn't fail on macOS; if it ever does, fall back to the
+            // system RNG (also CSPRNG-backed) rather than ship a weak/empty passphrase.
+            bytes = (0..<byteCount).map { _ in UInt8.random(in: 0...UInt8.max) }
+        }
+        return Data(bytes).base64EncodedString()
+    }
+
+    /// The askpass helper script. Holds no secret itself — it just echoes the
+    /// passphrase from the environment of the `ssh-add` process that invokes it, so
+    /// the passphrase travels in-process and never lands on disk.
+    static func askpassScript() -> String {
+        "#!/bin/sh\nprintf '%s\\n' \"$GITNEST_ASKPASS_VALUE\"\n"
+    }
+
+    /// Write `askpassScript()` to a private (0700) temp file and return its path.
+    private static func makeAskpassHelper() -> String? {
+        let path = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent(".gitnest-askpass-\(UUID().uuidString.prefix(8))")
+        guard FileManager.default.createFile(atPath: path,
+                                             contents: Data(askpassScript().utf8),
+                                             attributes: [.posixPermissions: 0o700]) else { return nil }
+        return path
+    }
+
+    /// Store `key`'s passphrase in the login Keychain and load it into ssh-agent via
+    /// `ssh-add --apple-use-keychain`, feeding the passphrase through an askpass
+    /// helper (SSH_ASKPASS_REQUIRE=force makes ssh-add use it without a tty/DISPLAY,
+    /// OpenSSH 8.4+/macOS 13+). Returns whether the seed succeeded.
+    private static func seedAgentKeychain(key: String, passphrase: String) -> Bool {
+        guard let helper = makeAskpassHelper() else { return false }
+        defer { try? FileManager.default.removeItem(atPath: helper) }
+        return Shell.run(
+            ["ssh-add", "--apple-use-keychain", key],
+            extraEnv: [
+                "SSH_ASKPASS": helper,
+                "SSH_ASKPASS_REQUIRE": "force",
+                "GITNEST_ASKPASS_VALUE": passphrase,
+            ]
+        ).ok
+    }
+
+    /// Remove a key's passphrase (revert to unencrypted). The failsafe when the
+    /// Keychain couldn't be seeded; `oldPassphrase` is the app-generated one, so this
+    /// always has what it needs. The keypair — and thus the public key on GitHub — is
+    /// unchanged.
+    private static func stripPassphrase(key: String, oldPassphrase: String) -> Bool {
+        Shell.run(["ssh-keygen", "-p", "-P", oldPassphrase, "-N", "", "-f", key]).ok
     }
 
     // MARK: Config writers
@@ -357,7 +442,13 @@ enum AccountSetup {
     /// as a match: it doesn't configure this host's `HostName`/`IdentityFile`, so the
     /// wizard must still write its dedicated `Host github-<alias>` block. Requiring at
     /// least one literal character keeps `github-*` matching while excluding `*`/`?`.
-    static func hostMatchesPattern(host: String, pattern: String) -> Bool {
+    ///
+    /// `allowPureWildcard` selects between two callers with opposite needs: the
+    /// block-exists check (default `false`) ignores a bare `Host *`, because that
+    /// catch-all doesn't configure this host's HostName/IdentityFile and the wizard
+    /// must still write its own block; the IdentityFile-poisoning check passes `true`,
+    /// because OpenSSH *does* apply a `Host *` block's IdentityFile to every host.
+    static func hostMatchesPattern(host: String, pattern: String, allowPureWildcard: Bool = false) -> Bool {
         let trimmed = pattern.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
 
@@ -371,7 +462,7 @@ enum AccountSetup {
                 let cleanPart = part.trimmingCharacters(in: .whitespaces)
                 let isNegated = cleanPart.hasPrefix("!")
                 let inner = isNegated ? String(cleanPart.dropFirst()) : cleanPart
-                if hostMatchesPattern(host: host, pattern: inner) {
+                if hostMatchesPattern(host: host, pattern: inner, allowPureWildcard: allowPureWildcard) {
                     lastMatchWasPositive = !isNegated
                 }
             }
@@ -380,12 +471,14 @@ enum AccountSetup {
 
         // OpenSSH negation: `!pattern` matches when the inner pattern does not.
         if trimmed.hasPrefix("!") {
-            return !hostMatchesPattern(host: host, pattern: String(trimmed.dropFirst()))
+            return !hostMatchesPattern(host: host, pattern: String(trimmed.dropFirst()), allowPureWildcard: allowPureWildcard)
         }
 
         if trimmed.caseInsensitiveCompare(host) == .orderedSame { return true }
         guard trimmed.contains("*") || trimmed.contains("?") else { return false }
-        guard trimmed.contains(where: { $0 != "*" && $0 != "?" }) else { return false }
+        if !allowPureWildcard {
+            guard trimmed.contains(where: { $0 != "*" && $0 != "?" }) else { return false }
+        }
 
         var regex = ""
         for char in trimmed {
@@ -405,6 +498,49 @@ enum AccountSetup {
         }
         let range = NSRange(location: 0, length: (host as NSString).length)
         return re.firstMatch(in: host, options: [], range: range) != nil
+    }
+
+    /// IdentityFile directives in `config` that OpenSSH would *also* offer for `host`
+    /// — via an earlier `Host *` / `Host github-*` block — but which aren't this
+    /// account's own key. With `IdentitiesOnly yes` those extra identities are still
+    /// presented, so an unrelated key could end up authenticating as the wrong
+    /// account. The wizard surfaces these as a non-blocking warning. Returns the
+    /// expanded, de-duplicated foreign key paths (empty when the config is clean).
+    static func foreignIdentityFiles(host: String, expectedKeyPath: String, in config: String) -> [String] {
+        let expected = (expectedKeyPath as NSString).expandingTildeInPath
+        var blockApplies = false
+        var foreign: [String] = []
+        var seen: Set<String> = []
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            // Drop inline comments and surrounding whitespace, mirroring containsHostEntry.
+            let line = (rawLine.split(separator: "#", maxSplits: 1).first.map(String.init) ?? "")
+                .trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard let keyword = parts.first else { continue }
+
+            if keyword.caseInsensitiveCompare("Host") == .orderedSame {
+                blockApplies = parts.dropFirst().contains { token in
+                    let pattern = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                    return hostMatchesPattern(host: host, pattern: pattern, allowPureWildcard: true)
+                }
+            } else if keyword.caseInsensitiveCompare("Match") == .orderedSame {
+                // A `Match` block's applicability depends on runtime conditions we
+                // don't model; stop attributing IdentityFiles to `host` until the
+                // next Host block rather than risk a false warning.
+                blockApplies = false
+            } else if blockApplies, keyword.caseInsensitiveCompare("IdentityFile") == .orderedSame {
+                let value = line.dropFirst(keyword.count)
+                    .trimmingCharacters(in: .whitespaces)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+                guard !value.isEmpty else { continue }
+                let expanded = (value as NSString).expandingTildeInPath
+                guard expanded != expected, seen.insert(expanded).inserted else { continue }
+                foreign.append(expanded)
+            }
+        }
+        return foreign
     }
 
     static func sshLogin(from greeting: String) -> String? {

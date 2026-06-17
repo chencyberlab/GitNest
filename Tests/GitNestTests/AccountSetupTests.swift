@@ -90,6 +90,61 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-bob", pattern: "github-bob,!github-alice"))
     }
 
+    func testForeignIdentityFilesIgnoresACleanConfig() {
+        let config = """
+        Host github-alice
+            HostName github.com
+            IdentityFile ~/.ssh/id_alice
+            IdentitiesOnly yes
+        """
+        XCTAssertEqual(
+            AccountSetup.foreignIdentityFiles(host: "github-alice",
+                                              expectedKeyPath: "~/.ssh/id_alice",
+                                              in: config),
+            [])
+    }
+
+    func testForeignIdentityFilesFlagsCatchAllAndWildcardBlocks() {
+        let config = """
+        Host *
+            AddKeysToAgent yes
+            IdentityFile ~/.ssh/id_rsa
+
+        Host github-*
+            IdentityFile ~/.ssh/id_shared   # also offered for github-alice
+
+        Host github-alice
+            IdentityFile ~/.ssh/id_alice
+        """
+        let expand = { ($0 as NSString).expandingTildeInPath }
+        XCTAssertEqual(
+            AccountSetup.foreignIdentityFiles(host: "github-alice",
+                                              expectedKeyPath: "~/.ssh/id_alice",
+                                              in: config),
+            [expand("~/.ssh/id_rsa"), expand("~/.ssh/id_shared")])
+    }
+
+    func testForeignIdentityFilesDoesNotAttributeUnrelatedBlocks() {
+        let config = """
+        Host gitlab.com
+            IdentityFile ~/.ssh/id_gitlab
+
+        Host github-bob
+            IdentityFile ~/.ssh/id_bob
+        """
+        XCTAssertEqual(
+            AccountSetup.foreignIdentityFiles(host: "github-alice",
+                                              expectedKeyPath: "~/.ssh/id_alice",
+                                              in: config),
+            [])
+    }
+
+    func testHostMatchesPatternHonorsBareWildcardOnlyWhenAllowed() {
+        // The block-exists check ignores `*`; the IdentityFile check honors it.
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "*"))
+        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "*", allowPureWildcard: true))
+    }
+
     func testFoldersOverlapDetectsSymlinkEquivalentPaths() throws {
         let root = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("GitNestSymlinkOverlap-\(UUID().uuidString)")
@@ -213,6 +268,26 @@ final class AccountSetupTests: XCTestCase {
             return XCTFail("Expected failure for overlapping folder")
         }
         XCTAssertTrue(error.message.contains("overlaps"))
+    }
+
+    func testRandomPassphraseIsNonEmptyUniqueAndFullEntropy() {
+        let a = AccountSetup.randomPassphrase()
+        let b = AccountSetup.randomPassphrase()
+        XCTAssertFalse(a.isEmpty)
+        XCTAssertNotEqual(a, b, "two passphrases must not collide")
+        // Decodes back to the requested 32 bytes of entropy.
+        XCTAssertEqual(Data(base64Encoded: a)?.count, 32)
+        XCTAssertEqual(Data(base64Encoded: AccountSetup.randomPassphrase(byteCount: 16))?.count, 16)
+    }
+
+    func testAskpassHelperEchoesEnvWithoutEmbeddingASecret() {
+        let script = AccountSetup.askpassScript()
+        // The helper reads the passphrase from the environment at run time…
+        XCTAssertTrue(script.hasPrefix("#!/bin/sh"))
+        XCTAssertTrue(script.contains("$GITNEST_ASKPASS_VALUE"))
+        // …so the script itself must never contain a literal passphrase.
+        let passphrase = AccountSetup.randomPassphrase()
+        XCTAssertFalse(script.contains(passphrase))
     }
 
     func testWriteGitConfigRejectsEmptyNameOrEmail() {
