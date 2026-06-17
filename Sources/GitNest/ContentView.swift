@@ -3,6 +3,10 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var accountManager: AccountManager
+    @EnvironmentObject var repoManager: RepoManager
+    @EnvironmentObject var projectWorkflow: ProjectWorkflow
+    @EnvironmentObject var alertStore: AlertStore
     @StateObject var tooltip = TooltipController()
 
     // Project sheets
@@ -126,7 +130,7 @@ struct ContentView: View {
         }
         .onChange(of: accountStatusLoadModeRaw) { _ in
             model.configureAccountStatusLoadMode(accountStatusLoadMode)
-            model.refreshAll(statusMode: accountStatusLoadMode)
+            accountManager.refreshAll(statusMode: accountStatusLoadMode)
         }
         .sheet(item: $initPlan) { plan in
             InitProjectSheet(
@@ -145,19 +149,19 @@ struct ContentView: View {
         .alert(
             pullAlertTitle,
             isPresented: Binding(
-                get: { model.pullWarning != nil },
-                set: { if !$0 { model.dismissPullWarning() } }
+                get: { alertStore.pullWarning != nil },
+                set: { if !$0 { alertStore.dismissPullWarning() } }
             )
         ) {
-            Button("OK") { model.dismissPullWarning() }
+            Button("OK") { alertStore.dismissPullWarning() }
         } message: {
-            Text(model.pullWarning?.message ?? "")
+            Text(alertStore.pullWarning?.message ?? "")
         }
     }
 
     /// Pull-failure alert title, scoped to the repo that failed when known.
     var pullAlertTitle: String {
-        guard let name = model.pullWarning?.repoName, !name.isEmpty else {
+        guard let name = alertStore.pullWarning?.repoName, !name.isEmpty else {
             return "Pull couldn't complete"
         }
         return "Pull couldn't complete — \(name)"
@@ -166,7 +170,10 @@ struct ContentView: View {
 
 /// Detail pane: selected-account header + repo list + output log.
 private struct DetailView: View {
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var accountManager: AccountManager
+    @EnvironmentObject var repoManager: RepoManager
+    @EnvironmentObject var projectWorkflow: ProjectWorkflow
+    @EnvironmentObject var alertStore: AlertStore
     @Environment(\.theme) private var theme
 
     @Binding var commitTarget: RepoActionTarget?
@@ -189,10 +196,10 @@ private struct DetailView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let account = model.selectedAccount {
+            if let account = accountManager.selectedAccount {
                 header(account)
                 Divider().overlay(theme.border)
-                if !model.isLoadingRepos && !model.repos.isEmpty {
+                if !repoManager.isLoadingRepos && !repoManager.repos.isEmpty {
                     repoSearchBar
                 }
                 RepoListView(
@@ -224,7 +231,7 @@ private struct DetailView: View {
     // MARK: Header
 
     private func header(_ account: Account) -> some View {
-        let ready = model.accountReady(account)
+        let ready = accountManager.accountReady(account)
         let gateHint = connectionGateHint(account)
         return HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 3) {
@@ -241,7 +248,7 @@ private struct DetailView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Choose a local project folder, create a GitHub repo, and push it")
-                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
+                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isLoadingRepos || projectWorkflow.isForkingProject)
 
                 Button {
                     showForkSheet = true
@@ -251,16 +258,16 @@ private struct DetailView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Fork a GitHub repository into this account and clone it")
-                .disabled(!ready || model.isInitializingProject || model.isLoadingRepos || model.isForkingProject)
+                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isLoadingRepos || projectWorkflow.isForkingProject)
 
                 Button {
-                    Task { await model.loadRepos(for: account) }
+                    Task { await repoManager.loadRepos(for: account) }
                 } label: {
                     Label("Load repos", systemImage: "tray.and.arrow.down")
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "List every repo \(account.alias) owns (via gh)")
-                .disabled(!ready || model.isLoadingRepos || model.isInitializingProject || model.isForkingProject)
+                .disabled(!ready || repoManager.isLoadingRepos || projectWorkflow.isInitializingProject || projectWorkflow.isForkingProject)
             }
         }
     }
@@ -268,11 +275,11 @@ private struct DetailView: View {
     /// Why the action buttons are greyed out (nil once the account is ready) —
     /// surfaced as the buttons' tooltip so the disabled state isn't a mystery.
     private func connectionGateHint(_ account: Account) -> String? {
-        if model.accountReady(account) { return nil }
-        if model.accountChecking(account) {
+        if accountManager.accountReady(account) { return nil }
+        if accountManager.accountChecking(account) {
             return "Checking SSH and GitHub connection for \(account.alias)…"
         }
-        if !model.accountStatusKnown(account) {
+        if !accountManager.accountStatusKnown(account) {
             return "Connection status has not been checked for \(account.alias) yet. Select the card or press Refresh."
         }
         return "SSH or GitHub isn't ready for \(account.alias). Fix it on the account card (SSH / GitHub login), then Refresh."
@@ -291,7 +298,7 @@ private struct DetailView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         initVisibility = .private
         moveOriginalToTrash = false
-        Task { initPlan = await model.makeInitPlan(sourceURL: url, account: account) }
+        Task { initPlan = await projectWorkflow.makeInitPlan(sourceURL: url, account: account) }
     }
 
     // MARK: Search
@@ -302,14 +309,14 @@ private struct DetailView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.textMuted)
             TextField("Wild search repos…  (part of a name, glob like m*ger, or fuzzy “mgm”)",
-                      text: model.repoSearchBinding)
+                      text: $repoManager.repoSearch)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
-            if !model.repoSearch.isEmpty {
-                Text("\(model.filteredRepos.count)/\(model.repos.count)")
+            if !repoManager.repoSearch.isEmpty {
+                Text("\(repoManager.filteredRepos.count)/\(repoManager.repos.count)")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(theme.textTertiary)
-                Button { model.setRepoSearch("") } label: {
+                Button { repoManager.repoSearch = "" } label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.system(size: 13))
                         .foregroundStyle(theme.textTertiary)
@@ -333,9 +340,9 @@ private struct DetailView: View {
             Label("Cloned locally", systemImage: "internaldrive.fill").foregroundStyle(theme.accent)
             Spacer()
             repoRefreshStatus
-            Text(model.repoSearch.isEmpty
-                 ? "\(model.repos.count) repo(s)"
-                 : "\(model.filteredRepos.count) of \(model.repos.count) repo(s)")
+            Text(repoManager.repoSearch.isEmpty
+                 ? "\(repoManager.repos.count) repo(s)"
+                 : "\(repoManager.filteredRepos.count) of \(repoManager.repos.count) repo(s)")
                 .foregroundStyle(theme.textMuted)
         }
         .font(.system(size: 11, weight: .medium))
@@ -343,17 +350,17 @@ private struct DetailView: View {
 
     @ViewBuilder
     private var repoRefreshStatus: some View {
-        if model.isLoadingRepos || model.isRefreshingRepos {
+        if repoManager.isLoadingRepos || repoManager.isRefreshingRepos {
             Label("Refreshing repos…", systemImage: "arrow.clockwise")
                 .foregroundStyle(theme.warning)
                 .lineLimit(1)
                 .tooltip("Refreshing GitHub repo list")
-        } else if model.isCheckingRepoRemotes {
+        } else if repoManager.isCheckingRepoRemotes {
             Label("Checking cloned remotes…", systemImage: "arrow.triangle.2.circlepath")
                 .foregroundStyle(theme.warning)
                 .lineLimit(1)
                 .tooltip("Fetching upstream remotes for cloned repos")
-        } else if let message = model.repoRefreshMessage, !message.isEmpty {
+        } else if let message = repoManager.repoRefreshMessage, !message.isEmpty {
             let failed = message.localizedCaseInsensitiveContains("failed")
             Label(message, systemImage: failed ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(failed ? theme.error : theme.success)

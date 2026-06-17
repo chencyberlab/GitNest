@@ -4,6 +4,8 @@ import SwiftUI
 /// appearance/settings controls, and refresh.
 struct SidebarView: View {
     @EnvironmentObject var model: AppModel
+    @EnvironmentObject var accountManager: AccountManager
+    @EnvironmentObject var setupCoordinator: SetupCoordinator
     @Environment(\.theme) private var theme
 
     @Binding var accountSearch: String
@@ -45,8 +47,8 @@ struct SidebarView: View {
 
     private var filteredAccounts: [Account] {
         let query = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return model.accounts }
-        return model.accounts.filter { AccountSearch.matches(query: query, account: $0) }
+        guard !query.isEmpty else { return accountManager.accounts }
+        return accountManager.accounts.filter { AccountSearch.matches(query: query, account: $0) }
     }
 
     var body: some View {
@@ -69,7 +71,7 @@ struct SidebarView: View {
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(theme.textMuted).tracking(0.6)
                     Spacer()
-                    Button { model.beginAddAccount() } label: {
+                    Button { setupCoordinator.beginAddAccount() } label: {
                         Image(systemName: "plus").font(.system(size: 12, weight: .bold))
                     }
                     .buttonStyle(.plain)
@@ -81,7 +83,7 @@ struct SidebarView: View {
                 }
                 .padding(.horizontal, 8).padding(.top, 4)
 
-                if !model.accounts.isEmpty {
+                if !accountManager.accounts.isEmpty {
                     accountSearchBar
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -110,7 +112,7 @@ struct SidebarView: View {
                 .animation(.interactiveSpring(response: 0.24,
                                               dampingFraction: 0.86,
                                               blendDuration: 0.08),
-                           value: model.accounts.map(\.alias))
+                           value: accountManager.accounts.map(\.alias))
 
                 if filteredAccounts.isEmpty && !accountSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     Text("No accounts match.")
@@ -127,7 +129,7 @@ struct SidebarView: View {
         .frame(minWidth: 280)
         .background(theme.surface)
         .safeAreaInset(edge: .bottom) {
-            Button { model.refreshAll(statusMode: accountStatusLoadMode, manual: true) } label: {
+            Button { accountManager.refreshAll(statusMode: accountStatusLoadMode, manual: true) } label: {
                 Label("Refresh", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
             }
             .buttonStyle(SubtleButtonStyle())
@@ -145,7 +147,7 @@ struct SidebarView: View {
             Button("Continue and open login page") {
                 let target = account
                 ghLoginTarget = nil
-                Task { await model.reauthenticateGh(for: target) }
+                Task { await accountManager.reauthenticateGh(for: target) }
             }
             Button("Cancel", role: .cancel) {
                 ghLoginTarget = nil
@@ -157,7 +159,7 @@ struct SidebarView: View {
             Sign in as \(account.alias) if that is the account you want to refresh.
             """)
         }
-        .sheet(isPresented: model.addAccountActiveBinding) {
+        .sheet(isPresented: setupCoordinator.addAccountActiveBinding) {
             AddAccountSheet().gitNestEnvironment(model)
         }
     }
@@ -173,7 +175,7 @@ struct SidebarView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !accountSearch.isEmpty {
-                Text("\(filteredAccounts.count)/\(model.accounts.count)")
+                Text("\(filteredAccounts.count)/\(accountManager.accounts.count)")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(theme.textTertiary)
                 Button { accountSearch = "" } label: {
@@ -196,9 +198,9 @@ struct SidebarView: View {
 
     private func accountCard(_ account: Account) -> some View {
         let showsReorderControls = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && model.accounts.count > 1
+            && accountManager.accounts.count > 1
         return accountRow(account, showsReorderControls: showsReorderControls)
-            .background(SelectionBackground(selected: model.selectedAccount == account))
+            .background(SelectionBackground(selected: accountManager.selectedAccount == account))
             .contentShape(Rectangle())
             .onTapGesture {
                 model.selectAccount(account)
@@ -233,8 +235,8 @@ struct SidebarView: View {
                 if expanded {
                     Text(account.email).font(.system(size: 11)).foregroundStyle(theme.textMuted)
                     Text(account.sshHost).font(.system(size: 10)).foregroundStyle(theme.textTertiary)
-                    if let greeting = model.sshGreetings[account.alias] {
-                        let ok = model.accountSSHReady(account)
+                    if let greeting = accountManager.sshGreetings[account.alias] {
+                        let ok = accountManager.accountSSHReady(account)
                         authBadge(
                             ok: ok,
                             label: "SSH",
@@ -242,7 +244,7 @@ struct SidebarView: View {
                             help: "SSH key/auth check via ssh -T git@\(account.sshHost)"
                         )
                     }
-                    if let gh = model.ghIndicators[account.alias] {
+                    if let gh = accountManager.ghIndicators[account.alias] {
                         authBadge(
                             ok: gh.ok,
                             label: "GitHub",
@@ -264,7 +266,7 @@ struct SidebarView: View {
                                          help: "Open github.com/\(account.alias) in your browser",
                                          tint: theme.accent,
                                          fill: theme.accentSubtle) {
-                            model.openGitHubProfile(account)
+                            accountManager.openGitHubProfile(account)
                         }
                     }
                     .padding(.top, 2)
@@ -327,14 +329,14 @@ struct SidebarView: View {
     }
 
     private func accountSummaryStatus(_ account: Account) -> AccountSummaryStatus {
-        if model.accountChecking(account) {
+        if accountManager.accountChecking(account) {
             return .loading
         }
-        guard model.accountStatusKnown(account) else {
+        guard accountManager.accountStatusKnown(account) else {
             return .notLoaded
         }
-        let sshReady = model.accountSSHReady(account)
-        let ghReady = model.accountGhReady(account)
+        let sshReady = accountManager.accountSSHReady(account)
+        let ghReady = accountManager.accountGhReady(account)
         if sshReady && ghReady {
             return .ready
         }
@@ -364,7 +366,7 @@ struct SidebarView: View {
             .onChanged { value in
                 if draggingAlias == nil {
                     draggingAlias = account.alias
-                    dragStartOrder = model.accounts.map(\.alias)
+                    dragStartOrder = accountManager.accounts.map(\.alias)
                     dragStartFrames = cardFrames
                     dragStartMidY = cardFrames[account.alias]?.midY ?? value.location.y
                     dragTargetIndex = dragStartOrder.firstIndex(of: account.alias)
@@ -410,7 +412,7 @@ struct SidebarView: View {
             return
         }
         withAnimation(.interactiveSpring(response: 0.3, dampingFraction: 0.82)) {
-            model.moveAccount(alias: alias, toIndex: target)
+            accountManager.moveAccount(alias: alias, toIndex: target)
             resetDragState()
         }
     }

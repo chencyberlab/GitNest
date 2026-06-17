@@ -10,7 +10,8 @@ struct RepoActionTarget: Identifiable {
 
 /// Repo list for the selected account: search, sort, rows, and action sheets.
 struct RepoListView: View {
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var repoManager: RepoManager
+    @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
 
     let account: Account
@@ -30,11 +31,11 @@ struct RepoListView: View {
             repoListHeader
             Divider().overlay(theme.border)
             ScrollView {
-                if model.filteredRepos.isEmpty {
+                if repoManager.filteredRepos.isEmpty {
                     repoListEmptyState
                 } else {
                     LazyVStack(spacing: 2) {
-                        ForEach(model.filteredRepos) { repo in
+                        ForEach(repoManager.filteredRepos) { repo in
                             RepoRowView(
                                 repo: repo,
                                 account: account,
@@ -74,7 +75,7 @@ struct RepoListView: View {
             Button("Push to GitHub") {
                 let target = target
                 pushTarget = nil
-                Task { await model.push(target.repo, in: target.account) }
+                Task { await repoActionCoordinator.push(target.repo, in: target.account) }
             }
             Button("Cancel", role: .cancel) {
                 pushTarget = nil
@@ -90,7 +91,7 @@ struct RepoListView: View {
         ) { target in
             Button("Move to Trash", role: .destructive) {
                 let target = target; deleteTarget = nil
-                Task { await model.deleteLocalFolder(target.repo, in: target.account) }
+                Task { await repoActionCoordinator.deleteLocalFolder(target.repo, in: target.account) }
             }
             Button("Cancel", role: .cancel) { deleteTarget = nil }
         } message: { target in
@@ -118,13 +119,13 @@ struct RepoListView: View {
     /// A clickable column title: click toggles ASC/DESC, click another column to
     /// switch. An arrow shows the active column and direction.
     private func sortHeader(_ title: String, field: RepoSortField) -> some View {
-        let active = model.repoSortField == field
+        let active = repoManager.repoSortField == field
         return Button {
-            model.sortBy(field)
+            repoManager.sortBy(field)
         } label: {
             HStack(spacing: 3) {
                 Text(title)
-                Image(systemName: active ? (model.repoSortAscending ? "chevron.up" : "chevron.down")
+                Image(systemName: active ? (repoManager.repoSortAscending ? "chevron.up" : "chevron.down")
                                          : "chevron.up.chevron.down")
                     .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(active ? theme.accent : theme.textMuted.opacity(0.45))
@@ -138,16 +139,16 @@ struct RepoListView: View {
     @ViewBuilder
     private var repoListEmptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: model.repos.isEmpty ? "tray" : "magnifyingglass")
+            Image(systemName: repoManager.repos.isEmpty ? "tray" : "magnifyingglass")
                 .font(.system(size: 22))
                 .foregroundStyle(theme.textTertiary)
-            Text(model.repos.isEmpty
+            Text(repoManager.repos.isEmpty
                  ? "No repositories loaded yet."
-                 : "No repositories match “\(model.repoSearch)”.")
+                 : "No repositories match “\(repoManager.repoSearch)”.")
                 .font(.system(size: 12))
                 .foregroundStyle(theme.textMuted)
-            if !model.repos.isEmpty {
-                Button("Clear search") { model.setRepoSearch("") }
+            if !repoManager.repos.isEmpty {
+                Button("Clear search") { repoManager.repoSearch = "" }
                     .buttonStyle(SubtleButtonStyle())
             }
         }
@@ -163,7 +164,7 @@ struct CommitSheet: View {
     let target: RepoActionTarget
     @Binding var commitMessage: String
     @Binding var commitTarget: RepoActionTarget?
-    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -187,7 +188,7 @@ struct CommitSheet: View {
                     let message = commitMessage
                     let target = target
                     commitTarget = nil
-                    Task { await model.commit(target.repo, message: message, in: target.account) }
+                    Task { await repoActionCoordinator.commit(target.repo, message: message, in: target.account) }
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .keyboardShortcut(.defaultAction)
