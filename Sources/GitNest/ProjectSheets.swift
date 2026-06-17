@@ -11,13 +11,13 @@ struct InitProjectSheet: View {
     @Environment(\.theme) private var theme
 
     /// Builds the warning shown on the init plan sheet from the plan's blocking
-    /// reason or mismatched source origin.
+    /// reason, mismatched source origin, or a sanitized repo name.
     private func planWarning(_ plan: ProjectInitPlan) -> String? {
         if let reason = plan.blockingReason { return reason }
         if let origin = plan.sourceOrigin {
             return "This folder is a clone of a different repo (\(origin)). Its existing Git history will NOT be copied — a fresh repo is created under \(plan.account.alias) so the other repo's history isn't republished."
         }
-        return nil
+        return plan.repoNameWarning
     }
 
     var body: some View {

@@ -184,13 +184,16 @@ final class AccountManager: ObservableObject {
     func loadAccountStatus(_ account: Account, session: UUID) async {
         let alias = account.alias
         // Clear the in-flight marker on every exit path — but only while this is
-        // still the current session. A newer batch bumps accountStatusSessionID and
-        // clears the whole set itself, then re-inserts aliases for its own in-flight
-        // checks; removing here in that case would wipe an entry we no longer own.
-        // Guarding on the session still lets us clean up the same-session early
-        // returns (e.g. the account was removed mid-check), which would otherwise leak.
+        // still the current session *and* the account is still present. A newer
+        // batch bumps accountStatusSessionID and clears the whole set itself, then
+        // re-inserts aliases for its own in-flight checks; removing here in that
+        // case would wipe an entry we no longer own. Matching the early-return
+        // guards' exact predicate (`isCurrentAccountStatusSession`) keeps the
+        // "still same session" cleanup airtight: a same-session check whose account
+        // was removed mid-flight still clears its own stale entry, while a newer
+        // session's alias can never be touched.
         defer {
-            if session == accountStatusSessionID {
+            if isCurrentAccountStatusSession(session, alias: alias) {
                 accountStatusChecksPending.remove(alias)
             }
         }
@@ -198,8 +201,15 @@ final class AccountManager: ObservableObject {
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
         sshGreetings[alias] = greeting
 
-        let fallback = selectedAccount?.alias ?? accounts.first?.alias
         let indicator = await ghChain.serialized { () -> GhAuthIndicator in
+            // Snapshot whoever was active before this check so we can put gh back
+            // exactly where it was. If the snapshot itself fails (transient network,
+            // no active account), do NOT guess a restore target — guessing the
+            // selected/first account would silently flip the user's active gh
+            // identity to a different account than the one that was actually active.
+            // Leaving gh where `ensureActiveAccount` left it (pointing at `alias`,
+            // the account we just verified) is the lesser surprise; the next real
+            // gh operation switches accounts as needed.
             let original = Shell.run(["gh", "api", "user", "--jq", ".login"])
             let originalLogin = original.ok
                 ? original.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -207,8 +217,9 @@ final class AccountManager: ObservableObject {
 
             let check = GitHub.ensureActiveAccount(alias)
 
-            let restore = (originalLogin?.isEmpty == false) ? originalLogin : fallback
-            if let restore { _ = Shell.run(["gh", "auth", "switch", "-u", restore]) }
+            if let originalLogin, !originalLogin.isEmpty {
+                _ = Shell.run(["gh", "auth", "switch", "-u", originalLogin])
+            }
 
             return GhAuthIndicator(ok: check.ok,
                                    text: check.ok ? "gh ready" : "gh login required")

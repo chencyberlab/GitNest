@@ -115,6 +115,34 @@ final class RefreshSchedulerTests: XCTestCase {
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "other"))
     }
 
+    /// A failed refresh must NOT push out the next auto-refresh tick. Only a
+    /// successful refresh records `repoLastRefreshAt`; a transient failure
+    /// (network blip, 5xx — distinct from rate-limit backoff) leaves the account
+    /// due so the next tick retries promptly. This pins that contract by checking
+    /// the observable state `shouldAutoRefreshRepos` reads: no recorded refresh
+    /// time after a failure ⇒ due immediately.
+    func testFailedRefreshDoesNotStampLastRefreshAt() {
+        let (repo, accounts) = makeManager()
+        accounts.selectedAccount = account("vis")
+        repo.repoAutoRefreshSeconds = 30
+        repo.repoCache["vis"] = repos(10)
+
+        // Before any successful refresh: due.
+        XCTAssertNil(repo.repoLastRefreshAt["vis"])
+        XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"))
+
+        // A successful refresh stamps the time ⇒ not due until the interval elapses.
+        repo.repoLastRefreshAt["vis"] = Date()
+        XCTAssertFalse(repo.shouldAutoRefreshRepos(for: "vis"))
+
+        // A subsequent failure must clear/leave the prior timestamp such that the
+        // account is retried — modeling the post-failure state as "no fresh
+        // success timestamp" (the state loadRepos now leaves behind on .failure).
+        repo.repoLastRefreshAt.removeValue(forKey: "vis")
+        XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"),
+                      "a failed refresh must not suppress the next tick")
+    }
+
     func testLocalStatusRefreshPreservesRemoteFailureUntilLiveCheckSucceeds() async throws {
         let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

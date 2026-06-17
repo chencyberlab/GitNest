@@ -361,6 +361,12 @@ struct ProjectInitPlan: Identifiable, Sendable {
     /// new project starts fresh. nil when it's not a clone (or already points at the
     /// target repo).
     var sourceOrigin: String? = nil
+    /// Non-blocking warning shown when the repo name had to be sanitized away from
+    /// the source folder's name (e.g. an all-punctuation folder collapses to
+    /// "new-repo"). nil when the sanitized name is recognizably derived from the
+    /// source. Lets the user catch a surprising push target before confirming,
+    /// without blocking creation the way `blockingReason` does.
+    var repoNameWarning: String? = nil
 
     var sourceName: String {
         (sourcePath as NSString).lastPathComponent
@@ -398,6 +404,48 @@ struct ProjectInitPlan: Identifiable, Sendable {
         guard child != parent else { return false }
         if parent == "/" { return child.hasPrefix("/") }
         return child.hasPrefix(parent + "/")
+    }
+
+    /// A warning when the sanitized repo name diverges enough from the source
+    /// folder name that the push target would surprise the user — e.g. a folder
+    /// named "...---..." collapses to "new-repo", or a Unicode name gets flattened
+    /// to hyphens. Returns nil when the sanitized name is recognizably derived
+    /// from the source. Non-blocking: the sheet surfaces it so the user can rename
+    /// the folder and retry, but does not disable "Init & push" the way
+    /// `blockingReason` does.
+    static func repoNameWarning(sourceName: String, sanitizedRepoName: String) -> String? {
+        guard !sanitizedRepoName.isEmpty else { return nil }
+        if sourceName.lowercased() == sanitizedRepoName.lowercased() { return nil }
+        // Recognizably derived: the sanitized name's *alphanumeric* characters
+        // (ignoring the hyphens/periods sanitization inserts to replace punctuation)
+        // appear, in order, among the source's alphanumeric characters. "my cool
+        // app" → "my-cool-app" shares [m,y,c,o,o,l,a,p,p] and stays quiet; "...---..."
+        // → "new-repo" shares nothing and warns.
+        let srcAlnum = String(sourceName.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        let dstAlnum = String(sanitizedRepoName.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+        if !dstAlnum.isEmpty, Self.isSubsequence(dstAlnum, of: srcAlnum) { return nil }
+        return """
+        The folder name “\(sourceName)” isn’t a valid GitHub repo name and was sanitized to “\(sanitizedRepoName)”. \
+        Rename the folder (alphanumerics, dots, underscores, and hyphens only) if you want a different repo name.
+        """
+    }
+
+    /// True when every character of `needle` appears in `hay` in order. Applied to
+    /// alphanumeric-only views so the punctuation sanitization replaces doesn't
+    /// mask a recognizable derivation.
+    private static func isSubsequence(_ needle: String, of hay: String) -> Bool {
+        guard !needle.isEmpty else { return false }
+        var idx = hay.startIndex
+        for ch in needle {
+            var found = false
+            while idx < hay.endIndex {
+                let cur = hay[idx]
+                idx = hay.index(after: idx)
+                if cur == ch { found = true; break }
+            }
+            if !found { return false }
+        }
+        return true
     }
 
     var warningText: String {
@@ -680,10 +728,17 @@ enum GitHub {
     /// The `defaultBranchOnly` flag is silently ignored on older `gh` CLIs that
     /// don't support it, so the fork still succeeds rather than failing with an
     /// unknown-flag error.
+    ///
+    /// This is split into two phases so the serialized gh chain is held only for
+    /// the account-touching work (the `gh auth switch` + `gh repo fork`), not for
+    /// the up-to-`timeoutSeconds` API-read poll that follows. Callers run
+    /// `fork(...)` inside `ghChain.serializedPreservingActiveAccount` and then
+    /// `waitForFork(...)` outside it — see `ProjectWorkflow.forkProject`. The poll
+    /// is a plain `gh repo view` read against the just-verified active account, so
+    /// it needs no account switching and is safe to run off the chain.
     static func fork(source: RepoReference,
                      intoAccount alias: String,
-                     defaultBranchOnly: Bool = true,
-                     timeoutSeconds: UInt64 = 60) -> Result<ForkOutcome, CommandError> {
+                     defaultBranchOnly: Bool = true) -> Result<ForkRequestOutcome, CommandError> {
         let accountCheck = ensureActiveAccount(alias)
         guard accountCheck.ok else {
             let detail = (accountCheck.stdout + accountCheck.stderr)
@@ -709,7 +764,7 @@ enum GitHub {
                 fallbackRepo: source.repo,
                 source: source
             ) {
-                return .success(ForkOutcome(repo: existing, alreadyExisted: true))
+                return .success(.existingFork(ForkOutcome(repo: existing, alreadyExisted: true)))
             }
 
             let msg = (forkRes.stderr + forkRes.stdout)
@@ -727,9 +782,34 @@ enum GitHub {
             currentUser: currentUser,
             fallbackRepo: source.repo
         )
-        return waitForRepo(nameWithOwner: forkedNameWithOwner,
-                           timeoutSeconds: timeoutSeconds)
-            .map { ForkOutcome(repo: $0, alreadyExisted: alreadyExisted) }
+        return .success(.created(
+            ForkRequest(nameWithOwner: forkedNameWithOwner, alreadyExisted: alreadyExisted)
+        ))
+    }
+
+    /// Outcome of the chain-held fork-create phase. `.existingFork` is the final
+    /// result (an existing fork was detected from `gh repo fork`'s failure output,
+    /// no polling needed); `.created` hands off to `waitForFork` for the poll.
+    enum ForkRequestOutcome: Sendable {
+        case existingFork(ForkOutcome)
+        case created(ForkRequest)
+    }
+
+    /// The fork GitHub just created (or reported as already existing), pending the
+    /// API-read poll that confirms it is queryable.
+    struct ForkRequest: Sendable {
+        let nameWithOwner: String
+        let alreadyExisted: Bool
+    }
+
+    /// Poll the GitHub API until the fork exists or the timeout elapses. Runs
+    /// *outside* the gh chain — `gh repo view` is a read against the account that
+    /// `fork` already verified is active, so it needs no account switching and must
+    /// not block other gh work for up to `timeoutSeconds`.
+    static func waitForFork(_ request: ForkRequest,
+                            timeoutSeconds: UInt64 = 60) -> Result<ForkOutcome, CommandError> {
+        waitForRepo(nameWithOwner: request.nameWithOwner, timeoutSeconds: timeoutSeconds)
+            .map { ForkOutcome(repo: $0, alreadyExisted: request.alreadyExisted) }
     }
 
     static func forkedRepoNameWithOwner(from output: String,

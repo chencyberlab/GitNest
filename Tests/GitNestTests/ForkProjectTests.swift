@@ -22,7 +22,7 @@ final class ForkProjectTests: XCTestCase {
         let cloneCalls = LockedCounter()
         let upstreamCalls = LockedCounter()
         let workflow = makeWorkflow(
-            forkRepo: { _, _ in .success(ForkOutcome(repo: forked, alreadyExisted: false)) },
+            forkRepo: { _, _ in .success(.existingFork(ForkOutcome(repo: forked, alreadyExisted: false))) },
             cloneRepo: { _, _ in
                 cloneCalls.increment()
                 return ShellResult(exitCode: 0, stdout: "", stderr: "")
@@ -62,7 +62,7 @@ final class ForkProjectTests: XCTestCase {
         let cloneCalls = LockedCounter()
         let upstreamCalls = LockedCounter()
         let workflow = makeWorkflow(
-            forkRepo: { _, _ in .success(ForkOutcome(repo: forked, alreadyExisted: true)) },
+            forkRepo: { _, _ in .success(.existingFork(ForkOutcome(repo: forked, alreadyExisted: true))) },
             cloneRepo: { _, _ in
                 cloneCalls.increment()
                 return ShellResult(exitCode: 1, stdout: "", stderr: "should not clone")
@@ -78,6 +78,66 @@ final class ForkProjectTests: XCTestCase {
         XCTAssertTrue(ok)
         XCTAssertEqual(cloneCalls.value, 0)
         XCTAssertEqual(upstreamCalls.value, 1)
+    }
+
+    /// The fork-create step and the API-read poll are split so the serialized gh
+    /// chain is held only for `gh repo fork`, not for the up-to-minute wait for the
+    /// fork to become queryable. An existing-fork short-circuit (detected from
+    /// `gh repo fork`'s "already exists" output) must skip the poll entirely; a
+    /// freshly created fork must call the poll exactly once with the request the
+    /// create step produced. This pins both branches of the two-phase flow.
+    @MainActor
+    func testForkProjectRunsPollOutsideChainAndOnlyForCreatedForks() async throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Pre-create the clone destination so the clone step is a no-op and the
+        // test stays focused on the fork/poll split.
+        let repoFolder = root.appendingPathComponent("repo")
+        try FileManager.default.createDirectory(at: repoFolder, withIntermediateDirectories: true)
+        XCTAssertTrue(Shell.run(["git", "-C", repoFolder.path, "init"]).ok)
+        XCTAssertTrue(Shell.run([
+            "git", "-C", repoFolder.path, "remote", "add", "origin", "https://github.com/me/repo.git"
+        ]).ok)
+
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+        let forked = Repo(
+            name: "repo",
+            nameWithOwner: "me/repo",
+            description: nil,
+            visibility: "public",
+            updatedAt: nil,
+            url: "https://github.com/me/repo"
+        )
+
+        // Existing fork: poll must NOT be called.
+        var pollCalls = 0
+        let existingWorkflow = makeWorkflow(
+            forkRepo: { _, _ in .success(.existingFork(ForkOutcome(repo: forked, alreadyExisted: true))) },
+            cloneRepo: { _, _ in ShellResult(exitCode: 0, stdout: "", stderr: "") },
+            setUpstream: { _, _ in ShellResult(exitCode: 0, stdout: "", stderr: "") },
+            waitForFork: { _ in pollCalls += 1; return .success(ForkOutcome(repo: forked, alreadyExisted: true)) }
+        )
+        _ = await existingWorkflow.forkProject(source: "source/repo", account: account)
+        XCTAssertEqual(pollCalls, 0, "existing fork must short-circuit the poll")
+
+        // Freshly created fork: poll must be called exactly once, with the request
+        // the create step emitted (carrying the resolved name and alreadyExisted).
+        var capturedRequest: GitHub.ForkRequest?
+        let createdWorkflow = makeWorkflow(
+            forkRepo: { _, _ in .success(.created(GitHub.ForkRequest(nameWithOwner: "me/repo-2", alreadyExisted: false))) },
+            cloneRepo: { _, _ in ShellResult(exitCode: 0, stdout: "", stderr: "") },
+            setUpstream: { _, _ in ShellResult(exitCode: 0, stdout: "", stderr: "") },
+            waitForFork: { request in
+                pollCalls += 1
+                capturedRequest = request
+                return .success(ForkOutcome(repo: forked, alreadyExisted: false))
+            }
+        )
+        _ = await createdWorkflow.forkProject(source: "source/repo", account: account)
+        XCTAssertEqual(pollCalls, 1, "created fork must poll exactly once")
+        XCTAssertEqual(capturedRequest?.nameWithOwner, "me/repo-2")
+        XCTAssertEqual(capturedRequest?.alreadyExisted, false)
     }
 
     func testForkedRepoNameUsesActualCreatedForkFromOutput() {
@@ -267,9 +327,10 @@ final class ForkProjectTests: XCTestCase {
 
     @MainActor
     private func makeWorkflow(
-        forkRepo: @escaping @Sendable (RepoReference, String) -> Result<ForkOutcome, CommandError>,
+        forkRepo: @escaping @Sendable (RepoReference, String) -> Result<GitHub.ForkRequestOutcome, CommandError>,
         cloneRepo: @escaping @Sendable (Repo, Account) -> ShellResult,
-        setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult
+        setUpstream: @escaping @Sendable (RepoReference, String) -> ShellResult,
+        waitForFork: (@Sendable (GitHub.ForkRequest) -> Result<ForkOutcome, CommandError>)? = nil
     ) -> ProjectWorkflow {
         let ghChain = GhChain()
         let logStore = LogStore()
@@ -280,6 +341,9 @@ final class ForkProjectTests: XCTestCase {
                                logStore: logStore,
                                repoManager: repoManager,
                                forkRepo: forkRepo,
+                               waitForFork: waitForFork ?? { _ in
+                                   .failure(CommandError(message: "waitForFork not configured for this test"))
+                               },
                                cloneRepo: cloneRepo,
                                setUpstream: setUpstream,
                                refreshReposAfterFork: { _ in })

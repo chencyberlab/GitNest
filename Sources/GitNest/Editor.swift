@@ -63,6 +63,8 @@ enum EditorOpenError: Error, Equatable, Sendable {
 
 /// Opens a folder in a GUI editor via `/usr/bin/open -a`. Uses `Process` with an
 /// argument array (no shell string building), so paths with spaces are safe.
+/// Delegates the actual `Process` launch to `ExternalAppLauncher` so the editor
+/// and terminal launchers share one copy of the blocking-mechanics code.
 enum EditorLauncher {
     /// Resolve the macOS app name for a choice, or throw for unusable choices.
     static func resolveAppName(_ editor: PreferredEditor, customAppName: String) throws -> String {
@@ -70,8 +72,9 @@ enum EditorLauncher {
         case .none:
             throw EditorOpenError.notConfigured
         case .custom:
-            let trimmed = customAppName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { throw EditorOpenError.missingCustomAppName }
+            guard let trimmed = ExternalAppLauncher.resolveCustomAppName(customAppName) else {
+                throw EditorOpenError.missingCustomAppName
+            }
             return trimmed
         default:
             return editor.applicationName
@@ -83,31 +86,14 @@ enum EditorLauncher {
     @discardableResult
     static func open(path: String, editor: PreferredEditor, customAppName: String) throws -> String {
         let appName = try resolveAppName(editor, customAppName: customAppName)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", appName, path]
-        let errPipe = Pipe()
-        process.standardError = errPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw EditorOpenError.launchFailed(error.localizedDescription)
-        }
-        // Drain stderr before waiting: readDataToEndOfFile() returns at the child's
-        // EOF, so reading first can't deadlock on a full pipe buffer the way reading
-        // after waitUntilExit() can (harmless for `open`, but the safe ordering).
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        // `open` exits non-zero (and explains on stderr) when the app isn't found.
-        guard process.terminationStatus == 0 else {
-            let detail = String(decoding: errData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch ExternalAppLauncher.launch(path: path, appName: appName, displayName: appName) {
+        case .opened(let displayName):
+            return displayName
+        case .failed(.launchFailed(let detail)):
+            throw EditorOpenError.launchFailed(detail)
+        case .failed(.openFailed(let appName, let detail)):
             throw EditorOpenError.openFailed(appName: appName, detail: detail)
         }
-        return appName
     }
 
     /// A user-facing sentence for an open failure.

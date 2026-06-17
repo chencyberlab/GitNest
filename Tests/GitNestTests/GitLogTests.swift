@@ -66,4 +66,49 @@ final class GitLogTests: XCTestCase {
         let output = "\u{1f}\u{1f}subject\u{1f}A\u{1f}now"
         XCTAssertTrue(GitLog.parse(logZ: output).isEmpty)
     }
+
+    // MARK: - No-upstream detection (#10)
+
+    /// `incomingCommits` on a branch with no configured upstream returns an empty
+    /// list rather than a git "fatal" error — "no upstream" is a normal state (the
+    /// row already badges it), not something to surface as a failure in the popover.
+    func testHasNoUpstreamMessageRecognizesGitFatalPhrasings() {
+        // The canonical phrasing git interpolates the branch name into.
+        XCTAssertTrue(GitHub.hasNoUpstreamMessage("fatal: no upstream configured for branch 'main'"))
+        // Case-insensitive, extra whitespace tolerated.
+        XCTAssertTrue(GitHub.hasNoUpstreamMessage("  FATAL: No Upstream Configured for branch 'x'  "))
+    }
+
+    func testHasNoUpstreamMessageRejectsUnrelatedErrors() {
+        XCTAssertFalse(GitHub.hasNoUpstreamMessage("fatal: not a git repository"))
+        XCTAssertFalse(GitHub.hasNoUpstreamMessage("fatal: bad revision 'HEAD..@{upstream}'"))
+        XCTAssertFalse(GitHub.hasNoUpstreamMessage(""))
+    }
+
+    /// End-to-end against a real repo with no upstream: the call must succeed with
+    /// an empty list, proving the no-upstream short-circuit fires for `git log`'s
+    /// actual exit-128 + fatal output (not just the string detector in isolation).
+    func testIncomingCommitsReturnsEmptyForBranchWithNoUpstream() throws {
+        try XCTSkipIf(Shell.resolveExecutable("git") == nil, "git not available")
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("gitnest-noupstream-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: dir) }
+        let path = dir.path
+        XCTAssertTrue(Shell.run(["git", "-C", path, "init", "-b", "main"]).ok)
+        _ = Shell.run(["git", "-C", path, "config", "user.email", "t@example.com"])
+        _ = Shell.run(["git", "-C", path, "config", "user.name", "T"])
+        try "hi\n".write(toFile: (path as NSString).appendingPathComponent("f"),
+                         atomically: true, encoding: .utf8)
+        XCTAssertTrue(Shell.run(["git", "-C", path, "add", "-A"]).ok)
+        // --no-verify so a developer's global hook can't fail the setup commit.
+        XCTAssertTrue(Shell.run(["git", "-C", path, "commit", "--no-verify", "-m", "c"]).ok)
+
+        switch GitHub.incomingCommits(at: path) {
+        case .success(let commits):
+            XCTAssertTrue(commits.isEmpty, "a branch with no upstream has nothing incoming — empty, not an error")
+        case .failure(let error):
+            return XCTFail("no-upstream must not surface as an error: \(error.message)")
+        }
+    }
 }

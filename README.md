@@ -177,9 +177,9 @@ A failed background refresh keeps the cached list, logs the error to the **Outpu
 pane, and tries again at the next interval; it never stops the timer. Refreshes do
 not merge or edit working files: repo-list loads use paginated `gh api user/repos`
 calls, local `git status`, and upstream `git fetch` for cloned repos. The two
-tuning constants live in `AppModel.swift`: `backgroundRefreshFloorSeconds` (the
-5-minute floor) and the `ceil(repoCount / 500)` size step in
-`effectiveRefreshInterval`.
+  tuning constants live in `RepoManager.swift`: `backgroundRefreshFloorSeconds`
+  (the 5-minute floor) and the `ceil(repoCount / 500)` size step in
+  `effectiveRefreshInterval`.
 
 ## Build & run
 

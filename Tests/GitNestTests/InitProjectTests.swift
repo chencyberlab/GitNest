@@ -188,8 +188,7 @@ final class InitProjectTests: XCTestCase {
     }
 
     @MainActor
-    func testInitProjectDoesNotTrashOriginalWhenSourceChangesDuringPush() async throws {
-        let root = try makeTempDirectory()
+    func testInitProjectDoesNotTrashOriginalWhenSourceChangesDuringPush() async throws {        let root = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let source = root.appendingPathComponent("source")
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
@@ -232,6 +231,40 @@ final class InitProjectTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: source.path))
         XCTAssertEqual(try String(contentsOf: source.appendingPathComponent("README.md")), "replacement\n")
         XCTAssertTrue(logStore.log.contains("changed during initialization"))
+    }
+
+    // MARK: - Repo name sanitization warning (#9)
+
+    /// A folder name that sanitizes to something unrecognizable must produce a
+    /// warning so the user catches a surprising push target (e.g. all-punctuation
+    /// collapsing to "new-repo") before confirming.
+    func testRepoNameWarningFlagsUnrecognizableCollapse() {
+        XCTAssertNotNil(ProjectInitPlan.repoNameWarning(sourceName: "...---...", sanitizedRepoName: "new-repo"),
+                        "a name that collapsed to the fallback must warn")
+        XCTAssertNotNil(ProjectInitPlan.repoNameWarning(sourceName: "项目", sanitizedRepoName: "new-repo"),
+                        "a name that lost all its characters to sanitization must warn")
+    }
+
+    /// A name that sanitizes to something recognizably derived from the source
+    /// (shared letters, in order) must NOT warn — normal sanitization (punctuation
+    /// → hyphens) is expected and not worth surfacing.
+    func testRepoNameWarningNilForRecognizableDerivation() {
+        XCTAssertNil(ProjectInitPlan.repoNameWarning(sourceName: "my-cool-app", sanitizedRepoName: "my-cool-app"))
+        // Spaces → hyphens: recognizable, no warning.
+        XCTAssertNil(ProjectInitPlan.repoNameWarning(sourceName: "my cool app", sanitizedRepoName: "my-cool-app"))
+        // Trailing punctuation trimmed: still recognizable.
+        XCTAssertNil(ProjectInitPlan.repoNameWarning(sourceName: "app-2024!", sanitizedRepoName: "app-2024"))
+        XCTAssertNil(ProjectInitPlan.repoNameWarning(sourceName: "héllo", sanitizedRepoName: "h-llo"),
+                     "letter-for-letter (modulo accents) derivation is recognizable")
+    }
+
+    /// The warning message references both the original and sanitized names so the
+    /// user can see exactly what changed.
+    func testRepoNameWarningMessageNamesBothForms() {
+        let warning = ProjectInitPlan.repoNameWarning(sourceName: "...---...", sanitizedRepoName: "new-repo")
+        XCTAssertNotNil(warning)
+        XCTAssertTrue(warning?.contains("...---...") == true)
+        XCTAssertTrue(warning?.contains("new-repo") == true)
     }
 
     private func makeTempDirectory() throws -> URL {

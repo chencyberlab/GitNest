@@ -57,6 +57,8 @@ enum TerminalOpenError: Error, Equatable, Sendable {
 
 /// Opens a folder in a GUI terminal via `/usr/bin/open -a`. Uses `Process` with an
 /// argument array (no shell string building), so paths with spaces are safe.
+/// Delegates the actual `Process` launch to `ExternalAppLauncher` so the editor
+/// and terminal launchers share one copy of the blocking-mechanics code.
 enum TerminalLauncher {
     /// Resolve the macOS app name for a choice, or throw for unusable choices.
     static func resolveAppName(_ terminal: PreferredTerminal, customAppName: String) throws -> String {
@@ -64,8 +66,9 @@ enum TerminalLauncher {
         case .none:
             throw TerminalOpenError.notConfigured
         case .custom:
-            let trimmed = customAppName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { throw TerminalOpenError.missingCustomAppName }
+            guard let trimmed = ExternalAppLauncher.resolveCustomAppName(customAppName) else {
+                throw TerminalOpenError.missingCustomAppName
+            }
             return trimmed
         default:
             return terminal.applicationName
@@ -78,31 +81,14 @@ enum TerminalLauncher {
     static func open(path: String, terminal: PreferredTerminal, customAppName: String) throws -> String {
         let appName = try resolveAppName(terminal, customAppName: customAppName)
         let displayName = terminal.displayName(customAppName: customAppName)
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        process.arguments = ["-a", appName, path]
-        let errPipe = Pipe()
-        process.standardError = errPipe
-
-        do {
-            try process.run()
-        } catch {
-            throw TerminalOpenError.launchFailed(error.localizedDescription)
+        switch ExternalAppLauncher.launch(path: path, appName: appName, displayName: displayName) {
+        case .opened(let name):
+            return name
+        case .failed(.launchFailed(let detail)):
+            throw TerminalOpenError.launchFailed(detail)
+        case .failed(.openFailed(let appName, let detail)):
+            throw TerminalOpenError.openFailed(appName: appName, detail: detail)
         }
-        // Drain stderr before waiting: readDataToEndOfFile() returns at the child's
-        // EOF, so reading first can't deadlock on a full pipe buffer the way reading
-        // after waitUntilExit() can (harmless for `open`, but the safe ordering).
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-
-        // `open` exits non-zero (and explains on stderr) when the app isn't found.
-        guard process.terminationStatus == 0 else {
-            let detail = String(decoding: errData, as: UTF8.self)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            throw TerminalOpenError.openFailed(appName: displayName, detail: detail)
-        }
-        return displayName
     }
 
     /// A user-facing sentence for an open failure.

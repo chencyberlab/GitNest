@@ -73,8 +73,10 @@ extension GitHub {
     /// what a pull would bring in. Reflects the last fetch (the status sweep and
     /// the Fetch action both update remote-tracking refs), so pair it with a fetch
     /// for live data. Reuses the history popover's format/parser. `.failure` only
-    /// when git itself fails (no upstream configured, detached HEAD, not a repo, …);
-    /// an up-to-date branch returns an empty list. Network-free and lock-free.
+    /// when git itself fails; an up-to-date branch returns an empty list. A branch
+    /// with no configured upstream is a *normal* state (the row already shows a
+    /// "no upstream" badge), so it returns an empty list rather than surfacing git's
+    /// "fatal: no upstream configured" as an error. Network-free and lock-free.
     static func incomingCommits(at path: String, limit: Int = 50) -> Result<[GitCommit], CommandError> {
         let res = Shell.run([
             "git", "--no-optional-locks", "-C", path,
@@ -85,8 +87,22 @@ extension GitHub {
         guard res.ok else {
             let raw = (res.stderr.isEmpty ? res.stdout : res.stderr)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            // `git log HEAD..@{upstream}` fails with exit 128 when the branch has
+            // no upstream. That's not an error condition for the popover — there is
+            // simply nothing incoming on an untracked branch — so return an empty
+            // list instead of showing a git fatal message.
+            if Self.hasNoUpstreamMessage(raw) { return .success([]) }
             return .failure(CommandError(message: raw.isEmpty ? "git log failed" : raw))
         }
         return .success(GitLog.parse(logZ: res.stdout))
+    }
+
+    /// True when `raw` is git's "no upstream configured" failure text. Tolerant of
+    /// the branch name git interpolates into the message. Match the stable phrase
+    /// rather than the exact wording so a future git rephrasing nearby doesn't
+    /// silently turn this back into a shown error.
+    static func hasNoUpstreamMessage(_ raw: String) -> Bool {
+        let lower = raw.lowercased()
+        return lower.contains("no upstream configured") || lower.contains("no upstream branch")
     }
 }

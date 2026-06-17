@@ -179,7 +179,6 @@ final class RepoManager: ObservableObject {
 
         logStore.append((silent || hasVisibleRepos) ? "Refreshing repos for \(owner)…" : "Listing repos for \(owner)…")
         let result = await ghChain.serializedPreservingActiveAccount { GitHub.listRepos(owner: owner) }
-        repoLastRefreshAt[owner] = Date()
         if accountManager.selectedAccount?.alias == owner {
             isLoadingRepos = false
             isRefreshingRepos = false
@@ -187,6 +186,12 @@ final class RepoManager: ObservableObject {
 
         switch result {
         case .success(let list):
+            // Record the refresh time only on success. A failed refresh (network
+            // blip, transient 5xx) must NOT push out the next auto-refresh tick —
+            // otherwise the account would sit stale until the full interval elapses
+            // instead of being retried promptly. Rate-limit backoff is handled
+            // separately by `shouldAutoRefreshRepos`'s `isRateLimited` check.
+            repoLastRefreshAt[owner] = Date()
             repoCache[owner] = list
             logStore.append("Found \(list.count) repo(s) for \(owner).")
             if accountManager.selectedAccount?.alias == owner {
