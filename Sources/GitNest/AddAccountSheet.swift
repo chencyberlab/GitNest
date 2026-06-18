@@ -303,7 +303,9 @@ struct AddAccountSheet: View {
                 // still-valid selection with Next left enabled (which would let the
                 // user proceed with the old folder while seeing an error about the new one).
                 setupCoordinator.setAddAccountFolder(nil)
-                setupCoordinator.addAccountError = "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
+                setupCoordinator.setAddAccountError(
+                    "The chosen folder overlaps with \(overlap.alias)'s folder (\(overlap.folder)). Pick a separate location."
+                )
             } else {
                 setupCoordinator.addAccountError = nil
                 setupCoordinator.setAddAccountFolder(chosen)

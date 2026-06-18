@@ -123,7 +123,11 @@ enum AccountSetup {
         var hardened = false
         if !FileManager.default.fileExists(atPath: key) {
             let passphrase = randomPassphrase()
-            let res = Shell.run(["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", passphrase])
+            let res = Shell.run(
+                ["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key],
+                stdin: Data("\(passphrase)\n\(passphrase)\n".utf8),
+                displayArgs: ["ssh-keygen", "-t", "ed25519", "-C", comment, "-f", key, "-N", Redaction.mask]
+            )
             guard res.ok else { return .failure(CommandError(message: short(res))) }
             created = true
             if seedAgentKeychain(key: key, passphrase: passphrase) {
@@ -148,8 +152,8 @@ enum AccountSetup {
     }
 
     /// A cryptographically-random passphrase for a freshly generated key. Lives only
-    /// in memory and in the `ssh-add` child's environment while it is seeded into the
-    /// Keychain — it is never written to disk and is discarded after `ensureKey`.
+    /// in memory and in an inherited pipe while it is seeded into the Keychain — it
+    /// is never written to disk and is discarded after `ensureKey`.
     static func randomPassphrase(byteCount: Int = 32) -> String {
         var bytes = [UInt8](repeating: 0, count: byteCount)
         if SecRandomCopyBytes(kSecRandomDefault, byteCount, &bytes) != errSecSuccess {
@@ -160,21 +164,47 @@ enum AccountSetup {
         return Data(bytes).base64EncodedString()
     }
 
-    /// The askpass helper script. Holds no secret itself — it just echoes the
-    /// passphrase from the environment of the `ssh-add` process that invokes it, so
-    /// the passphrase travels in-process and never lands on disk.
+    /// The askpass helper script. Holds no secret itself — it reads one line from an
+    /// inherited fd of the `ssh-add` process that invokes it, so the passphrase never
+    /// lands in argv, environment, or the helper file.
     static func askpassScript() -> String {
-        "#!/bin/sh\nprintf '%s\\n' \"$GITNEST_ASKPASS_VALUE\"\n"
+        """
+        #!/bin/sh
+        fd="${GITNEST_ASKPASS_FD:-3}"
+        IFS= read -r value < "/dev/fd/$fd"
+        printf '%s\\n' "$value"
+        """
     }
 
-    /// Write `askpassScript()` to a private (0700) temp file and return its path.
-    private static func makeAskpassHelper() -> String? {
-        let path = (NSTemporaryDirectory() as NSString)
-            .appendingPathComponent(".gitnest-askpass-\(UUID().uuidString.prefix(8))")
-        guard FileManager.default.createFile(atPath: path,
-                                             contents: Data(askpassScript().utf8),
-                                             attributes: [.posixPermissions: 0o700]) else { return nil }
-        return path
+    private struct AskpassHelper {
+        let path: String
+        let directory: String
+    }
+
+    /// Write `askpassScript()` to a private (0700) temp directory and return its path.
+    private static func makeAskpassHelper() -> AskpassHelper? {
+        let directory = (NSTemporaryDirectory() as NSString)
+            .appendingPathComponent(".gitnest-askpass-\(UUID().uuidString)")
+        do {
+            try FileManager.default.createDirectory(
+                atPath: directory,
+                withIntermediateDirectories: false,
+                attributes: [.posixPermissions: 0o700]
+            )
+        } catch {
+            return nil
+        }
+
+        let path = (directory as NSString).appendingPathComponent("askpass")
+        guard FileManager.default.createFile(
+            atPath: path,
+            contents: Data(askpassScript().utf8),
+            attributes: [.posixPermissions: 0o700]
+        ) else {
+            try? FileManager.default.removeItem(atPath: directory)
+            return nil
+        }
+        return AskpassHelper(path: path, directory: directory)
     }
 
     /// Store `key`'s passphrase in the login Keychain and load it into ssh-agent via
@@ -183,14 +213,16 @@ enum AccountSetup {
     /// OpenSSH 8.4+/macOS 13+). Returns whether the seed succeeded.
     private static func seedAgentKeychain(key: String, passphrase: String) -> Bool {
         guard let helper = makeAskpassHelper() else { return false }
-        defer { try? FileManager.default.removeItem(atPath: helper) }
+        defer { try? FileManager.default.removeItem(atPath: helper.directory) }
+        let askpassFD: Int32 = 3
         return Shell.run(
             ["ssh-add", "--apple-use-keychain", key],
             extraEnv: [
-                "SSH_ASKPASS": helper,
+                "SSH_ASKPASS": helper.path,
                 "SSH_ASKPASS_REQUIRE": "force",
-                "GITNEST_ASKPASS_VALUE": passphrase,
-            ]
+                "GITNEST_ASKPASS_FD": "\(askpassFD)",
+            ],
+            extraInputFDs: [askpassFD: Data("\(passphrase)\n".utf8)]
         ).ok
     }
 
@@ -199,7 +231,10 @@ enum AccountSetup {
     /// always has what it needs. The keypair — and thus the public key on GitHub — is
     /// unchanged.
     private static func stripPassphrase(key: String, oldPassphrase: String) -> Bool {
-        Shell.run(["ssh-keygen", "-p", "-P", oldPassphrase, "-N", "", "-f", key]).ok
+        Shell.run(
+            ["ssh-keygen", "-p", "-f", key],
+            stdin: Data("\(oldPassphrase)\n\n\n".utf8)
+        ).ok
     }
 
     // MARK: Config writers
@@ -340,7 +375,7 @@ enum AccountSetup {
     /// restoring here too makes the side effect impossible to leak.)
     static func verify(alias: String) -> Verification {
         let greeting = GitHub.sshGreeting(host: "github-\(alias)")
-        let original = GitHub.currentLogin()
+        let original = GitHub.currentActiveLoginForRestore()
         _ = Shell.run(["gh", "auth", "switch", "-u", alias])
         let who = Shell.run(["gh", "api", "user", "--jq", ".login"])
         let login = who.ok ? who.stdout.trimmingCharacters(in: .whitespacesAndNewlines) : nil

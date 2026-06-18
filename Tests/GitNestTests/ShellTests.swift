@@ -85,6 +85,84 @@ final class ShellTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
     }
 
+    func testProvidedStdinIsPassedToChild() {
+        let res = Shell.run(["cat"], stdin: Data("secret input\n".utf8))
+
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(res.stdout, "secret input\n")
+    }
+
+    func testProvidedStdinDoesNotHangWhenChildDoesNotRead() {
+        let started = Date()
+        let input = Data(repeating: UInt8(ascii: "x"), count: 1_000_000)
+        let res = Shell.run(["true"], timeout: 5, killGracePeriod: 0.2, stdin: input)
+
+        XCTAssertTrue(res.ok)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testExtraInputFDCanFeedChildHelper() {
+        let script = #"IFS= read -r value < /dev/fd/3; printf '%s' "$value""#
+        let res = Shell.run(["sh", "-c", script], extraInputFDs: [3: Data("pipe secret\n".utf8)])
+
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(res.stdout, "pipe secret")
+    }
+
+    func testExtraInputFDSurvivesNestedExecForAskpassHelpers() {
+        let script = #"exec sh -c 'IFS= read -r value < /dev/fd/3; printf "%s" "$value"'"#
+        let res = Shell.run(["sh", "-c", script], extraInputFDs: [3: Data("nested secret\n".utf8)])
+
+        XCTAssertTrue(res.ok, res.stderr + res.stdout)
+        XCTAssertEqual(res.stdout, "nested secret")
+    }
+
+    func testNeighboringExtraInputFDTargetsStayOpen() {
+        let script = """
+        IFS= read -r first < /dev/fd/7
+        IFS= read -r second < /dev/fd/8
+        printf '%s|%s' "$first" "$second"
+        """
+        let res = Shell.run(
+            ["sh", "-c", script],
+            extraInputFDs: [
+                7: Data("first\n".utf8),
+                8: Data("second\n".utf8),
+            ]
+        )
+
+        XCTAssertTrue(res.ok, res.stderr + res.stdout)
+        XCTAssertEqual(res.stdout, "first|second")
+    }
+
+    func testExtraInputFDTargetsCanOverlapRunnerPipeFDNumbers() {
+        let targets = Array(3...14)
+        let script = targets
+            .map { #"IFS= read -r value < /dev/fd/\#($0); printf '%s\n' "$value""# }
+            .joined(separator: "\n")
+        let inputs = Dictionary(uniqueKeysWithValues: targets.map { fd in
+            (Int32(fd), Data("fd-\(fd)\n".utf8))
+        })
+
+        let res = Shell.run(["sh", "-c", script], extraInputFDs: inputs)
+
+        XCTAssertTrue(res.ok, res.stderr + res.stdout)
+        XCTAssertEqual(res.stdout, targets.map { "fd-\($0)" }.joined(separator: "\n") + "\n")
+    }
+
+    func testTimeoutUsesDisplayArgsSoSecretsStayOutOfErrors() {
+        let secret = "passphrase-should-not-be-reported"
+        let res = Shell.run(
+            ["sh", "-c", "sleep 30", secret],
+            timeout: 1,
+            displayArgs: ["sh", "-c", "sleep 30", Redaction.mask]
+        )
+
+        XCTAssertFalse(res.ok)
+        XCTAssertTrue(res.stderr.contains(Redaction.mask))
+        XCTAssertFalse(res.stderr.contains(secret))
+    }
+
     func testSanitizedEnvironmentScrubsGitOverrides() {
         let env = Shell.sanitizedEnvironment(from: [
             "PATH": "/custom/bin",
@@ -148,6 +226,21 @@ final class ShellTests: XCTestCase {
         XCTAssertNil(env["GH_CONFIG_DIR"])
         XCTAssertEqual(env["GH_EDITOR"], "vim")
         XCTAssertEqual(env["GH_PAGER"], "less")
+    }
+
+    func testExtraEnvironmentCannotReintroduceIdentityOverrides() {
+        let script = #"printf '%s|%s|%s' "${GH_TOKEN-unset}" "${GIT_DIR-unset}" "${SAFE_VALUE-unset}""#
+        let res = Shell.run(
+            ["sh", "-c", script],
+            extraEnv: [
+                "GH_TOKEN": "ghp_secret",
+                "GIT_DIR": "/tmp/wrong.git",
+                "SAFE_VALUE": "ok",
+            ]
+        )
+
+        XCTAssertTrue(res.ok)
+        XCTAssertEqual(res.stdout, "unset|unset|ok")
     }
 
     func testChildInheritsOnlyStandardDescriptors() {

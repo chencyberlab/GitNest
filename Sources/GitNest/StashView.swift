@@ -250,7 +250,7 @@ struct StashContent: View {
         case .success(let entries):
             phase = entries.isEmpty ? .empty : .loaded(entries)
         case .failure(let error):
-            phase = .failed(error.message)
+            phase = .failed(error.displayMessage)
         }
     }
 }

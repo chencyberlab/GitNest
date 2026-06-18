@@ -122,6 +122,9 @@ enum Shell {
                     timeout: TimeInterval = defaultTimeout,
                     killGracePeriod: TimeInterval = defaultKillGracePeriod,
                     extraEnv: [String: String] = [:],
+                    stdin: Data? = nil,
+                    extraInputFDs: [Int32: Data] = [:],
+                    displayArgs: [String]? = nil,
                     handle: ProcessHandle? = nil) -> ShellResult {
         guard let command = args.first else {
             return ShellResult(exitCode: -1, stdout: "", stderr: "no command given")
@@ -130,9 +133,10 @@ enum Shell {
             return ShellResult(exitCode: 127, stdout: "", stderr: "command not found: \(command)")
         }
 
-        let environment = extraEnv.isEmpty
+        let safeExtraEnv = sanitizedExtraEnvironment(extraEnv)
+        let environment = safeExtraEnv.isEmpty
             ? commandEnvironment()
-            : commandEnvironment().merging(extraEnv) { _, new in new }
+            : commandEnvironment().merging(safeExtraEnv) { _, new in new }
 
         return runExecutable(
             executable: executable,
@@ -141,7 +145,9 @@ enum Shell {
             environment: environment,
             timeout: timeout,
             killGracePeriod: killGracePeriod,
-            displayArgs: args,
+            stdin: stdin,
+            extraInputFDs: extraInputFDs,
+            displayArgs: displayArgs ?? args,
             handle: handle
         )
     }
@@ -189,8 +195,29 @@ enum Shell {
         "GH_CONFIG_DIR"
     ]
 
+    private static func sanitizedExtraEnvironment(_ extraEnv: [String: String]) -> [String: String] {
+        extraEnv.filter { key, _ in
+            !key.hasPrefix("GIT_") && !scrubbedGhEnvKeys.contains(key)
+        }
+    }
+
     private static func commandEnvironment() -> [String: String] {
         sanitizedEnvironment(from: ProcessInfo.processInfo.environment)
+    }
+
+    private struct InputPipe: Sendable {
+        let targetFD: Int32
+        let readFD: Int32
+        let childReadFD: Int32
+        let writeFD: Int32
+        let data: Data
+    }
+
+    private struct RawInputPipe: Sendable {
+        let targetFD: Int32
+        let readFD: Int32
+        let writeFD: Int32
+        let data: Data
     }
 
     private static func runExecutable(executable: String,
@@ -199,6 +226,8 @@ enum Shell {
                                       environment: [String: String],
                                       timeout: TimeInterval,
                                       killGracePeriod: TimeInterval,
+                                      stdin: Data? = nil,
+                                      extraInputFDs: [Int32: Data] = [:],
                                       displayArgs: [String],
                                       handle: ProcessHandle? = nil) -> ShellResult {
         var outFD: [Int32] = [0, 0]
@@ -210,19 +239,29 @@ enum Shell {
             close(outFD[0]); close(outFD[1])
             return ShellResult(exitCode: -1, stdout: "", stderr: "pipe failed: \(posixError(errno))")
         }
+        let inputPipesResult = makeInputPipes(
+            stdin: stdin,
+            extraInputFDs: extraInputFDs,
+            reservedFDs: outFD + errFD
+        )
+        guard inputPipesResult.error == nil else {
+            closePipe(outFD); closePipe(errFD)
+            return ShellResult(exitCode: -1, stdout: "", stderr: inputPipesResult.error ?? "input pipe setup failed")
+        }
+        let inputPipes = inputPipesResult.pipes
 
         var actions: posix_spawn_file_actions_t? = nil
         var attrs: posix_spawnattr_t? = nil
         var setupError = posix_spawn_file_actions_init(&actions)
         guard setupError == 0 else {
-            closePipe(outFD); closePipe(errFD)
+            closePipe(outFD); closePipe(errFD); closeInputPipes(inputPipes)
             return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
         }
         defer { posix_spawn_file_actions_destroy(&actions) }
 
         setupError = posix_spawnattr_init(&attrs)
         guard setupError == 0 else {
-            closePipe(outFD); closePipe(errFD)
+            closePipe(outFD); closePipe(errFD); closeInputPipes(inputPipes)
             return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
         }
         defer { posix_spawnattr_destroy(&attrs) }
@@ -231,17 +270,36 @@ enum Shell {
             if setupError == 0, code != 0 { setupError = code }
         }
 
-        // stdin: /dev/null, explicitly. Tools that try to read input get EOF
-        // immediately instead of waiting forever, and CLOEXEC_DEFAULT below
-        // would otherwise leave the child with fd 0 closed entirely (the next
-        // file it opened would silently become its stdin).
-        record(posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0))
+        // stdin: /dev/null by default. Tools that try to read input get EOF
+        // immediately instead of waiting forever. Selected callers can provide
+        // explicit stdin or inherited input fds for secrets so those bytes do not
+        // travel through argv or environment.
+        if let stdinPipe = inputPipes.first(where: { $0.targetFD == STDIN_FILENO }) {
+            record(posix_spawn_file_actions_adddup2(&actions, stdinPipe.childReadFD, STDIN_FILENO))
+        } else {
+            record(posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0))
+        }
         record(posix_spawn_file_actions_adddup2(&actions, outFD[1], STDOUT_FILENO))
         record(posix_spawn_file_actions_adddup2(&actions, errFD[1], STDERR_FILENO))
         record(posix_spawn_file_actions_addclose(&actions, outFD[0]))
         record(posix_spawn_file_actions_addclose(&actions, errFD[0]))
         record(posix_spawn_file_actions_addclose(&actions, outFD[1]))
         record(posix_spawn_file_actions_addclose(&actions, errFD[1]))
+        for input in inputPipes {
+            record(posix_spawn_file_actions_addclose(&actions, input.writeFD))
+        }
+        for input in inputPipes {
+            record(posix_spawn_file_actions_addclose(&actions, input.readFD))
+        }
+        // Install non-standard inherited fds from high-numbered duplicates, not
+        // the original pipe read fds. That avoids dup2 cycles when a requested
+        // target fd is itself another input pipe's read fd.
+        for input in inputPipes where input.targetFD != STDIN_FILENO {
+            record(posix_spawn_file_actions_adddup2(&actions, input.childReadFD, input.targetFD))
+        }
+        for input in inputPipes {
+            record(posix_spawn_file_actions_addclose(&actions, input.childReadFD))
+        }
         if let cwd {
             cwd.withCString { record(posix_spawn_file_actions_addchdir_np(&actions, $0)) }
         }
@@ -258,7 +316,7 @@ enum Shell {
         record(posix_spawnattr_setpgroup(&attrs, 0))
 
         guard setupError == 0 else {
-            closePipe(outFD); closePipe(errFD)
+            closePipe(outFD); closePipe(errFD); closeInputPipes(inputPipes)
             return ShellResult(exitCode: -1, stdout: "", stderr: "spawn setup failed: \(posixError(setupError))")
         }
 
@@ -272,16 +330,23 @@ enum Shell {
                 }
             }
         }) else {
-            closePipe(outFD); closePipe(errFD)
+            closePipe(outFD); closePipe(errFD); closeInputPipes(inputPipes)
             return ShellResult(exitCode: -1, stdout: "", stderr: "out of memory preparing command arguments")
         }
 
         close(outFD[1])
         close(errFD[1])
+        for input in inputPipes {
+            close(input.readFD)
+            close(input.childReadFD)
+        }
 
         guard spawnResult == 0 else {
             close(outFD[0])
             close(errFD[0])
+            for input in inputPipes {
+                close(input.writeFD)
+            }
             return ShellResult(exitCode: -1, stdout: "", stderr: "failed to launch: \(posixError(spawnResult))")
         }
 
@@ -304,6 +369,14 @@ enum Shell {
         queue.async { drain(outHandle) { buffers.appendOut($0) }; group.leave() }
         group.enter()
         queue.async { drain(errHandle) { buffers.appendErr($0) }; group.leave() }
+        let inputGroup = DispatchGroup()
+        for input in inputPipes {
+            inputGroup.enter()
+            queue.async {
+                writeAndClose(input.data, to: input.writeFD)
+                inputGroup.leave()
+            }
+        }
 
         let waitOutcome = WaitOutcome()
         let exited = DispatchSemaphore(value: 0)
@@ -356,6 +429,7 @@ enum Shell {
                 }
             }
         }
+        _ = inputGroup.wait(timeout: .now() + killGracePeriod)
 
         let (outData, errData) = buffers.snapshot()
         // Safe to read now: the child is reaped and `exited` was signalled, which
@@ -386,9 +460,100 @@ enum Shell {
         }
     }
 
+    private static func makeInputPipes(stdin: Data?,
+                                       extraInputFDs: [Int32: Data],
+                                       reservedFDs: [Int32]) -> (pipes: [InputPipe], error: String?) {
+        var inputs: [(targetFD: Int32, data: Data)] = []
+        if let stdin {
+            inputs.append((STDIN_FILENO, stdin))
+        }
+        for (targetFD, data) in extraInputFDs.sorted(by: { $0.key < $1.key }) {
+            guard targetFD > STDERR_FILENO else {
+                return ([], "input fd \(targetFD) would replace a standard descriptor")
+            }
+            inputs.append((targetFD, data))
+        }
+
+        var rawPipes: [RawInputPipe] = []
+        for input in inputs {
+            var fds: [Int32] = [0, 0]
+            guard pipe(&fds) == 0 else {
+                closeRawInputPipes(rawPipes)
+                return ([], "pipe failed: \(posixError(errno))")
+            }
+            rawPipes.append(RawInputPipe(targetFD: input.targetFD,
+                                         readFD: fds[0],
+                                         writeFD: fds[1],
+                                         data: input.data))
+        }
+
+        let unavailableFDs = [STDERR_FILENO] + reservedFDs
+            + rawPipes.flatMap { [$0.targetFD, $0.readFD, $0.writeFD] }
+        var nextSafeFD = unavailableFDs
+            .max()
+            .map { $0 + 1 } ?? (STDERR_FILENO + 1)
+        var pipes: [InputPipe] = []
+        for pipe in rawPipes {
+            let childReadFD = fcntl(pipe.readFD, F_DUPFD, nextSafeFD)
+            guard childReadFD != -1 else {
+                for input in pipes {
+                    close(input.childReadFD)
+                }
+                closeRawInputPipes(rawPipes)
+                return ([], "input pipe dup failed: \(posixError(errno))")
+            }
+            nextSafeFD = childReadFD + 1
+            pipes.append(InputPipe(targetFD: pipe.targetFD,
+                                   readFD: pipe.readFD,
+                                   childReadFD: childReadFD,
+                                   writeFD: pipe.writeFD,
+                                   data: pipe.data))
+        }
+        return (pipes, nil)
+    }
+
+    private static func writeAndClose(_ data: Data, to fd: Int32) {
+        // A short-lived child can close its stdin before we finish writing. Suppress
+        // SIGPIPE on this fd so that becomes EPIPE for the writer, not process death
+        // for the whole app.
+        _ = fcntl(fd, F_SETNOSIGPIPE, 1)
+        defer { close(fd) }
+        guard !data.isEmpty else { return }
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else { return }
+            var offset = 0
+            while offset < rawBuffer.count {
+                let written = Darwin.write(fd, baseAddress.advanced(by: offset), rawBuffer.count - offset)
+                if written > 0 {
+                    offset += written
+                    continue
+                }
+                if written == -1, errno == EINTR {
+                    continue
+                }
+                return
+            }
+        }
+    }
+
     private static func closePipe(_ pipe: [Int32]) {
         close(pipe[0])
         close(pipe[1])
+    }
+
+    private static func closeInputPipes(_ pipes: [InputPipe]) {
+        for input in pipes {
+            close(input.readFD)
+            close(input.childReadFD)
+            close(input.writeFD)
+        }
+    }
+
+    private static func closeRawInputPipes(_ pipes: [RawInputPipe]) {
+        for input in pipes {
+            close(input.readFD)
+            close(input.writeFD)
+        }
     }
 
     private static func killProcessGroup(_ pid: pid_t, _ signal: Int32, fallbackToProcess: Bool) {

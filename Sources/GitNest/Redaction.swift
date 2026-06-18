@@ -50,3 +50,9 @@ enum Redaction {
         return result
     }
 }
+
+extension CommandError {
+    var displayMessage: String {
+        Redaction.scrub(message)
+    }
+}

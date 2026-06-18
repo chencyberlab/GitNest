@@ -40,6 +40,13 @@ final class RedactionTests: XCTestCase {
         XCTAssertEqual(Redaction.scrub(text), text)
     }
 
+    func testCommandErrorDisplayMessageIsRedacted() {
+        let error = CommandError(message: "failed with github_pat_abcdefghijklmnopqrstuvwxyz0123456789ABCD")
+
+        XCTAssertTrue(error.displayMessage.contains(Redaction.mask))
+        XCTAssertFalse(error.displayMessage.contains("abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    }
+
     func testAuthStatusNeverRequestsTheToken() {
         // The output is logged; gh masks the token only when not asked to show it.
         XCTAssertEqual(GitHub.authStatusArgs(), ["gh", "auth", "status"])

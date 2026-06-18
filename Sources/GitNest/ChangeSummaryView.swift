@@ -187,7 +187,7 @@ struct ChangeSummaryContent: View {
         case .success(let files):
             phase = files.isEmpty ? .empty : .loaded(GitChanges.grouped(files))
         case .failure(let error):
-            phase = .failed(error.message)
+            phase = .failed(error.displayMessage)
         }
     }
 }

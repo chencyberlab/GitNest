@@ -17,6 +17,16 @@ final class PullWarningTests: XCTestCase {
         XCTAssertTrue(msg.contains("Git did not provide details."))
     }
 
+    func testMessageRedactsCredentialOutput() {
+        let msg = AlertStore.PullWarning.message(
+            repoName: "demo",
+            gitOutput: "remote https://alice:ghp_abcdefghijklmnopqrstuvwxyz@github.com/o/r.git failed"
+        )
+
+        XCTAssertTrue(msg.contains(Redaction.mask))
+        XCTAssertFalse(msg.contains("abcdefghijklmnopqrstuvwxyz"))
+    }
+
     func testMessageTruncatesLongOutputAndPointsToOutputPane() {
         let long = String(repeating: "x", count: 5000)
         let msg = AlertStore.PullWarning.message(repoName: "demo", gitOutput: long)

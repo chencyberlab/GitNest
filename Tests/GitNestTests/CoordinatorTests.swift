@@ -67,6 +67,15 @@ final class CoordinatorTests: XCTestCase {
         XCTAssertNotEqual(model.setupCoordinator.addAccountSessionID, session)
     }
 
+    func testAddAccountErrorIsRedacted() {
+        let model = AppModel()
+
+        model.setupCoordinator.setAddAccountError("token ghp_abcdefghijklmnopqrstuvwxyz0123456789ABCD leaked")
+
+        XCTAssertTrue(model.setupCoordinator.addAccountError?.contains(Redaction.mask) == true)
+        XCTAssertFalse(model.setupCoordinator.addAccountError?.contains("abcdefghijklmnopqrstuvwxyz0123456789ABCD") == true)
+    }
+
     func testAppModelDismissPullWarningRoutesThroughAlertStore() async {
         let model = AppModel()
         model.alertStore.showPullWarning(AlertStore.PullWarning(repoName: "tools", message: "boom"))

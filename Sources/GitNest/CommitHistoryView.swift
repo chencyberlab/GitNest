@@ -124,7 +124,7 @@ struct CommitHistoryContent: View {
         case .success(let commits):
             phase = commits.isEmpty ? .empty : .loaded(commits)
         case .failure(let error):
-            phase = .failed(error.message)
+            phase = .failed(error.displayMessage)
         }
     }
 }

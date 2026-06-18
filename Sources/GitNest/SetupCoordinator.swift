@@ -126,20 +126,21 @@ final class SetupCoordinator: ObservableObject {
         guard isCurrentAddAccountSession(session) else { return }
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: out) { addAccountDeviceCode = code }
+        let safeOut = DeviceCode.redactedGhOutput(out)
         guard result.login.ok else {
-            addAccountError = "Sign-in failed: \(out.isEmpty ? "unknown error" : out)"
+            setAddAccountError("Sign-in failed: \(safeOut.isEmpty ? "unknown error" : safeOut)")
             addAccountBusy = false
             return
         }
         guard let identity = result.identity else {
-            addAccountError = "Could not read account after sign-in."
+            setAddAccountError("Could not read account after sign-in.")
             addAccountBusy = false
             return
         }
         switch identity {
         case .success(let id):
             if accountManager.accounts.contains(where: { $0.alias.caseInsensitiveCompare(id.alias) == .orderedSame }) {
-                addAccountError = "\(id.login) is already set up in this app."
+                setAddAccountError("\(id.login) is already set up in this app.")
                 addAccountBusy = false
                 return
             }
@@ -148,12 +149,16 @@ final class SetupCoordinator: ObservableObject {
             logStore.append("Add account: signed in as \(id.login).")
             addAccountStep = .folder
         case .failure(let e):
-            addAccountError = "Could not read account: \(e.message)"
+            setAddAccountError("Could not read account: \(e.displayMessage)")
         }
         addAccountBusy = false
     }
 
     func setAddAccountFolder(_ path: String?) { addAccountFolder = path }
+
+    func setAddAccountError(_ message: String) {
+        addAccountError = Redaction.scrub(message)
+    }
 
     /// Step 2 → 3 — generate (or reuse) the dedicated SSH key, then show its pubkey.
     func addAccountGenerateKey() async {
@@ -178,7 +183,7 @@ final class SetupCoordinator: ObservableObject {
             }
             addAccountStep = .sshKey
         case .failure(let e):
-            addAccountError = "SSH key error: \(e.message)"
+            setAddAccountError("SSH key error: \(e.displayMessage)")
         }
         addAccountBusy = false
     }
@@ -200,7 +205,7 @@ final class SetupCoordinator: ObservableObject {
             if let backup = result.backupPath { logStore.append("Add account: backed up ~/.ssh/config -> \(backup).") }
             if result.wroteBlock { logStore.append("Add account: added ~/.ssh/config host github-\(alias).") }
         case .failure(let e):
-            addAccountError = e.message; addAccountBusy = false; return
+            setAddAccountError(e.displayMessage); addAccountBusy = false; return
         }
 
         // Advisory (non-blocking): an earlier `Host *`/`Host github-*` block with its
@@ -234,7 +239,7 @@ final class SetupCoordinator: ObservableObject {
         }
         guard isCurrentAddAccountSession(session) else { return }
         if case .failure(let e) = write {
-            addAccountError = e.message; addAccountBusy = false; return
+            setAddAccountError(e.displayMessage); addAccountBusy = false; return
         }
         if case .success(let result) = write {
             if let backup = result.accountGitconfigBackupPath { logStore.append("Add account: backed up account gitconfig -> \(backup).") }

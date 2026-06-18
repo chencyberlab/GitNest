@@ -200,6 +200,14 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertNil(AccountSetup.sshLogin(from: "git@github.com: Permission denied (publickey)."))
     }
 
+    func testAskpassHelperReadsSecretFromInheritedFileDescriptor() {
+        let script = AccountSetup.askpassScript()
+
+        XCTAssertTrue(script.contains("/dev/fd/$fd"))
+        XCTAssertTrue(script.contains("GITNEST_ASKPASS_FD"))
+        XCTAssertFalse(script.contains("GITNEST_ASKPASS_VALUE"))
+    }
+
     func testVerificationRequiresExpectedSSHAndGhLogin() {
         let wrongSSH = AccountSetup.verification(
             expectedAlias: "alice",
@@ -305,14 +313,42 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertEqual(Data(base64Encoded: AccountSetup.randomPassphrase(byteCount: 16))?.count, 16)
     }
 
-    func testAskpassHelperEchoesEnvWithoutEmbeddingASecret() {
+    func testAskpassHelperUsesInheritedFDWithoutEmbeddingASecret() {
         let script = AccountSetup.askpassScript()
-        // The helper reads the passphrase from the environment at run time…
+        // The helper reads the passphrase from an inherited fd at run time.
         XCTAssertTrue(script.hasPrefix("#!/bin/sh"))
-        XCTAssertTrue(script.contains("$GITNEST_ASKPASS_VALUE"))
-        // …so the script itself must never contain a literal passphrase.
+        XCTAssertTrue(script.contains("GITNEST_ASKPASS_FD"))
+        XCTAssertTrue(script.contains("/dev/fd/$fd"))
+        XCTAssertFalse(script.contains("GITNEST_ASKPASS_VALUE"))
+        // The script itself must never contain a literal passphrase.
         let passphrase = AccountSetup.randomPassphrase()
         XCTAssertFalse(script.contains(passphrase))
+    }
+
+    func testSSHKeygenPassphraseFlowsThroughStdin() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestSSHKeygenTest-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let key = root.appendingPathComponent("id_test").path
+        let passphrase = "test-passphrase"
+        let create = Shell.run(
+            ["ssh-keygen", "-t", "ed25519", "-C", "gitnest-test", "-f", key],
+            stdin: Data("\(passphrase)\n\(passphrase)\n".utf8),
+            displayArgs: ["ssh-keygen", "-t", "ed25519", "-C", "gitnest-test", "-f", key, "-N", Redaction.mask]
+        )
+        XCTAssertTrue(create.ok, create.stderr + create.stdout)
+
+        let strip = Shell.run(
+            ["ssh-keygen", "-p", "-f", key],
+            stdin: Data("\(passphrase)\n\n\n".utf8)
+        )
+        XCTAssertTrue(strip.ok, strip.stderr + strip.stdout)
+
+        let publicKey = Shell.run(["ssh-keygen", "-y", "-f", key])
+        XCTAssertTrue(publicKey.ok, publicKey.stderr + publicKey.stdout)
+        XCTAssertTrue(publicKey.stdout.hasPrefix("ssh-ed25519 "))
     }
 
     func testWriteGitConfigRejectsEmptyNameOrEmail() {

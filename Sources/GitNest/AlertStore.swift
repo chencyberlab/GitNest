@@ -12,7 +12,8 @@ final class AlertStore: ObservableObject {
         /// Long output is capped so the alert stays readable — the full text is
         /// always available in the Output pane.
         static func message(repoName: String, gitOutput: String) -> String {
-            let output = gitOutput.trimmingCharacters(in: .whitespacesAndNewlines)
+            let output = Redaction.scrub(gitOutput)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             let detail: String
             if output.isEmpty {
                 detail = "Git did not provide details."

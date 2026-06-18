@@ -117,7 +117,7 @@ final class AppModel: ObservableObject {
             // snapshot and account checks could run before it is recorded.
             Task { [weak self] in
                 guard let self else { return }
-                self.initialGhLogin = await self.ghChain.serialized { GitHub.currentLogin() }
+                self.initialGhLogin = await self.ghChain.serialized { GitHub.currentActiveLoginForRestore() }
                 self.checkRequiredTools()
                 self.accountManager.refreshAll(statusMode: statusMode)
                 self.repoManager.startStatusAutoRefresh(appIsActive: self.appIsActive)

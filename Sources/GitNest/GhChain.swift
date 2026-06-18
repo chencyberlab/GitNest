@@ -21,7 +21,7 @@ final class GhChain {
 
     func serializedPreservingActiveAccount<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await serialized {
-            let original = GitHub.currentLogin()
+            let original = GitHub.currentActiveLoginForRestore()
             let result = work()
             if let original, !original.isEmpty {
                 GitHub.switchTo(original)

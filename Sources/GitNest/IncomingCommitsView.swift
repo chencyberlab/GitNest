@@ -189,7 +189,9 @@ struct IncomingCommitsContent: View {
             // Fallback for when status was nil above (popover opened before the first
             // sweep populated it): map git's "can't resolve the upstream" fatals to the
             // same plain message rather than leaking `fatal:` into the popover.
-            phase = Self.isNoComparison(error.message) ? .unavailable(Self.noComparisonMessage) : .failed(error.message)
+            phase = Self.isNoComparison(error.message)
+                ? .unavailable(Self.noComparisonMessage)
+                : .failed(error.displayMessage)
         }
     }
 }

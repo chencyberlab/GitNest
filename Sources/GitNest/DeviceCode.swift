@@ -25,6 +25,17 @@ enum DeviceCode {
         return text[range].uppercased()
     }
 
+    /// `gh auth login` output can be surfaced after cancellation or failure. Keep
+    /// the dedicated on-screen code field, but do not duplicate the credential into
+    /// logs or error summaries.
+    static func redactedGhOutput(_ text: String) -> String {
+        text.replacingOccurrences(
+            of: anchoredPattern,
+            with: Redaction.mask,
+            options: [.regularExpression, .caseInsensitive]
+        )
+    }
+
     /// Read the code from clipboard contents, which must be the code alone
     /// (modulo surrounding whitespace). Returns nil for anything else.
     static func extract(fromClipboard text: String) -> String? {

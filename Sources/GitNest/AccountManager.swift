@@ -200,10 +200,7 @@ final class AccountManager: ObservableObject {
             // Leaving gh where `ensureActiveAccount` left it (pointing at `alias`,
             // the account we just verified) is the lesser surprise; the next real
             // gh operation switches accounts as needed.
-            let original = Shell.run(["gh", "api", "user", "--jq", ".login"])
-            let originalLogin = original.ok
-                ? original.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-                : nil
+            let originalLogin = GitHub.currentActiveLoginForRestore()
 
             let check = GitHub.ensureActiveAccount(alias)
 
@@ -300,7 +297,7 @@ final class AccountManager: ObservableObject {
                 maxIterations: 240
             ) {
                 if currentAuthFlowCode != code {
-                    logStore.append("One-time code: \(code) (also copied to clipboard)")
+                    logStore.append("One-time code copied to clipboard.")
                     currentAuthFlowCode = code
                 }
             }
@@ -319,14 +316,15 @@ final class AccountManager: ObservableObject {
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
             if currentAuthFlowCode != code {
-                logStore.append("One-time code: \(code) (also copied to clipboard)")
+                logStore.append("One-time code copied to clipboard.")
                 currentAuthFlowCode = code
             }
         }
+        let safeAuthOutput = DeviceCode.redactedGhOutput(authOutput)
         if login.ok {
             logStore.append("✓ gh auth login completed.")
         } else {
-            logStore.append("✗ gh auth login failed: \(authOutput.isEmpty ? "unknown error" : authOutput)")
+            logStore.append("✗ gh auth login failed: \(safeAuthOutput.isEmpty ? "unknown error" : safeAuthOutput)")
             logStore.append("If prompted, paste the one-time code already copied to clipboard.")
             return
         }

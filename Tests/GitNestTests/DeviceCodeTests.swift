@@ -21,6 +21,15 @@ final class DeviceCodeTests: XCTestCase {
         XCTAssertNil(DeviceCode.extract(fromGhOutput: "run x550e8400-e29b done"))
     }
 
+    func testRedactedGhOutputMasksDeviceCode() {
+        let output = "! First copy your one-time code: 57C6-CEA6\nnetwork failed"
+
+        XCTAssertEqual(
+            DeviceCode.redactedGhOutput(output),
+            "! First copy your one-time code: \(Redaction.mask)\nnetwork failed"
+        )
+    }
+
     func testGhOutputWithoutCodeReturnsNil() {
         XCTAssertNil(DeviceCode.extract(fromGhOutput: ""))
         XCTAssertNil(DeviceCode.extract(fromGhOutput: "gh auth login failed: network error"))

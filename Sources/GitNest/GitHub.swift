@@ -892,6 +892,63 @@ enum GitHub {
         return login.isEmpty ? nil : login
     }
 
+    /// Snapshot the active account for later restoration. Prefer `gh auth status`
+    /// because it reads gh's local account state and does not depend on a successful
+    /// API call; fall back to the API path for older gh builds that lack `--active`.
+    static func currentActiveLoginForRestore() -> String? {
+        let local = Shell.run(["gh", "auth", "status", "--hostname", "github.com", "--active"])
+        if let login = activeLoginForRestore(fromAuthStatusResult: local) {
+            return login
+        }
+        return currentLogin()
+    }
+
+    static func activeLoginForRestore(fromAuthStatusResult result: ShellResult) -> String? {
+        activeLogin(fromAuthStatus: result.stdout + "\n" + result.stderr)
+    }
+
+    static func activeLogin(fromAuthStatus text: String) -> String? {
+        var firstLogin: String?
+        var currentLogin: String?
+        var sawActiveMarker = false
+        for line in text.components(separatedBy: .newlines) {
+            if let login = login(fromAuthStatusLine: line) {
+                if firstLogin == nil { firstLogin = login }
+                currentLogin = login
+                continue
+            }
+            let normalized = line.lowercased()
+            if normalized.contains("active account: true") {
+                sawActiveMarker = true
+                if let currentLogin { return currentLogin }
+            } else if normalized.contains("active account: false") {
+                sawActiveMarker = true
+                currentLogin = nil
+            }
+        }
+        return sawActiveMarker ? nil : firstLogin
+    }
+
+    private static func login(fromAuthStatusLine line: String) -> String? {
+        let patterns = [
+            #"Logged in to github\.com account ([^\s(]+)"#,
+            #"Logged in to github\.com as ([^\s(]+)"#,
+        ]
+        let nsLine = line as NSString
+        let range = NSRange(location: 0, length: nsLine.length)
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                  let match = regex.firstMatch(in: line, options: [], range: range),
+                  match.numberOfRanges > 1 else { continue }
+            let login = nsLine.substring(with: match.range(at: 1))
+                .trimmingCharacters(in: CharacterSet(charactersIn: ".,;:()[]{}<>\"'"))
+            if isValidGitHubLogin(login) {
+                return login
+            }
+        }
+        return nil
+    }
+
     /// Add or update an `upstream` remote pointing back to the original source repo.
     static func setUpstream(source: RepoReference, at path: String) -> ShellResult {
         let url = "https://github.com/\(source.nameWithOwner).git"
