@@ -38,7 +38,9 @@ final class AccountManager: ObservableObject {
     // MARK: Loading and selection
 
     func loadAccounts() {
-        accounts = orderedAccounts(GitConfig.loadAccounts())
+        accounts = orderedAccounts(GitConfig.loadAccounts { [logStore] message in
+            logStore.append("⚠ \(message)")
+        })
         if let selectedAccount {
             self.selectedAccount = accounts.first { $0.alias == selectedAccount.alias }
         }
@@ -341,6 +343,9 @@ final class AccountManager: ObservableObject {
         }
         beginAccountStatusChecks([account], force: true)
         await logAuthStatus()
+        // The one-time device code is consumed once login completes; don't keep it
+        // around past the flow that produced it.
+        currentAuthFlowCode = nil
     }
 
 }

@@ -27,9 +27,26 @@ enum GitConfig {
         (path as NSString).expandingTildeInPath
     }
 
-    static func loadAccounts() -> [Account] {
-        let gitconfig = expand("~/.gitconfig")
-        guard let text = try? String(contentsOfFile: gitconfig, encoding: .utf8) else { return [] }
+    /// Load accounts from `~/.gitconfig`. An *absent* file means "no accounts set up
+    /// yet" and quietly returns []. A file that exists but can't be read or decoded
+    /// (permissions, corruption, non-UTF-8 bytes) is a real fault that would
+    /// otherwise look identical to a fresh install — `onError` surfaces it so the
+    /// user gets a diagnostic instead of a silently empty sidebar.
+    static func loadAccounts(onError: (String) -> Void = { _ in }) -> [Account] {
+        loadAccounts(gitconfigPath: expand("~/.gitconfig"), onError: onError)
+    }
+
+    /// Path-injectable variant; production reads `~/.gitconfig`. Exposed so a test
+    /// can drive the unreadable-file branch without touching the user's real config.
+    static func loadAccounts(gitconfigPath: String, onError: (String) -> Void = { _ in }) -> [Account] {
+        guard FileManager.default.fileExists(atPath: gitconfigPath) else { return [] }
+        let text: String
+        do {
+            text = try String(contentsOfFile: gitconfigPath, encoding: .utf8)
+        } catch {
+            onError("Could not read ~/.gitconfig: \(error.localizedDescription)")
+            return []
+        }
         return loadAccounts(from: text) { path in
             try? String(contentsOfFile: path, encoding: .utf8)
         }

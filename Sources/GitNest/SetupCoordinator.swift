@@ -13,6 +13,12 @@ final class SetupCoordinator: ObservableObject {
     @Published var addAccountFolder: String?
     @Published var addAccountPublicKey: String?
     @Published var addAccountKeyCreated = false
+    /// Whether a freshly *created* key was encrypted (passphrase seeded into the
+    /// login Keychain). Only meaningful when `addAccountKeyCreated`; a reused key
+    /// leaves it `true` since its state isn't touched. False means the key was left
+    /// unencrypted because the Keychain/ssh-agent couldn't be reached — surfaced as
+    /// a warning on the SSH-key step, not just a log line.
+    @Published var addAccountKeyHardened = true
     @Published var addAccountVerification: AccountSetup.Verification?
 
     private let ghChain: GhChain
@@ -21,7 +27,6 @@ final class SetupCoordinator: ObservableObject {
     private let authProcessController: AuthProcessController
 
     var addAccountSessionID = UUID()
-    var currentAuthFlowCode: String?
     private var addAccountClipboardWatcher: Task<Void, Never>?
 
     /// Alias for the in-progress account (GitHub login, lowercased).
@@ -68,6 +73,7 @@ final class SetupCoordinator: ObservableObject {
         addAccountFolder = nil
         addAccountPublicKey = nil
         addAccountKeyCreated = false
+        addAccountKeyHardened = true
         addAccountVerification = nil
         addAccountActive = true
     }
@@ -176,6 +182,9 @@ final class SetupCoordinator: ObservableObject {
         case .success(let r):
             addAccountPublicKey = r.publicKey
             addAccountKeyCreated = r.created
+            // `hardened` is only meaningful for a newly created key; a reused key's
+            // encryption state is left untouched, so treat it as hardened (no warning).
+            addAccountKeyHardened = r.created ? r.hardened : true
             if r.created {
                 logStore.append(r.hardened
                               ? "Add account: generated SSH key id_\(alias) (encrypted; passphrase saved to your login Keychain)."

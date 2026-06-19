@@ -242,4 +242,60 @@ final class GitConfigTests: XCTestCase {
 
         XCTAssertEqual(accounts.map(\.alias), ["dev"])
     }
+
+    // MARK: File-read error surfacing
+
+    func testLoadAccountsReportsUnreadableGitconfig() throws {
+        // A directory exists at the path but can't be read as a file, so the load
+        // must surface the fault (rather than look like a fresh, account-less setup).
+        let path = NSTemporaryDirectory() + "gitnest-cfg-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: path) }
+
+        var errors: [String] = []
+        let accounts = GitConfig.loadAccounts(gitconfigPath: path) { errors.append($0) }
+
+        XCTAssertTrue(accounts.isEmpty)
+        XCTAssertEqual(errors.count, 1)
+        XCTAssertTrue(errors.first?.contains("Could not read ~/.gitconfig") == true,
+                      "expected a descriptive read error, got: \(errors)")
+    }
+
+    func testLoadAccountsIsQuietWhenGitconfigAbsent() {
+        // An absent file is the normal fresh-install case — return [] without noise.
+        let path = NSTemporaryDirectory() + "gitnest-missing-\(UUID().uuidString)"
+        var errors: [String] = []
+        let accounts = GitConfig.loadAccounts(gitconfigPath: path) { errors.append($0) }
+
+        XCTAssertTrue(accounts.isEmpty)
+        XCTAssertTrue(errors.isEmpty, "an absent gitconfig must not be reported as an error")
+    }
+
+    func testLoadAccountsParsesReadableGitconfigFile() throws {
+        // End-to-end through the real file-reading path: a valid global config whose
+        // includeIf points at a real per-account file on disk yields one account.
+        let dir = NSTemporaryDirectory() + "gitnest-cfg-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let globalPath = (dir as NSString).appendingPathComponent(".gitconfig")
+        let accountPath = (dir as NSString).appendingPathComponent(".gitconfig-dev")
+        try """
+        [includeIf "gitdir:/tmp/github-dev/"]
+            path = \(accountPath)
+        """.write(toFile: globalPath, atomically: true, encoding: .utf8)
+        try """
+        [user]
+            name = Dev
+            email = dev@example.com
+        [url "git@github-dev:"]
+            insteadOf = https://github.com/
+        """.write(toFile: accountPath, atomically: true, encoding: .utf8)
+
+        var errors: [String] = []
+        let accounts = GitConfig.loadAccounts(gitconfigPath: globalPath) { errors.append($0) }
+
+        XCTAssertTrue(errors.isEmpty)
+        XCTAssertEqual(accounts.map(\.alias), ["dev"])
+        XCTAssertEqual(accounts.first?.email, "dev@example.com")
+    }
 }

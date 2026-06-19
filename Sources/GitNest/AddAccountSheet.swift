@@ -160,6 +160,13 @@ struct AddAccountSheet: View {
                  : "This account already has a dedicated SSH key. Make sure its public key is on GitHub:")
                 .font(.system(size: 12)).foregroundStyle(theme.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
+            if setupCoordinator.addAccountKeyCreated && !setupCoordinator.addAccountKeyHardened {
+                Label("This key couldn't be encrypted — the login Keychain / ssh-agent wasn't reachable, so it's protected by file permissions only. It still works, but anyone who can read the private key file could use it. Re-run setup once your Keychain/ssh-agent is available to encrypt it.",
+                      systemImage: "exclamationmark.shield.fill")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let pub = setupCoordinator.addAccountPublicKey {
                 Text("Public key").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.textTertiary)
                 CopyableField(value: pub)
