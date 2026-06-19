@@ -132,6 +132,8 @@ final class SetupCoordinator: ObservableObject {
             addAccountBusy = false
             return
         }
+        // gh just wrote a fresh token to ~/.config/gh/hosts.yml — assert 0600 on it.
+        await runBlocking { GitHub.hardenGhConfigPermissions() }
         guard let identity = result.identity else {
             setAddAccountError("Could not read account after sign-in.")
             addAccountBusy = false

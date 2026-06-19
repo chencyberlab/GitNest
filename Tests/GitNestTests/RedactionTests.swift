@@ -22,6 +22,20 @@ final class RedactionTests: XCTestCase {
         XCTAssertEqual(scrubbed, "remote https://alice:\(Redaction.mask)@github.com/o/r.git")
     }
 
+    func testMasksTokenInURLUserInfoWithoutPassword() {
+        // A credential carried as the whole userinfo (no password half) must still be
+        // masked, even when it isn't a recognized gh*/github_pat prefix.
+        let scrubbed = Redaction.scrub("remote https://0123456789abcdef0123@github.com/o/r.git")
+        XCTAssertEqual(scrubbed, "remote https://\(Redaction.mask)@github.com/o/r.git")
+    }
+
+    func testDoesNotMaskBareCommitSHA() {
+        // A 40-char hex commit SHA in body text is not a credential — the userinfo
+        // rule must not fire on it (this is why bare-hex masking was deliberately avoided).
+        let text = "merged at 0123456789abcdef0123456789abcdef01234567"
+        XCTAssertEqual(Redaction.scrub(text), text)
+    }
+
     func testFoldsHomeDirectoryToTilde() {
         let home = NSHomeDirectory()
         XCTAssertEqual(Redaction.scrub("backed up \(home)/.ssh/config"), "backed up ~/.ssh/config")

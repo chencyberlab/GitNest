@@ -488,6 +488,31 @@ enum GitHub {
         ], handle: handle)
     }
 
+    /// Defensively re-assert 0600 on `gh`'s config files after a successful login.
+    ///
+    /// `gh` stores the OAuth token it mints in `~/.config/gh/hosts.yml` in plaintext
+    /// (it has no Keychain integration like git's osxkeychain helper) — for this
+    /// app's threat model that file is the real at-rest credential. `gh` writes it
+    /// 0600 already, so this is a cheap assertion, not a fix: it stops a stray umask,
+    /// a hand-edited file, or a restore from a looser backup from leaving the token
+    /// group/world-readable. We can't relocate it (GH_CONFIG_DIR is scrubbed for
+    /// account isolation), so tightening perms in place is the available mitigation.
+    static func hardenGhConfigPermissions() {
+        // gh resolves its config dir as $GH_CONFIG_DIR > $XDG_CONFIG_HOME/gh > ~/.config/gh.
+        // The app scrubs GH_CONFIG_DIR before invoking gh (account isolation), so gh — as
+        // run by this app — lands in XDG_CONFIG_HOME/gh or ~/.config/gh. Mirror that here, or
+        // a user with XDG_CONFIG_HOME set would have the token file hardened nowhere.
+        let configHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"].nilIfEmpty
+            .map { ($0 as NSString).expandingTildeInPath }
+            ?? ("~/.config" as NSString).expandingTildeInPath
+        let ghDir = (configHome as NSString).appendingPathComponent("gh")
+        for name in ["hosts.yml", "config.yml"] {
+            let path = (ghDir as NSString).appendingPathComponent(name)
+            guard FileManager.default.fileExists(atPath: path) else { continue }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: path)
+        }
+    }
+
     /// Best-effort: make `owner` the active gh account so its private repos are visible.
     @discardableResult
     static func switchTo(_ owner: String) -> ShellResult {
@@ -573,7 +598,14 @@ enum GitHub {
 
     private static func isRateLimitError(_ text: String) -> Bool {
         let lower = text.lowercased()
-        return lower.contains("rate limit") || lower.contains("api rate limit")
+        // "rate limit" already covers the primary limit and most secondary phrasings
+        // ("API rate limit exceeded", "You have exceeded a secondary rate limit").
+        // The extra needles catch header echoes ("x-ratelimit-remaining: 0") and the
+        // older abuse-detection wording that can omit the words "rate limit".
+        return lower.contains("rate limit")
+            || lower.contains("ratelimit")
+            || lower.contains("exceeded a secondary")
+            || lower.contains("abuse detection")
     }
 
     private static func recordRateLimitIfNeeded(_ res: ShellResult, owner: String) {
@@ -702,14 +734,26 @@ enum GitHub {
     }
 
     /// Capability cache: does this `gh` CLI understand `--default-branch-only`
-    /// for `gh repo fork`? Detected lazily from `gh repo fork --help`.
+    /// for `gh repo fork`? Detected lazily from `gh repo fork --help`. Lock-guarded
+    /// like `executableCache`/`rateLimitBackoffUntilByOwner`: in production it's only
+    /// reached through the serialized fork path, but the read/write runs on a
+    /// `runBlocking` background thread, so the lock keeps it a clean shared cache
+    /// rather than a latent data race.
+    private static let forkCapabilityLock = NSLock()
     private static var defaultBranchOnlyForkSupported: Bool?
 
     static func supportsDefaultBranchOnlyFork() -> Bool {
-        if let cached = defaultBranchOnlyForkSupported { return cached }
+        forkCapabilityLock.lock()
+        let cached = defaultBranchOnlyForkSupported
+        forkCapabilityLock.unlock()
+        if let cached { return cached }
+
         let help = Shell.run(["gh", "repo", "fork", "--help"])
         let supported = help.ok && (help.stdout + help.stderr).contains("--default-branch-only")
+
+        forkCapabilityLock.lock()
         defaultBranchOnlyForkSupported = supported
+        forkCapabilityLock.unlock()
         return supported
     }
 

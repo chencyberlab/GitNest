@@ -25,6 +25,12 @@ enum Redaction {
             // Credentials embedded in a URL's userinfo, e.g. an HTTPS remote that
             // carries a token: https://user:TOKEN@github.com → keep the user, drop it.
             (#"(https?://)([^/\s:@]+):[^/\s@]+@"#, "$1$2:\(mask)@"),
+            // A credential sitting in the userinfo with no password half:
+            // https://TOKEN@github.com. Runs after the prefix rules (so a known
+            // gh*/github_pat token keeps its identifying prefix) and is deliberately
+            // narrow — it only fires on a single userinfo segment, never on a bare
+            // 40-char hex commit SHA in body text (which masking hex would clobber).
+            (#"(https?://)[^/\s:@]+@"#, "$1\(mask)@"),
         ]
         return specs.compactMap { spec in
             (try? NSRegularExpression(pattern: spec.pattern, options: [.caseInsensitive]))

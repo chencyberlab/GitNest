@@ -322,6 +322,8 @@ final class AccountManager: ObservableObject {
         }
         let safeAuthOutput = DeviceCode.redactedGhOutput(authOutput)
         if login.ok {
+            // gh just refreshed its token in ~/.config/gh/hosts.yml — assert 0600 on it.
+            await runBlocking { GitHub.hardenGhConfigPermissions() }
             logStore.append("✓ gh auth login completed.")
         } else {
             logStore.append("✗ gh auth login failed: \(safeAuthOutput.isEmpty ? "unknown error" : safeAuthOutput)")

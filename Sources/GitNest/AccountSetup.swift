@@ -116,8 +116,13 @@ enum AccountSetup {
     /// working key than an encrypted one nothing can unlock.
     static func ensureKey(alias: String, comment: String) -> Result<KeyResult, CommandError> {
         let dir = sshDir()
-        _ = Shell.run(["mkdir", "-p", dir])
-        _ = Shell.run(["chmod", "700", dir])
+        let fm = FileManager.default
+        // In-process instead of spawning mkdir/chmod. createDirectory won't relax an
+        // existing ~/.ssh's mode, so setAttributes follows to assert 0700 either way.
+        try? fm.createDirectory(atPath: dir,
+                                withIntermediateDirectories: true,
+                                attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir)
         let key = keyPath(alias: alias)
         var created = false
         var hardened = false
@@ -142,7 +147,7 @@ enum AccountSetup {
         // Enforce 0600 on the private key whether we just created it or are reusing
         // a pre-existing one — a key the app didn't create could have looser perms,
         // and ssh refuses a group/world-readable key.
-        _ = Shell.run(["chmod", "600", key])
+        try? fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: key)
         guard let pub = try? String(contentsOfFile: pubKeyPath(alias: alias), encoding: .utf8) else {
             return .failure(CommandError(message: "could not read public key at \(pubKeyPath(alias: alias))"))
         }

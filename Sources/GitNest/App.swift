@@ -22,20 +22,31 @@ struct GitNestApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
 
-    func applicationWillTerminate(_ notification: Notification) {
-        // `prepareForTermination` is async (@MainActor). Pump the run loop so the
-        // chain can drain and restore gh before the process exits — a bare
-        // semaphore.wait on the main thread would deadlock MainActor work.
-        let done = DispatchSemaphore(value: 0)
+    /// Guards the single `reply(toApplicationShouldTerminate:)` call — both the
+    /// drain task and the watchdog below race to send it, and sending twice is
+    /// undefined.
+    private var terminationReplySent = false
+
+    /// `prepareForTermination` is async (@MainActor): it drains the gh chain and
+    /// restores the pre-app active account before we quit. Use AppKit's deferred
+    /// termination — `.terminateLater` keeps the app alive until we reply — instead
+    /// of hand-pumping the run loop, which can re-enter and process stray events.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        func reply() {
+            guard !terminationReplySent else { return }
+            terminationReplySent = true
+            sender.reply(toApplicationShouldTerminate: true)
+        }
         Task { @MainActor in
             await model.prepareForTermination()
-            done.signal()
+            reply()
         }
-        let deadline = Date().addingTimeInterval(15)
-        while done.wait(timeout: .now()) == .timedOut {
-            if Date() >= deadline { break }
-            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+        // Watchdog: never block quit on a hung restore (e.g. a wedged gh chain).
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 15 * 1_000_000_000)
+            reply()
         }
+        return .terminateLater
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
