@@ -78,12 +78,28 @@ enum AccountSetup {
     /// Read the currently active gh account's login/id/name (call right after sign-in).
     static func currentIdentity() -> Result<Identity, CommandError> {
         let res = Shell.run(["gh", "api", "user", "--jq", "{login: .login, id: .id, name: .name}"])
-        guard res.ok, let data = res.stdout.data(using: .utf8) else {
-            return .failure(CommandError(message: short(res)))
+        guard res.ok else { return .failure(CommandError(message: short(res))) }
+        return identity(fromUserJSON: res.stdout)
+    }
+
+    /// Decode and validate the `gh api user` payload. Exposed (not folded into
+    /// `currentIdentity`) so the login trust boundary can be tested without a live
+    /// `gh`. The login is run through `isValidGitHubLogin` for the same reason the
+    /// disk-read path validates the alias in `GitConfig.loadAccount`: it becomes
+    /// `~/.ssh/id_<alias>`, `~/.gitconfig-<alias>`, the `github-<alias>` SSH host,
+    /// and `gh auth switch -u <alias>`. The wizard path used to trust the API
+    /// response unchecked — the one place this filesystem/identity invariant was
+    /// not enforced.
+    static func identity(fromUserJSON json: String) -> Result<Identity, CommandError> {
+        guard let data = json.data(using: .utf8) else {
+            return .failure(CommandError(message: "could not parse gh user info"))
         }
         struct U: Decodable { let login: String; let id: Int; let name: String? }
         guard let u = try? JSONDecoder().decode(U.self, from: data) else {
             return .failure(CommandError(message: "could not parse gh user info"))
+        }
+        guard isValidGitHubLogin(u.login) else {
+            return .failure(CommandError(message: "gh returned an unexpected account login; refusing to continue."))
         }
         return .success(Identity(login: u.login, id: u.id, name: u.name))
     }

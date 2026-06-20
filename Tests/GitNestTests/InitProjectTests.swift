@@ -267,6 +267,57 @@ final class InitProjectTests: XCTestCase {
         XCTAssertTrue(warning?.contains("new-repo") == true)
     }
 
+    // MARK: - Foreign .git republish guard
+    //
+    // The security-relevant decision inside `initAndPushProject`: when initializing
+    // a *copied* folder, should its copied `.git` be dropped so a different (possibly
+    // private) repo's full history isn't republished into the new repo? Extracted as
+    // `shouldDropCopiedGitHistory` so the decision is testable without a real copy +
+    // `gh repo create`.
+
+    func testShouldDropCopiedGitHistoryDropsForeignOrigin() {
+        // The copied clone points at someone else's repo → must start fresh, or its
+        // (possibly private) history would be republished under the new repo.
+        XCTAssertTrue(GitHub.shouldDropCopiedGitHistory(
+            copiedOrigin: "git@github.com:someoneelse/private-thing.git",
+            sourceOrigin: "git@github.com:someoneelse/private-thing.git",
+            owner: "me", repoName: "new-project", expectedSSHHost: "github-me"))
+    }
+
+    func testShouldDropCopiedGitHistoryKeepsOriginAlreadyPointingAtTheNewRepo() {
+        // Already this exact repo (owner/repo + expected SSH alias) → nothing to drop.
+        XCTAssertFalse(GitHub.shouldDropCopiedGitHistory(
+            copiedOrigin: "git@github-me:me/new-project.git",
+            sourceOrigin: nil,
+            owner: "me", repoName: "new-project", expectedSSHHost: "github-me"))
+    }
+
+    func testShouldDropCopiedGitHistoryDropsRightRepoOnWrongAccountHost() {
+        // Right owner/repo but a *different* account's SSH host alias → still drop:
+        // pushing it would route the new repo through the wrong account's key.
+        XCTAssertTrue(GitHub.shouldDropCopiedGitHistory(
+            copiedOrigin: "git@github-other:me/new-project.git",
+            sourceOrigin: nil,
+            owner: "me", repoName: "new-project", expectedSSHHost: "github-me"))
+    }
+
+    func testShouldDropCopiedGitHistoryDropsWhenNoOriginButSourceWasAClone() {
+        // No readable origin on the copy, but the source was known to be a clone →
+        // drop, because that history came from somewhere else.
+        XCTAssertTrue(GitHub.shouldDropCopiedGitHistory(
+            copiedOrigin: nil,
+            sourceOrigin: "git@github.com:x/y.git",
+            owner: "me", repoName: "new-project", expectedSSHHost: "github-me"))
+    }
+
+    func testShouldDropCopiedGitHistoryKeepsGenuinelyFreshFolder() {
+        // No copied origin and the source wasn't a clone → genuinely fresh, keep it.
+        XCTAssertFalse(GitHub.shouldDropCopiedGitHistory(
+            copiedOrigin: nil,
+            sourceOrigin: nil,
+            owner: "me", repoName: "new-project", expectedSSHHost: "github-me"))
+    }
+
     private func makeTempDirectory() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("GitNestInitProjectTests-\(UUID().uuidString)")

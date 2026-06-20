@@ -520,10 +520,36 @@ enum GitHub {
     }
 
     static func ensureActiveAccount(_ owner: String) -> ShellResult {
-        let switched = Shell.run(["gh", "auth", "switch", "-u", owner])
+        verifyActiveAccount(
+            owner,
+            switchAccount: { Shell.run(["gh", "auth", "switch", "-u", $0]) },
+            activeLogin: {
+                let res = Shell.run(["gh", "api", "user", "--jq", ".login"])
+                // `gh api user` runs at the head of essentially every gh operation,
+                // so it's the call most likely to trip a secondary rate limit. Record
+                // backoff here too (not just in the repo-list calls) so the auto-
+                // refresh scheduler actually stands down instead of hammering on.
+                if !res.ok { recordRateLimitIfNeeded(res, owner: owner) }
+                return res
+            }
+        )
+    }
+
+    /// Injectable core of `ensureActiveAccount`: switch to `owner`, then *verify*
+    /// via the live API that the active login really is `owner`, refusing on any
+    /// mismatch. This switch→verify→refuse step is the linchpin that keeps every
+    /// gh operation on the intended account, so it is exposed (not folded inline)
+    /// so a test can drive its branches without a live `gh`/network. A separate
+    /// name — not an overload of `ensureActiveAccount(_:)` — keeps the bare
+    /// function reference `ensureActive: ensureActiveAccount` in `listRepos`
+    /// unambiguous.
+    static func verifyActiveAccount(_ owner: String,
+                                    switchAccount: (String) -> ShellResult,
+                                    activeLogin: () -> ShellResult) -> ShellResult {
+        let switched = switchAccount(owner)
         guard switched.ok else { return switched }
 
-        let active = Shell.run(["gh", "api", "user", "--jq", ".login"])
+        let active = activeLogin()
         guard active.ok else { return active }
 
         let login = active.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -596,7 +622,9 @@ enum GitHub {
         return owner.lowercased()
     }
 
-    private static func isRateLimitError(_ text: String) -> Bool {
+    /// Internal (not `private`) so the phrase-matching the rate-limit backoff hinges
+    /// on can be tested directly against the wordings GitHub actually returns.
+    static func isRateLimitError(_ text: String) -> Bool {
         let lower = text.lowercased()
         // "rate limit" already covers the primary limit and most secondary phrasings
         // ("API rate limit exceeded", "You have exceeded a secondary rate limit").
@@ -608,7 +636,9 @@ enum GitHub {
             || lower.contains("abuse detection")
     }
 
-    private static func recordRateLimitIfNeeded(_ res: ShellResult, owner: String) {
+    /// Internal (not `private`) so a test can pin that backoff is recorded for a
+    /// rate-limit failure and *not* for unrelated errors.
+    static func recordRateLimitIfNeeded(_ res: ShellResult, owner: String) {
         let msg = res.stderr.isEmpty ? res.stdout : res.stderr
         if isRateLimitError(msg) {
             recordRateLimitBackoff(owner: owner)
@@ -795,6 +825,10 @@ enum GitHub {
         let forkRes = Shell.run(forkArgs)
         let forkOutput = forkRes.stdout + "\n" + forkRes.stderr
         if !forkRes.ok {
+            // A rate-limited fork must arm the backoff window too, or the scheduler
+            // keeps polling this owner. Harmless on the "already exists" path — that
+            // text isn't a rate-limit phrasing, so this no-ops there.
+            recordRateLimitIfNeeded(forkRes, owner: alias)
             if let existing = existingFork(
                 from: forkOutput,
                 currentUser: currentUser,
@@ -1132,6 +1166,29 @@ enum GitHub {
             || text.contains("already exists on this account")
     }
 
+    /// Whether the copied source's `.git` must be dropped so the new project starts
+    /// a fresh history instead of republishing a *different* (possibly private) repo's
+    /// full history into this brand-new repo. The republish-prevention guard's core
+    /// decision, pulled out of `initAndPushProject` so it's unit-testable without a
+    /// real copy + `gh repo create`:
+    ///   • copied clone has a readable origin → drop it unless that origin already is
+    ///     this exact new repo (same owner/repo, and the expected SSH-host alias);
+    ///   • copied clone had no readable origin → drop only when the source was known
+    ///     to be a clone (`sourceOrigin` set), else it's a genuinely fresh folder.
+    static func shouldDropCopiedGitHistory(copiedOrigin: String?,
+                                           sourceOrigin: String?,
+                                           owner: String,
+                                           repoName: String,
+                                           expectedSSHHost: String?) -> Bool {
+        if let copiedOrigin {
+            return !remoteLooksLike(copiedOrigin,
+                                    owner: owner,
+                                    repoName: repoName,
+                                    expectedSSHHost: expectedSSHHost)
+        }
+        return sourceOrigin != nil
+    }
+
     static func initAndPushProject(_ plan: ProjectInitPlan, visibility: RepoVisibilityChoice) -> ShellResult {
         var log: [String] = []
         let fm = FileManager.default
@@ -1158,12 +1215,13 @@ enum GitHub {
                 log.append("Copied project to \(plan.workingPath)")
                 let copiedGit = (plan.workingPath as NSString).appendingPathComponent(".git")
                 let copiedOrigin = originURL(at: plan.workingPath)
-                let shouldDropCopiedGit = copiedOrigin.map {
-                    !remoteLooksLike($0,
-                                     owner: owner,
-                                     repoName: plan.repoName,
-                                     expectedSSHHost: plan.account.sshHost)
-                } ?? (plan.sourceOrigin != nil)
+                let shouldDropCopiedGit = shouldDropCopiedGitHistory(
+                    copiedOrigin: copiedOrigin,
+                    sourceOrigin: plan.sourceOrigin,
+                    owner: owner,
+                    repoName: plan.repoName,
+                    expectedSSHHost: plan.account.sshHost
+                )
                 if fm.fileExists(atPath: copiedGit), shouldDropCopiedGit {
                     // The source is a clone of a *different* repo. Its copied `.git`
                     // carries that repo's full history and foreign origin; re-homing
@@ -1251,6 +1309,7 @@ enum GitHub {
             // push into a coincidentally same-named repo the user already owns.
             log.append("GitHub repo \(repoFullName) already exists")
         } else {
+            recordRateLimitIfNeeded(create, owner: owner)
             return failure("GitHub repo create failed", log, create)
         }
 

@@ -379,4 +379,40 @@ final class AccountSetupTests: XCTestCase {
         }
         XCTAssertTrue(emailError.message.contains("user.email"))
     }
+
+    // MARK: Identity login validation (trust boundary)
+    //
+    // The login from `gh api user` becomes ~/.ssh/id_<alias>, ~/.gitconfig-<alias>,
+    // the github-<alias> SSH host, and `gh auth switch -u <alias>`. The disk-read
+    // path (GitConfig.loadAccount) validates it; the wizard path must too. These
+    // drive `identity(fromUserJSON:)`, the seam that does the decode + validation.
+
+    func testIdentityFromUserJSONAcceptsValidLogin() {
+        let json = #"{"login":"Octo-Cat","id":42,"name":"Octo"}"#
+        guard case .success(let id) = AccountSetup.identity(fromUserJSON: json) else {
+            return XCTFail("a valid login must decode")
+        }
+        XCTAssertEqual(id.login, "Octo-Cat")
+        XCTAssertEqual(id.alias, "octo-cat")   // lowercased, used as the account key
+        XCTAssertEqual(id.id, 42)
+    }
+
+    func testIdentityFromUserJSONRejectsMalformedLoginsBeforeTheyBecomePaths() {
+        // Path traversal, separators, spaces, over-length, and double/edge hyphens —
+        // anything isValidGitHubLogin rejects must fail here rather than reach disk.
+        let bad = ["../evil", "a/b", "name with space", "ev|l",
+                   String(repeating: "x", count: 40), "-lead", "trail-", "dou--ble", ""]
+        for login in bad {
+            let json = "{\"login\":\"\(login)\",\"id\":1,\"name\":null}"
+            guard case .failure = AccountSetup.identity(fromUserJSON: json) else {
+                return XCTFail("login \"\(login)\" must be refused before becoming a path")
+            }
+        }
+    }
+
+    func testIdentityFromUserJSONRejectsUnparseablePayload() {
+        guard case .failure = AccountSetup.identity(fromUserJSON: "not json") else {
+            return XCTFail("garbage payload must be a failure, not a crash or empty identity")
+        }
+    }
 }

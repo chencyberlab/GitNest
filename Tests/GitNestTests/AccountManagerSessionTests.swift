@@ -136,4 +136,20 @@ final class AccountManagerSessionTests: XCTestCase {
         XCTAssertFalse(manager.accountChecking(a),
                        "the card must not be left in the checking state by a refused stale check")
     }
+
+    /// The background status sweep snapshots the active gh account, switches to the
+    /// account it's verifying, then restores. A *failed* restore leaves gh flipped to
+    /// `alias` — that must surface as a warning, not be swallowed. A successful
+    /// restore is silent.
+    func testActiveAccountRestoreWarningOnlyFiresOnFailureAndNamesBothAccounts() {
+        XCTAssertNil(AccountManager.activeAccountRestoreWarning(
+            leftActiveOn: "work", original: "personal", restoreOK: true),
+            "a successful restore must not warn")
+
+        let warning = AccountManager.activeAccountRestoreWarning(
+            leftActiveOn: "work", original: "personal", restoreOK: false)
+        XCTAssertNotNil(warning, "a failed restore must produce a warning")
+        XCTAssertTrue(warning?.contains("work") == true, "names the account gh was left on")
+        XCTAssertTrue(warning?.contains("personal") == true, "names the account it could not restore")
+    }
 }

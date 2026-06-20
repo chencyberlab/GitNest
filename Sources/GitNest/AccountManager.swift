@@ -13,6 +13,13 @@ final class AccountManager: ObservableObject {
         let switched: ShellResult?
     }
 
+    /// Carries the gh-auth indicator plus an optional restore-failure warning out of
+    /// the serialized status check, so the warning can be logged on the main actor.
+    private struct AccountStatusOutcome: Sendable {
+        let indicator: GhAuthIndicator
+        let restoreWarning: String?
+    }
+
     @Published var accounts: [Account] = []
     @Published var selectedAccount: Account?
     @Published var sshGreetings: [String: String] = [:]   // alias -> "Hi X!"
@@ -193,7 +200,7 @@ final class AccountManager: ObservableObject {
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
         sshGreetings[alias] = greeting
 
-        let indicator = await ghChain.serialized { () -> GhAuthIndicator in
+        let outcome = await ghChain.serialized { () -> AccountStatusOutcome in
             // Snapshot whoever was active before this check so we can put gh back
             // exactly where it was. If the snapshot itself fails (transient network,
             // no active account), do NOT guess a restore target — guessing the
@@ -206,15 +213,38 @@ final class AccountManager: ObservableObject {
 
             let check = GitHub.ensureActiveAccount(alias)
 
+            var restoreWarning: String?
             if let originalLogin, !originalLogin.isEmpty {
-                _ = Shell.run(["gh", "auth", "switch", "-u", originalLogin])
+                // Don't swallow a failed restore: if this fails, gh is left active on
+                // `alias` — a *different* account than before this background sweep —
+                // and that silent flip should at least show in the Output log.
+                let restore = Shell.run(["gh", "auth", "switch", "-u", originalLogin])
+                restoreWarning = AccountManager.activeAccountRestoreWarning(
+                    leftActiveOn: alias, original: originalLogin, restoreOK: restore.ok)
             }
 
-            return GhAuthIndicator(ok: check.ok,
-                                   text: check.ok ? "gh ready" : "gh login required")
+            return AccountStatusOutcome(
+                indicator: GhAuthIndicator(ok: check.ok,
+                                           text: check.ok ? "gh ready" : "gh login required"),
+                restoreWarning: restoreWarning)
         }
         guard isCurrentAccountStatusSession(session, alias: alias) else { return }
-        ghIndicators[alias] = indicator
+        ghIndicators[alias] = outcome.indicator
+        if let warning = outcome.restoreWarning { logStore.append("⚠ \(warning)") }
+    }
+
+    /// Warning when the background status sweep verified `alias` but then could not
+    /// restore the account that was active before it — leaving gh's active account
+    /// silently flipped to `alias`. nil when the restore succeeded. `nonisolated` +
+    /// pure so it's callable from the off-main-actor `ghChain` hop and testable
+    /// without a live gh. The flip is low-impact (every mutating gh op re-asserts
+    /// identity via `ensureActiveAccount`, and git uses per-account SSH aliases), but
+    /// a silent global-state change still earns a line in the log.
+    nonisolated static func activeAccountRestoreWarning(leftActiveOn alias: String,
+                                                        original: String,
+                                                        restoreOK: Bool) -> String? {
+        guard !restoreOK else { return nil }
+        return "active gh account left on \(alias); could not restore \(original)."
     }
 
     func isCurrentAccountStatusSession(_ session: UUID, alias: String) -> Bool {

@@ -103,6 +103,54 @@ final class RepoListTests: XCTestCase {
         XCTAssertFalse(GitHub.isRateLimited(owner: "me"))
     }
 
+    /// The backoff bookkeeping above is only useful if the *classifier* that feeds
+    /// it recognizes the wordings GitHub actually returns. These pin the phrase
+    /// matching so a gh message rephrase (or an over-eager "contains") is caught.
+    func testIsRateLimitErrorRecognizesGitHubWordings() {
+        // Primary limit.
+        XCTAssertTrue(GitHub.isRateLimitError("HTTP 403: API rate limit exceeded for user ID 1."))
+        // Secondary limit (two common phrasings).
+        XCTAssertTrue(GitHub.isRateLimitError("You have exceeded a secondary rate limit. Please wait a few minutes."))
+        XCTAssertTrue(GitHub.isRateLimitError("You have exceeded a secondary rate limit and have been temporarily blocked."))
+        // Older abuse-detection wording that can omit the words "rate limit".
+        XCTAssertTrue(GitHub.isRateLimitError("You have triggered an abuse detection mechanism."))
+        // A header echo with the hyphenated spelling.
+        XCTAssertTrue(GitHub.isRateLimitError("x-ratelimit-remaining: 0"))
+        // Case-insensitive.
+        XCTAssertTrue(GitHub.isRateLimitError("API RATE LIMIT EXCEEDED"))
+    }
+
+    func testIsRateLimitErrorIgnoresUnrelatedFailures() {
+        XCTAssertFalse(GitHub.isRateLimitError("error connecting to api.github.com"))
+        XCTAssertFalse(GitHub.isRateLimitError("HTTP 404: Not Found"))
+        XCTAssertFalse(GitHub.isRateLimitError("could not resolve host github.com"))
+        XCTAssertFalse(GitHub.isRateLimitError(""))
+    }
+
+    /// `recordRateLimitIfNeeded` is the bridge used by every gh path (repo list,
+    /// ensureActiveAccount's `gh api user`, fork, create) to arm the backoff window.
+    /// It must record for a rate-limit failure and stay silent for any other error,
+    /// reading the message from stderr (or stdout when stderr is empty).
+    func testRecordRateLimitIfNeededArmsBackoffOnlyForRateLimits() {
+        GitHub.clearRateLimitBackoff()
+        defer { GitHub.clearRateLimitBackoff() }
+
+        GitHub.recordRateLimitIfNeeded(
+            ShellResult(exitCode: 1, stdout: "", stderr: "HTTP 404: Not Found"), owner: "a")
+        XCTAssertFalse(GitHub.isRateLimited(owner: "a"), "a non-rate-limit error must not arm backoff")
+
+        GitHub.recordRateLimitIfNeeded(
+            ShellResult(exitCode: 1, stdout: "", stderr: "You have exceeded a secondary rate limit."), owner: "a")
+        XCTAssertTrue(GitHub.isRateLimited(owner: "a"), "a secondary-rate-limit error must arm backoff")
+        XCTAssertFalse(GitHub.isRateLimited(owner: "b"), "backoff is per-owner")
+
+        // Falls back to stdout when stderr is empty (some gh paths print there).
+        GitHub.clearRateLimitBackoff()
+        GitHub.recordRateLimitIfNeeded(
+            ShellResult(exitCode: 1, stdout: "API rate limit exceeded", stderr: ""), owner: "c")
+        XCTAssertTrue(GitHub.isRateLimited(owner: "c"))
+    }
+
     private func repo(owner: String, name: String, updatedAt: String) -> Repo {
         Repo(
             name: name,

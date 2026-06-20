@@ -26,10 +26,15 @@ enum Redaction {
             // carries a token: https://user:TOKEN@github.com → keep the user, drop it.
             (#"(https?://)([^/\s:@]+):[^/\s@]+@"#, "$1$2:\(mask)@"),
             // A credential sitting in the userinfo with no password half:
-            // https://TOKEN@github.com. Runs after the prefix rules (so a known
-            // gh*/github_pat token keeps its identifying prefix) and is deliberately
-            // narrow — it only fires on a single userinfo segment, never on a bare
-            // 40-char hex commit SHA in body text (which masking hex would clobber).
+            // https://TOKEN@github.com. Runs after the prefix rules, so a recognized
+            // gh*/github_pat token is already masked to e.g. `ghp_‹redacted›`; this
+            // rule then re-masks that whole userinfo segment to `‹redacted›`. The
+            // identifying prefix is therefore NOT preserved in the userinfo position
+            // (unlike a token in body text) — the secret body is gone either way,
+            // which is the only property that matters here. Deliberately narrow: it
+            // fires on a single userinfo segment only, never on a bare 40-char hex
+            // commit SHA in body text (which masking hex would clobber).
+            // Pinned by RedactionTests.testTokenInURLUserInfoIsFullyMaskedEvenIfPrefixNotKept.
             (#"(https?://)[^/\s:@]+@"#, "$1\(mask)@"),
         ]
         return specs.compactMap { spec in

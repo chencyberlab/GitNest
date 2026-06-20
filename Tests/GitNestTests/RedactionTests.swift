@@ -66,4 +66,45 @@ final class RedactionTests: XCTestCase {
         XCTAssertEqual(GitHub.authStatusArgs(), ["gh", "auth", "status"])
         XCTAssertFalse(GitHub.authStatusArgs().contains("--show-token"))
     }
+
+    // MARK: Multi-secret / interaction hardening
+    //
+    // The single-token cases above don't exercise the parts most likely to regress:
+    // several secrets on one line, a secret next to a path that then home-folds, and
+    // the ordering between the token rules and the URL-userinfo rule. These pin them.
+
+    /// Two distinct tokens on one line must BOTH be masked (a single global pass,
+    /// not just the first match), each keeping its own identifying prefix.
+    func testMasksEveryTokenOnALineNotJustTheFirst() {
+        let a = "abcdefghijklmnop0000"   // ≥16 chars
+        let b = "ABCDEFGHIJKLMNOP1111"
+        let scrubbed = Redaction.scrub("first ghp_\(a) then gho_\(b) done")
+        XCTAssertEqual(scrubbed, "first ghp_\(Redaction.mask) then gho_\(Redaction.mask) done")
+    }
+
+    /// A token and a home path on the same line: the token is masked AND the home
+    /// dir is folded — the two rules must compose, not clobber each other.
+    func testMasksTokenAndFoldsHomePathTogether() {
+        let home = NSHomeDirectory()
+        let scrubbed = Redaction.scrub("\(home)/.config/gh holds ghp_abcdefghijklmnop2222")
+        XCTAssertEqual(scrubbed, "~/.config/gh holds ghp_\(Redaction.mask)")
+    }
+
+    /// A gh-prefixed token carried as URL userinfo (`https://ghp_…@host`).
+    ///
+    /// The security-critical property — the secret body never survives — holds: it
+    /// is fully masked. This pins the OBSERVED behavior: the trailing URL-userinfo
+    /// rule re-masks the (already prefix-masked) userinfo segment, so the `ghp_`
+    /// prefix is dropped here and the result is `https://‹redacted›@…`. That diverges
+    /// from the inline comment in Redaction.swift, which claims the prefix is kept in
+    /// this case. The test pins reality and flags the divergence so a future change
+    /// to either the rule order or that comment is a conscious decision, not a silent
+    /// drift. (If prefix preservation is later implemented, update this assertion.)
+    func testTokenInURLUserInfoIsFullyMaskedEvenIfPrefixNotKept() {
+        let body = "abcdefghijklmnopqrstuvwxyz0123"
+        let scrubbed = Redaction.scrub("remote https://ghp_\(body)@github.com/o/r.git")
+        XCTAssertFalse(scrubbed.contains(body), "the secret body must never survive")
+        XCTAssertTrue(scrubbed.contains(Redaction.mask))
+        XCTAssertEqual(scrubbed, "remote https://\(Redaction.mask)@github.com/o/r.git")
+    }
 }
