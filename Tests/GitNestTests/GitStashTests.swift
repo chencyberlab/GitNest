@@ -44,6 +44,21 @@ final class GitStashTests: XCTestCase {
         XCTAssertEqual(entries[0].subject, "On main: feat: add (x), commas & colons")
     }
 
+    /// A separator byte smuggled into a stash message must not truncate the subject
+    /// or shift the selector/SHA — the split is capped so the subject absorbs it, and
+    /// the injected byte is stripped from the display. (SEC-1/SEC-2, review round 3.)
+    func testSubjectWithSeparatorIsNotTruncatedAndIsSanitized() {
+        let output = record("stash@{2}", "abc123", "WIP\u{1f}smuggled\u{202e}rest")
+        let entries = GitStash.parse(listZ: output)
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].index, 2, "selector must not be shifted")
+        XCTAssertEqual(entries[0].hash, "abc123", "SHA must not be shifted")
+        XCTAssertFalse(entries[0].subject.unicodeScalars.contains("\u{1f}"))
+        XCTAssertFalse(entries[0].subject.unicodeScalars.contains("\u{202e}"))
+        XCTAssertEqual(entries[0].subject, "WIPsmuggledrest")
+    }
+
     func testSkipsRecordMissingSubject() {
         // A record with only selector + hash (no subject field) is dropped, not misread.
         let malformed = ["stash@{0}", "abc123"].joined(separator: "\u{1f}")

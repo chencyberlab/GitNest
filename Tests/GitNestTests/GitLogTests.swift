@@ -3,9 +3,11 @@ import XCTest
 
 final class GitLogTests: XCTestCase {
     /// Build one commit record the way `git log --pretty=format:…%x1f…` does.
+    /// Params read subject/author/date for clarity, but they're emitted in
+    /// `GitLog.prettyFormat`'s actual order: hash, short, date, author, subject.
     private func record(_ hash: String, _ short: String, _ subject: String,
                         _ author: String, _ date: String) -> String {
-        [hash, short, subject, author, date].joined(separator: "\u{1f}")
+        [hash, short, date, author, subject].joined(separator: "\u{1f}")
     }
 
     func testParsesMultipleCommits() {
@@ -37,14 +39,43 @@ final class GitLogTests: XCTestCase {
     }
 
     func testKeepsEmptyFieldsSoLaterFieldsDoNotShift() {
-        // An empty subject and author must not collapse and shift the date out of place.
-        let output = "hashx\u{1f}hx\u{1f}\u{1f}\u{1f}just now"
+        // An empty author and subject must not collapse and shift the date out of
+        // place. Field order is hash, short, date, author, subject.
+        let output = "hashx\u{1f}hx\u{1f}just now\u{1f}\u{1f}"
         let commits = GitLog.parse(logZ: output)
 
         XCTAssertEqual(commits.count, 1)
         XCTAssertEqual(commits[0].subject, "")
         XCTAssertEqual(commits[0].author, "")
         XCTAssertEqual(commits[0].relativeDate, "just now")
+    }
+
+    /// A crafted commit can smuggle the field separator into its subject to try to
+    /// forge the author/date columns. With the free-text subject last and the split
+    /// capped, the structured fields stay correct and the injected bytes are stripped
+    /// from the displayed subject. (Reproduces the SEC-1 spoof from review round 3.)
+    func testCraftedSubjectCannotSpoofAuthorOrDate() {
+        let crafted = "Fix bug\u{1f}EvilAuthor\u{1f}just now"
+        let output = record("h1abcdef", "h1abcde", crafted, "RealAuthor", "2 days ago")
+        let commits = GitLog.parse(logZ: output)
+
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertEqual(commits[0].author, "RealAuthor", "author column must not be spoofable")
+        XCTAssertEqual(commits[0].relativeDate, "2 days ago", "date column must not be spoofable")
+        XCTAssertFalse(commits[0].subject.unicodeScalars.contains("\u{1f}"),
+                       "injected separator must be stripped from the displayed subject")
+        XCTAssertTrue(commits[0].subject.hasPrefix("Fix bug"))
+    }
+
+    /// Control and bidirectional-override bytes in commit text are stripped before
+    /// display (Trojan-Source / SEC-2), while legitimate text is preserved.
+    func testSanitizesControlAndBidiInSubjectAndAuthor() {
+        let output = record("h2abcdef", "h2abcde", "Merge\u{202e}txet", "Al\u{7f}ice", "now")
+        let commits = GitLog.parse(logZ: output)
+
+        XCTAssertEqual(commits.count, 1)
+        XCTAssertEqual(commits[0].subject, "Mergetxet", "RTL override removed")
+        XCTAssertEqual(commits[0].author, "Alice", "DEL control char removed")
     }
 
     func testSkipsEmptyAndMalformedRecords() {

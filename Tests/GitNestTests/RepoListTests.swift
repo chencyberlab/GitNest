@@ -151,6 +151,20 @@ final class RepoListTests: XCTestCase {
         XCTAssertTrue(GitHub.isRateLimited(owner: "c"))
     }
 
+    /// A failed refresh must not claim it's "showing cached repos" when the account
+    /// has never loaded successfully and has nothing cached to fall back to (R3).
+    func testRepoRefreshFailureMessageReflectsCacheState() {
+        XCTAssertEqual(
+            RepoManager.repoRefreshFailureMessage(hasCachedRepos: true),
+            "Repo refresh failed — showing cached repos.")
+        XCTAssertEqual(
+            RepoManager.repoRefreshFailureMessage(hasCachedRepos: false),
+            "Repo refresh failed — couldn't reach GitHub.")
+        XCTAssertFalse(
+            RepoManager.repoRefreshFailureMessage(hasCachedRepos: false).contains("cached"),
+            "the no-cache message must not promise cached repos that don't exist")
+    }
+
     private func repo(owner: String, name: String, updatedAt: String) -> Repo {
         Repo(
             name: name,

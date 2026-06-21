@@ -33,6 +33,11 @@ final class AccountManager: ObservableObject {
     var accountStatusSessionID = UUID()
     var accountStatusLoadMode: AccountStatusLoadMode = .smart
     var currentAuthFlowCode: String?
+    /// Tags the active reauth flow so a superseded one (the user retried, possibly on
+    /// another account) can't clobber the newer flow's one-time code or nil out its
+    /// watcher handle. Internal `var` like `accountStatusSessionID` so the staleness
+    /// guard is testable.
+    var reauthWatcherSession = UUID()
     private var reauthClipboardWatcher: Task<Void, Never>?
     static let accountOrderDefaultsKey = "accountOrder"
 
@@ -322,17 +327,19 @@ final class AccountManager: ObservableObject {
         logStore.append("Starting gh auth login (web) for \(account.alias)…")
         currentAuthFlowCode = nil
         reauthClipboardWatcher?.cancel()
+        // Tag this attempt so a flow superseded by a newer reauth can't write a stale
+        // code or nil out the newer watcher handle when it eventually completes.
+        let watcherSession = UUID()
+        reauthWatcherSession = watcherSession
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
-        let clipboardWatcher = Task {
-            if let code = await DeviceCodeWatcher.watchClipboard(
+        // [weak self]: this Task outlives the call (the clipboard poll runs up to 240
+        // iterations) and AccountManager owns the handle — don't let it strong-capture.
+        let clipboardWatcher = Task { [weak self] in
+            guard let code = await DeviceCodeWatcher.watchClipboard(
                 startingChangeCount: startingClipboardChangeCount,
                 maxIterations: 240
-            ) {
-                if currentAuthFlowCode != code {
-                    logStore.append("One-time code copied to clipboard.")
-                    currentAuthFlowCode = code
-                }
-            }
+            ) else { return }
+            self?.applyClipboardAuthCode(code, session: watcherSession)
         }
         reauthClipboardWatcher = clipboardWatcher
         let authProcess = authProcessController.start()
@@ -343,14 +350,13 @@ final class AccountManager: ObservableObject {
         }
         authProcessController.finish(authProcess)
         clipboardWatcher.cancel()
-        reauthClipboardWatcher = nil
+        // Only drop the shared handle if a newer reauth hasn't already replaced it,
+        // so a concurrent flow's live watcher isn't orphaned.
+        if reauthWatcherSession == watcherSession { reauthClipboardWatcher = nil }
         let login = result.login
         let authOutput = (login.stdout + login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: authOutput) {
-            if currentAuthFlowCode != code {
-                logStore.append("One-time code copied to clipboard.")
-                currentAuthFlowCode = code
-            }
+            applyClipboardAuthCode(code, session: watcherSession)
         }
         let safeAuthOutput = DeviceCode.redactedGhOutput(authOutput)
         if login.ok {
@@ -374,8 +380,19 @@ final class AccountManager: ObservableObject {
         beginAccountStatusChecks([account], force: true)
         await logAuthStatus()
         // The one-time device code is consumed once login completes; don't keep it
-        // around past the flow that produced it.
-        currentAuthFlowCode = nil
+        // around past the flow that produced it — but only while this is still the
+        // active flow, so a newer reauth's freshly-shown code survives.
+        if reauthWatcherSession == watcherSession { currentAuthFlowCode = nil }
+    }
+
+    /// Publish the one-time auth code to the on-screen field, but only while
+    /// `session` is still the active reauth flow. The clipboard watcher and the
+    /// post-login parser both route through here so a stale flow (superseded by a
+    /// newer reauth) can't overwrite the code the user is currently acting on.
+    func applyClipboardAuthCode(_ code: String, session: UUID) {
+        guard session == reauthWatcherSession, currentAuthFlowCode != code else { return }
+        logStore.append("One-time code copied to clipboard.")
+        currentAuthFlowCode = code
     }
 
 }

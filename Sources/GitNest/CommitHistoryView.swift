@@ -95,14 +95,14 @@ struct CommitHistoryContent: View {
                     .font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(theme.accent)
                     .textSelection(.enabled)
-                Text(commit.subject)
+                Text(untrusted: commit.subject)
                     .font(.system(size: 12))
                     .foregroundStyle(theme.text)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
             if !commitMeta(commit).isEmpty {
-                Text(commitMeta(commit))
+                Text(untrusted: commitMeta(commit))
                     .font(.system(size: 10))
                     .foregroundStyle(theme.textTertiary)
                     .lineLimit(1)

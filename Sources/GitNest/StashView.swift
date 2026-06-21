@@ -164,7 +164,7 @@ struct StashContent: View {
 
     private func stashRow(_ entry: GitStashEntry) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(entry.subject)
+            Text(untrusted: entry.subject)
                 .font(.system(size: 12))
                 .foregroundStyle(theme.text)
                 .lineLimit(2)

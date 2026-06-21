@@ -111,13 +111,16 @@ final class SetupCoordinator: ObservableObject {
         }
         let startingClipboardChangeCount = NSPasteboard.general.changeCount
         addAccountClipboardWatcher?.cancel()
-        let watcher = Task {
+        // [weak self]: the clipboard poll can run up to ~120s and SetupCoordinator
+        // owns the handle — don't let the Task strong-capture it. The session guard
+        // below still drops a result from a superseded wizard.
+        let watcher = Task { [weak self] in
             let code = await DeviceCodeWatcher.watchClipboard(
                 startingChangeCount: startingClipboardChangeCount,
                 maxIterations: 240
             )
-            guard isCurrentAddAccountSession(session) else { return }
-            if let code { addAccountDeviceCode = code }
+            guard let self, self.isCurrentAddAccountSession(session) else { return }
+            if let code { self.addAccountDeviceCode = code }
         }
         addAccountClipboardWatcher = watcher
         let authProcess = authProcessController.start()

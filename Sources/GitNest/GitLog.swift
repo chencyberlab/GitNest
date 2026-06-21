@@ -19,21 +19,27 @@ enum GitLog {
     /// Field separator we ask git to emit between fields of one commit.
     static let fieldSeparator: Character = "\u{1f}"   // ASCII Unit Separator
 
-    /// The `--pretty` format string: full hash, short hash, subject, author name,
-    /// relative date — joined by the Unit Separator. Paired with `-z`, git emits a
-    /// NUL between commits, so neither a subject containing spaces/commas/quotes nor
-    /// a field separator inside text can ever be misread (the separators are control
-    /// characters that don't occur in hashes, names, dates, or a subject line).
-    static let prettyFormat = "%H%x1f%h%x1f%s%x1f%an%x1f%ar"
+    /// The `--pretty` format string: full hash, short hash, relative date, author
+    /// name, subject — joined by the Unit Separator. Field order is load-bearing: the
+    /// two attacker-controllable free-text fields (author name, then subject) come
+    /// LAST. Git permits arbitrary bytes — including this separator — in a commit
+    /// message and author name, so the separator is NOT guaranteed absent from them;
+    /// putting the structured fields (hashes, date) first, and capping the split in
+    /// `parse`, is what stops a crafted commit from shifting them and spoofing the
+    /// displayed author/date.
+    static let prettyFormat = "%H%x1f%h%x1f%ar%x1f%an%x1f%s"
 
     /// Parse `git log -z` output (NUL-terminated commit records, each holding the
     /// Unit-Separator-joined fields above) into commits.
     static func parse(logZ output: String) -> [GitCommit] {
         var commits: [GitCommit] = []
         for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
-            // Keep empty subsequences so an empty author/date can't shift later fields.
+            // maxSplits: 4 caps the field count so the trailing subject absorbs any
+            // separator bytes a crafted commit smuggled into it, instead of shifting
+            // author/date into the wrong column. Keep empty subsequences so a blank
+            // field can't shift the others either.
             let fields = record
-                .split(separator: fieldSeparator, omittingEmptySubsequences: false)
+                .split(separator: fieldSeparator, maxSplits: 4, omittingEmptySubsequences: false)
                 .map(String.init)
             guard fields.count >= 5 else { continue }   // malformed/truncated — skip
             let hash = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,9 +47,10 @@ enum GitLog {
             commits.append(GitCommit(
                 hash: hash,
                 shortHash: fields[1].trimmingCharacters(in: .whitespacesAndNewlines),
-                subject: fields[2],
-                author: fields[3],
-                relativeDate: fields[4].trimmingCharacters(in: .whitespacesAndNewlines)
+                // Free-text from the commit — strip control/bidi bytes before display.
+                subject: fields[4].sanitizedForSingleLineDisplay(),
+                author: fields[3].sanitizedForSingleLineDisplay(),
+                relativeDate: fields[2].trimmingCharacters(in: .whitespacesAndNewlines)
             ))
         }
         return commits

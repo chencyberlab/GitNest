@@ -22,9 +22,10 @@ enum GitStash {
 
     /// The `--format` string: the shortened reflog selector (`stash@{N}`), the full
     /// commit SHA (`%H`, for the re-validation guard), and the reflog subject (the
-    /// human description), joined by the Unit Separator. Paired with `-z`, git
-    /// NUL-separates entries, so neither a subject containing spaces, commas, or
-    /// quotes, nor the field separator inside text, can ever be misread.
+    /// human description), joined by the Unit Separator. The free-text subject is
+    /// LAST and `parse` caps the split there: git permits arbitrary bytes — including
+    /// this separator — in a stash message, so layout (not an assumption that the
+    /// separator is absent) keeps the structured selector/SHA from being shifted.
     static let listFormat = "%gd%x1f%H%x1f%gs"
 
     /// Parse `git stash list -z` output (NUL-separated entries, each the
@@ -33,15 +34,19 @@ enum GitStash {
     static func parse(listZ output: String) -> [GitStashEntry] {
         var entries: [GitStashEntry] = []
         for record in output.split(separator: "\0", omittingEmptySubsequences: true) {
-            // Keep empty subsequences so an empty subject can't shift earlier fields.
+            // maxSplits: 2 so a separator byte in the subject stays in the subject
+            // rather than truncating it (the selector/SHA are earlier and immune
+            // either way). Keep empty subsequences so a blank subject can't shift them.
             let fields = record
-                .split(separator: fieldSeparator, omittingEmptySubsequences: false)
+                .split(separator: fieldSeparator, maxSplits: 2, omittingEmptySubsequences: false)
                 .map(String.init)
             guard fields.count >= 3 else { continue }   // malformed/truncated — skip
             let selector = fields[0].trimmingCharacters(in: .whitespacesAndNewlines)
             let hash = fields[1].trimmingCharacters(in: .whitespacesAndNewlines)
             guard let index = index(from: selector), !hash.isEmpty else { continue }
-            entries.append(GitStashEntry(index: index, selector: selector, hash: hash, subject: fields[2]))
+            // Free-text from the user's stash message — strip control/bidi bytes.
+            entries.append(GitStashEntry(index: index, selector: selector, hash: hash,
+                                         subject: fields[2].sanitizedForSingleLineDisplay()))
         }
         return entries
     }

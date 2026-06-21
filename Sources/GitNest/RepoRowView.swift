@@ -55,7 +55,7 @@ struct RepoRowView: View {
                     if let status { statusBadges(status, repo: repo, account: account) }
                 }
                 if let d = repo.description, !d.isEmpty {
-                    Text(d).font(.system(size: 11)).foregroundStyle(theme.textMuted).lineLimit(1)
+                    Text(untrusted: d).font(.system(size: 11)).foregroundStyle(theme.textMuted).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

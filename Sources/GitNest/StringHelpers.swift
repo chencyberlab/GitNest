@@ -8,6 +8,33 @@ extension Optional where Wrapped == String {
     }
 }
 
+extension String {
+    /// Strip bytes that can corrupt or visually spoof a one-line display: C0/C1
+    /// control characters (including NUL, ESC, and the `\u{1f}` field separator git
+    /// emits in `--pretty`/`--format` output) and Unicode format characters — among
+    /// them the bidirectional embeddings, overrides, and isolates behind "Trojan
+    /// Source" (CVE-2021-42574). Zero-width joiners are deliberately kept so a
+    /// legitimate emoji sequence ("👨‍👩‍👧") or script ligature still renders as one
+    /// grapheme. Applied to untrusted single-line git text (commit subject, author
+    /// name, stash message) before it reaches the UI.
+    func sanitizedForSingleLineDisplay() -> String {
+        var out = String.UnicodeScalarView()
+        for scalar in unicodeScalars where !Self.unsafeDisplayScalars.contains(scalar) {
+            out.append(scalar)
+        }
+        return String(out)
+    }
+
+    /// Unicode Cc + Cf (control + format): C0/C1 controls, the `\u{1f}` separator,
+    /// bidi overrides/isolates, BOM, … minus the zero-width joiners emoji and some
+    /// scripts depend on — removing those would split a grapheme cluster.
+    private static let unsafeDisplayScalars: CharacterSet = {
+        var set = CharacterSet.controlCharacters
+        set.subtract(CharacterSet(charactersIn: "\u{200C}\u{200D}"))   // ZWNJ, ZWJ
+        return set
+    }()
+}
+
 /// Sanitise a folder name so it is a valid GitHub repository name.
 ///
 /// GitHub repo names are ASCII `[A-Za-z0-9._-]`. `CharacterSet.alphanumerics` is

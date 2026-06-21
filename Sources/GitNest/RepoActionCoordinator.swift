@@ -219,9 +219,26 @@ final class RepoActionCoordinator: ObservableObject {
     }
 
     func openGitHubRepo(_ repo: Repo) {
-        guard let url = URL(string: repo.url) else { return }
+        // `repo.url` is the API-supplied `html_url`; don't hand a raw remote string
+        // to NSWorkspace.open, which honors any scheme (file:, a custom handler).
+        // Accept it only when it's actually an https github.com URL, else rebuild
+        // from the validated owner/repo — the same reconstruct-don't-trust pattern
+        // openGitHubPage/copyHTTPSURL already use.
+        guard let url = Self.safeGitHubURL(repo.url)
+            ?? URL(string: "https://github.com/\(repo.nameWithOwner)") else { return }
         logStore.append("Opening \(repo.nameWithOwner) on GitHub in browser…")
         NSWorkspace.shared.open(url)
+    }
+
+    /// An https URL whose host is github.com (or a `*.github.com` subdomain), or nil.
+    /// Keeps a remote-supplied URL from smuggling a non-web scheme into
+    /// `NSWorkspace.open`. Internal (not private) so the trust boundary is testable.
+    static func safeGitHubURL(_ raw: String) -> URL? {
+        guard let url = URL(string: raw),
+              url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "github.com" || host.hasSuffix(".github.com") else { return nil }
+        return url
     }
 
     func openLocalFolder(_ repo: Repo, in explicitAccount: Account? = nil) {

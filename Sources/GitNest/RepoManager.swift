@@ -222,14 +222,26 @@ final class RepoManager: ObservableObject {
             }
         case .failure(let error):
             logStore.append("✗ repo list failed: \(error.message)")
-            if repoCache[owner]?.isEmpty == false {
+            let hasCachedRepos = repoCache[owner]?.isEmpty == false
+            if hasCachedRepos {
                 logStore.append("Showing cached repos for \(owner).")
             }
             if accountManager.selectedAccount?.alias == owner {
                 isCheckingRepoRemotes = false
-                setRepoRefreshMessage("Repo refresh failed — showing cached repos.")
+                // Don't claim "showing cached repos" when there are none — a
+                // first-ever load that fails has nothing cached to fall back to.
+                setRepoRefreshMessage(Self.repoRefreshFailureMessage(hasCachedRepos: hasCachedRepos))
             }
         }
+    }
+
+    /// Status-line copy for a failed repo refresh. Pure + `nonisolated` so the
+    /// "don't promise cached repos that don't exist" branch is testable without
+    /// driving `loadRepos` (which shells out through the gh chain).
+    nonisolated static func repoRefreshFailureMessage(hasCachedRepos: Bool) -> String {
+        hasCachedRepos
+            ? "Repo refresh failed — showing cached repos."
+            : "Repo refresh failed — couldn't reach GitHub."
     }
 
     // MARK: Auto-refresh

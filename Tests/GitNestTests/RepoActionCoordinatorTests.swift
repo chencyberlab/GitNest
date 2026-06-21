@@ -111,4 +111,30 @@ final class RepoActionCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.beginRepoAction(r, in: removed))
         XCTAssertFalse(coordinator.isRepoActionBusy(r))
     }
+
+    // MARK: safeGitHubURL (R1 — don't open a remote-supplied non-web URL)
+
+    /// A normal API `html_url` is accepted unchanged so "Open on GitHub" still works.
+    func testSafeGitHubURLAcceptsNormalRepoURL() {
+        let url = RepoActionCoordinator.safeGitHubURL("https://github.com/octocat/Hello-World")
+        XCTAssertEqual(url?.absoluteString, "https://github.com/octocat/Hello-World")
+    }
+
+    /// github.com subdomains (e.g. Pages) are still GitHub-owned and allowed.
+    func testSafeGitHubURLAcceptsGitHubSubdomain() {
+        XCTAssertNotNil(RepoActionCoordinator.safeGitHubURL("https://gist.github.com/octocat/abc123"))
+    }
+
+    /// The whole point: a crafted `html_url` carrying a non-https / non-github scheme
+    /// must be rejected so it never reaches NSWorkspace.open, which honors any scheme.
+    func testSafeGitHubURLRejectsDangerousSchemesAndForeignHosts() {
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("javascript:alert(1)"))
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("file:///etc/passwd"))
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("http://github.com/o/r"))          // not https
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("https://evil.com/o/r"))
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("https://github.com.evil.com/o/r")) // suffix-spoof
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("https://notgithub.com/o/r"))
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL("not a url at all"))
+        XCTAssertNil(RepoActionCoordinator.safeGitHubURL(""))
+    }
 }
