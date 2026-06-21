@@ -32,16 +32,17 @@ struct RepoListView: View {
     var body: some View {
         VStack(spacing: 0) {
             repoListHeader
-            Divider().overlay(theme.border)
+            ThemeDivider()
             ScrollView {
                 if repoManager.filteredRepos.isEmpty {
                     repoListEmptyState
                 } else {
                     LazyVStack(spacing: 2) {
-                        ForEach(repoManager.filteredRepos) { repo in
+                        ForEach(Array(repoManager.filteredRepos.enumerated()), id: \.element.id) { index, repo in
                             RepoRowView(
                                 repo: repo,
                                 account: account,
+                                isLast: index == repoManager.filteredRepos.count - 1,
                                 commitTarget: $commitTarget,
                                 commitMessage: $commitMessage,
                                 pushTarget: $pushTarget,
@@ -115,7 +116,7 @@ struct RepoListView: View {
                 .frame(width: LayoutMetrics.updatedWidth, alignment: .leading)
             Text("Actions").frame(width: LayoutMetrics.actionsWidth, alignment: .trailing)
         }
-        .font(.system(size: 12.5, weight: .semibold)).foregroundStyle(theme.textMuted)
+        .font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.textMuted)
         .padding(.horizontal, 12).padding(.vertical, 5)
         .frame(height: 28)
     }

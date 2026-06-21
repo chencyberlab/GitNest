@@ -58,7 +58,7 @@ struct StashContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             stashComposer
-            Divider().overlay(theme.border)
+            ThemeDivider()
             content
         }
         .padding(16)

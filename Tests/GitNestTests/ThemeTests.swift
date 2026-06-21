@@ -49,6 +49,28 @@ final class ThemeTests: XCTestCase {
         XCTAssertNil(gitNest.dark.text)
     }
 
+    func testCustomWindowChromeDetection() {
+        // The default GitNest theme intentionally follows the OS, so it must report
+        // no custom chrome — the title bar stays system black/white.
+        XCTAssertFalse(Theme(palette: .gitNest).hasCustomWindowChrome)
+
+        // Every third-party palette must define a window background in both
+        // appearances so the title bar can be recoloured to match the content
+        // area. A palette that ships half-themed would leave the bar inconsistent
+        // with the rest of the window, so this guards against that regression.
+        let custom = allPalettes.filter { $0.id != ColorThemePalette.gitNest.id }
+        XCTAssertFalse(custom.isEmpty, "Expected at least one third-party palette to test")
+        for palette in custom {
+            let theme = Theme(palette: palette)
+            XCTAssertTrue(theme.hasCustomWindowChrome,
+                          "\(palette.displayName) should report custom window chrome")
+            XCTAssertNotNil(palette.light.background,
+                            "\(palette.displayName) light.background must be set to theme the title bar")
+            XCTAssertNotNil(palette.dark.background,
+                            "\(palette.displayName) dark.background must be set to theme the title bar")
+        }
+    }
+
     func testThemeCanResolveAllColorsForEveryPalette() {
         for palette in allPalettes {
             let theme = Theme(palette: palette)
@@ -80,5 +102,61 @@ final class ThemeTests: XCTestCase {
             ]
             XCTAssertEqual(colors.count, 24, "Unexpected color count for \(palette.displayName)")
         }
+    }
+
+    /// `surfaceMuted` is the fill used for row hover, search fields, and the Output
+    /// panel. If it ever aliases `surface` (the old `fromPlanned` default), those
+    /// fills turn invisible — the bug where GitNest showed hover but Nord didn't.
+    /// Every palette must define a `surfaceMuted` that is a visible step from
+    /// `surface` in both appearances.
+    func testSurfaceMutedIsAVisibleStepFromSurface() {
+        for palette in allPalettes {
+            for (appearance, tokens) in [("light", palette.light), ("dark", palette.dark)] {
+                guard let surfaceHex = tokens.surface,
+                      let mutedHex = tokens.surfaceMuted else {
+                    // nil = OS system fallback (the built-in GitNest theme), which is
+                    // intentionally OS-following and out of scope for this check.
+                    continue
+                }
+                let distance = Self.perceptualDistance(Self.rgb(surfaceHex), Self.rgb(mutedHex))
+                XCTAssertGreaterThanOrEqual(
+                    distance, 7.5,
+                    "\(palette.displayName) \(appearance): surfaceMuted (\(mutedHex)) is too close to surface (\(surfaceHex)) — hover/search/log fills would be invisible. Expected ≥ 7.5, got \(distance)."
+                )
+            }
+        }
+    }
+
+    // MARK: Hex distance helpers
+
+    /// Parse `#RGB`/`#RRGGBB`/`#RRGGBBAA` to an (r,g,b) triple in 0–255. Mirrors
+    /// the production parser so the test evaluates the same strings the app does.
+    private static func rgb(_ hex: String) -> (Double, Double, Double) {
+        let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        var v: UInt64 = 0
+        Scanner(string: cleaned).scanHexInt64(&v)
+        switch cleaned.count {
+        case 3:
+            return (Double((v >> 8) & 0xF) * 17, Double((v >> 4) & 0xF) * 17, Double(v & 0xF) * 17)
+        case 4:
+            return (Double((v >> 12) & 0xF) * 17,
+                    Double((v >> 8) & 0xF) * 17,
+                    Double((v >> 4) & 0xF) * 17)
+        case 6:
+            return (Double((v >> 16) & 0xFF), Double((v >> 8) & 0xFF), Double(v & 0xFF))
+        case 8:
+            return (Double((v >> 24) & 0xFF), Double((v >> 16) & 0xFF), Double((v >> 8) & 0xFF))
+        default:
+            return (0, 0, 0)
+        }
+    }
+
+    /// Cheap perceptual proxy: mean of the per-channel absolute deltas. A value of
+    /// 6+ reliably reads as a visible wash on screen without being so strong it
+    /// competes with `surface`. Kept simple and dependency-free on purpose.
+    private static func perceptualDistance(_ a: (Double, Double, Double),
+                                           _ b: (Double, Double, Double)) -> Double {
+        let dr = abs(a.0 - b.0), dg = abs(a.1 - b.1), db = abs(a.2 - b.2)
+        return (dr + dg + db) / 3.0
     }
 }

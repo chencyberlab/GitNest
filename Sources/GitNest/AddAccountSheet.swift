@@ -51,7 +51,7 @@ struct AddAccountSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            Divider().overlay(theme.border)
+            ThemeDivider()
             stepContent
             if let error = setupCoordinator.addAccountError {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -59,7 +59,7 @@ struct AddAccountSheet: View {
                     .foregroundStyle(theme.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Divider().overlay(theme.border)
+            ThemeDivider()
             footer
         }
         .padding(22)

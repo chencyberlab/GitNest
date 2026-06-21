@@ -11,6 +11,9 @@ struct RepoRowView: View {
 
     let repo: Repo
     let account: Account
+    /// True for the final row in the list so it omits its bottom divider — avoids
+    /// a doubled hairline where the list meets its card border.
+    var isLast: Bool = false
 
     @Binding var commitTarget: RepoActionTarget?
     @Binding var commitMessage: String
@@ -27,6 +30,10 @@ struct RepoRowView: View {
     /// two mutually exclusive — SwiftUI only reliably presents one popover per view,
     /// so they can't each carry their own `isPresented` binding.
     @State private var activePopover: RowPopover?
+
+    /// Cursor-over feedback for the row. Only affects unselected rows — a selected
+    /// row always wins with the accent rail so the active row stays unambiguous.
+    @State private var isHovering = false
 
     /// Read-only popovers reachable from the row's context menu.
     private enum RowPopover: String, Identifiable {
@@ -62,23 +69,25 @@ struct RepoRowView: View {
             visBadge(repo.visibility)
                 .frame(width: LayoutMetrics.visWidth, alignment: .center)
             Text(formattedUpdated(repo.updatedAt))
-                .font(.system(size: 12.5, weight: .medium)).foregroundStyle(theme.textMuted)
+                .font(.system(size: 13, weight: .medium)).foregroundStyle(theme.textMuted)
                 .lineLimit(1)
                 .frame(width: LayoutMetrics.updatedWidth, alignment: .leading)
             rowActions(cloned: cloned, conflict: conflict)
                 .frame(width: LayoutMetrics.actionsWidth, alignment: .trailing)
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(SelectionBackground(selected: selected))
+        .background(SelectionBackground(selected: selected, isHovered: isHovering))
         .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(theme.border.opacity(0.75))
-                .frame(height: 1)
-                .padding(.leading, LayoutMetrics.rowDividerLeadingInset) // keep icon gutter visually clean
-                .padding(.trailing, 12)
+            rowDivider
         }
         .contentShape(Rectangle())
         .onTapGesture { repoManager.selectedRepo = repo.id }
+        .onHover { hovering in
+            // Guard the write so leaving the row snaps back only when it actually
+            // changed — avoids needless re-renders across a 400-repo list.
+            guard hovering != isHovering else { return }
+            isHovering = hovering
+        }
         .padding(.horizontal, 4)
         .contextMenu { rowContextMenu(cloned: cloned) }
         .popover(item: $activePopover, arrowEdge: .bottom) { which in
@@ -90,6 +99,19 @@ struct RepoRowView: View {
                 IncomingCommitsContent(repo: repo, account: account)
                     .gitNestEnvironment(model)
             }
+        }
+    }
+
+    /// Bottom divider inset to clear the icon gutter, omitted on the last row so
+    /// it doesn't double up against the list's card border.
+    @ViewBuilder
+    private var rowDivider: some View {
+        if !isLast {
+            Rectangle()
+                .fill(theme.border.opacity(0.75))
+                .frame(height: 1)
+                .padding(.leading, LayoutMetrics.rowDividerLeadingInset)
+                .padding(.trailing, 12)
         }
     }
 
@@ -308,7 +330,7 @@ struct RepoRowView: View {
 
     private func folderConflictBadge(_ conflict: RepoFolderConflict) -> some View {
         Image(systemName: "exclamationmark.triangle.fill")
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(.system(size: 11, weight: .semibold))
             .foregroundStyle(theme.warning)
             .tooltip(conflict.shortHelp)
             .accessibilityLabel(conflict.shortHelp)
@@ -327,7 +349,7 @@ struct RepoRowView: View {
             visIcon("building.2.fill", theme.textMuted, "Internal")
         default:
             Text(raw.lowercased())
-                .font(.system(size: 12.5, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(theme.textMuted)
         }
     }
@@ -371,12 +393,12 @@ struct RepoRowView: View {
     }
 
     private func statusPill(_ icon: String, _ count: Int, _ tint: Color, _ fill: Color, help: String) -> some View {
-        HStack(spacing: 2) {
-            Image(systemName: icon).font(.system(size: 9, weight: .bold))
-            Text("\(count)").font(.system(size: 10, weight: .bold))
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 10, weight: .bold))
+            Text("\(count)").font(.system(size: 11, weight: .bold))
         }
         .foregroundStyle(tint)
-        .padding(.vertical, 1).padding(.horizontal, 5)
+        .padding(.vertical, 2).padding(.horizontal, 6)
         .background(fill)
         .clipShape(Capsule())
         .tooltip(help)
@@ -384,9 +406,9 @@ struct RepoRowView: View {
 
     private func statusIconPill(_ icon: String, _ tint: Color, _ fill: Color, help: String) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 9, weight: .bold))
+            .font(.system(size: 10, weight: .bold))
             .foregroundStyle(tint)
-            .padding(.vertical, 2).padding(.horizontal, 5)
+            .padding(.vertical, 3).padding(.horizontal, 6)
             .background(fill)
             .clipShape(Capsule())
             .tooltip(help)

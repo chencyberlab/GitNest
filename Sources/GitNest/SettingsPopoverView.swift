@@ -14,6 +14,10 @@ struct SettingsPopoverView: View {
     @Binding var customTerminalName: String
     @Environment(\.theme) private var theme
 
+    /// Cursor-over feedback for the close button — a faint circular wash matches
+    /// the chip-style buttons used elsewhere, so it reads as tappable at a glance.
+    @State private var closeHovering = false
+
     private var accountStatusLoadMode: AccountStatusLoadMode {
         AccountStatusLoadMode(rawValue: accountStatusLoadModeRaw) ?? .smart
     }
@@ -28,10 +32,17 @@ struct SettingsPopoverView: View {
                 Button { showSettings = false } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(theme.textTertiary)
+                        .foregroundStyle(closeHovering ? theme.text : theme.textTertiary)
+                        .frame(width: 22, height: 22)
+                        .background(
+                            Circle()
+                                .fill(closeHovering ? theme.surfaceMuted : Color.clear)
+                        )
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close settings")
+                .onHover { closeHovering = $0 }
             }
 
             settingsSection(title: "Account Status", help: accountStatusLoadMode.help) {

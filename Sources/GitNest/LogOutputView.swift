@@ -78,7 +78,7 @@ struct LogOutputView: View {
                         // line is always visible instead of hidden below the fold.
                         Color.clear.frame(height: 1).id(Self.logBottomAnchor)
                     }
-                    .frame(height: 112)
+                    .frame(minHeight: 112, idealHeight: 160)
                     .background(theme.surfaceMuted)
                     .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)

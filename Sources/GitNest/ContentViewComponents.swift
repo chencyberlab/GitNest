@@ -35,18 +35,25 @@ struct ActionIconButton: View {
 }
 
 /// Brand selection background (replaces the system blue highlight).
+///
+/// Selected uses the theme's `accentSubtle` tint plus a 4pt accent rail on the
+/// leading edge — the rail is the reliable signal because `accentSubtle` can sit
+/// close to `surface` on some palettes. `isHovered` paints a `surfaceMuted` wash
+/// so unselected rows still give cursor feedback on a long list; it's a no-op
+/// when `selected` (selected is always the stronger state).
 struct SelectionBackground: View {
     let selected: Bool
+    var isHovered: Bool = false
     @Environment(\.theme) private var theme
 
     var body: some View {
         RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
-            .fill(selected ? theme.accentSubtle : Color.clear)
+            .fill(selected ? theme.accentSubtle : (isHovered ? theme.surfaceMuted : Color.clear))
             .overlay(alignment: .leading) {
                 if selected {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(theme.accent)
-                        .frame(width: 3)
+                        .frame(width: 4)
                         .padding(.vertical, 4)
                 }
             }

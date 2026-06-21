@@ -43,7 +43,7 @@ struct InitProjectSheet: View {
             }
             .font(.system(size: 12))
 
-            Divider().overlay(theme.border)
+            ThemeDivider()
 
             Picker("Visibility", selection: $initVisibility) {
                 ForEach(RepoVisibilityChoice.allCases) { choice in

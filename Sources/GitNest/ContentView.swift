@@ -115,6 +115,14 @@ struct ContentView: View {
         .navigationTitle("GitNest")
         .tint(theme.accent)
         .preferredColorScheme(resolvedScheme)
+        // Recolour the title bar so third-party palettes (Dracula, Cyberpunk, …)
+        // match the content area instead of staying system black/white. The default
+        // GitNest theme leaves the window tokens nil (OS-following), so we apply no
+        // background — keeping `.automatic` visibility makes that a true no-op.
+        .toolbarBackground(theme.hasCustomWindowChrome ? theme.windowChromeBackground : .clear,
+                           for: .windowToolbar)
+        .toolbarBackground(theme.hasCustomWindowChrome ? .visible : .automatic,
+                           for: .windowToolbar)
         .coordinateSpace(name: TooltipController.space)
         .overlay { TooltipOverlay() }
         .environmentObject(tooltip)
@@ -198,7 +206,7 @@ private struct DetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             if let account = accountManager.selectedAccount {
                 header(account)
-                Divider().overlay(theme.border)
+                ThemeDivider()
                 if !repoManager.isLoadingRepos && !repoManager.repos.isEmpty {
                     repoSearchBar
                 }
@@ -215,17 +223,34 @@ private struct DetailView: View {
                 )
                 cloneBar
             } else {
-                Spacer()
-                Text("Select an account on the left.")
-                    .font(.system(size: 14)).foregroundStyle(theme.textMuted)
-                    .frame(maxWidth: .infinity)
-                Spacer()
+                emptyAccountState
             }
-            Divider().overlay(theme.border)
+            ThemeDivider()
             LogOutputView(outputExpanded: $outputExpanded)
         }
         .padding(18)
         .background(theme.surface)
+    }
+
+    // MARK: Empty state
+
+    /// Shown when no account is selected. Mirrors the repo-list empty state: an
+    /// SF Symbol, a one-line hint, and a nudge toward the action that fixes it.
+    private var emptyAccountState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "person.crop.circle.badge.plus")
+                .font(.system(size: 30))
+                .foregroundStyle(theme.textTertiary)
+            Text("No account selected")
+                .font(Theme.title(15))
+                .foregroundStyle(theme.text)
+            Text("Pick an account on the left to see its repositories.")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.textMuted)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: Header
@@ -308,7 +333,7 @@ private struct DetailView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.textMuted)
-            TextField("Wild search repos…  (part of a name, glob like m*ger, or fuzzy “mgm”)",
+            TextField("Filter repos — name, glob (m*ger), or fuzzy “mgm”",
                       text: $repoManager.repoSearch)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))

@@ -98,6 +98,23 @@ struct Theme: EnvironmentKey {
     static func display(_ size: CGFloat) -> Font { .system(size: size, weight: .bold) }
     static func title(_ size: CGFloat) -> Font { .system(size: size, weight: .semibold) }
 
+    // MARK: Window chrome
+
+    /// True when the active palette actually defines a window background colour
+    /// (non-nil in both appearances). The built-in GitNest palette leaves these
+    /// tokens nil so the window chrome keeps following the OS — the title bar is
+    /// only recoloured by themes that supply a real background. Callers gate on
+    /// this before applying `windowChromeBackground` so the default theme's bar
+    /// is left untouched.
+    var hasCustomWindowChrome: Bool {
+        palette.light.background != nil && palette.dark.background != nil
+    }
+
+    /// The colour applied to the window title bar. Only meaningful when
+    /// `hasCustomWindowChrome` is true; `background` already resolves adaptively
+    /// to the correct light/dark token, so the bar flips with appearance.
+    var windowChromeBackground: Color { background }
+
     // MARK: Resolution
 
     /// `NSColor(name:dynamicProvider:)` is relatively expensive and the theme's
@@ -140,6 +157,17 @@ struct Theme: EnvironmentKey {
         Theme.colorCache[cacheKey] = color
         Theme.colorCacheLock.unlock()
         return color
+    }
+}
+
+/// Theme-tinted hairline divider. `Divider()` draws with the system label color,
+/// which can clash with a custom palette — overlaying `theme.border` keeps the
+/// divider consistent with the row/card borders used elsewhere.
+struct ThemeDivider: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Divider().overlay(theme.border)
     }
 }
 

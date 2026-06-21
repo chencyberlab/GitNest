@@ -238,7 +238,10 @@ private extension ColorThemeTokens {
         background: "#F8F8F2",
         surface: "#EAEAE2",
         elevatedSurface: "#FFFFFF",
-        surfaceMuted: "#EAEAE2",
+        // Derived one step from `surface` toward `text` (matches the fromPlanned
+        // formula) — the old `#EAEAE2` aliased `surface` and made hover/search/log
+        // fills invisible, the same collision third-party themes had.
+        surfaceMuted: mixHex("#EAEAE2", "#282A36", 0.08),
         text: "#282A36",
         textMuted: "#6272A4",
         textTertiary: mixHex("#6272A4", "#F8F8F2", 0.2),
@@ -265,7 +268,11 @@ private extension ColorThemeTokens {
         background: "#282A36",
         surface: "#21222C",
         elevatedSurface: "#44475A",
-        surfaceMuted: "#44475A",
+        // Derived one step from `surface` toward `text` (matches the fromPlanned
+        // formula). The old value aliased `elevatedSurface` (#44475A), skipping a
+        // tier in the hierarchy; this keeps surfaceMuted as a quiet wash between
+        // surface and elevatedSurface.
+        surfaceMuted: mixHex("#21222C", "#F8F8F2", 0.08),
         text: "#F8F8F2",
         textMuted: "#6272A4",
         textTertiary: mixHex("#6272A4", "#282A36", 0.2),
@@ -840,7 +847,16 @@ private extension ColorThemeTokens {
             background: background,
             surface: surface,
             elevatedSurface: elevatedSurface,
-            surfaceMuted: surface,
+            // A genuine surface tier one step from `surface` toward `text`. Without
+            // this, `surfaceMuted` used to alias `surface`, which made every fill
+            // meant to read as "subtly different from the background" — row hover,
+            // search fields, the Output panel — invisible. The blend direction toward
+            // `text` guarantees a visible step on both light and dark palettes, and
+            // mirrors the hand-tuned hierarchy the built-in GitNest theme has. Kept
+            // gentle (0.08) so it stays a quiet wash rather than a competing fill;
+            // Solarized dark's deliberately low-contrast mid-tone surface/text pair
+            // is the floor case, and 0.08 keeps even that above a perceptible step.
+            surfaceMuted: mixHex(surface, text, 0.08),
             text: text,
             textMuted: textMuted,
             // A genuine third text tier: a quieter tone eased toward the background,

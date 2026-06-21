@@ -171,7 +171,7 @@ struct SidebarView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(theme.textMuted)
-            TextField("Wild search accounts…", text: $accountSearch)
+            TextField("Search accounts…", text: $accountSearch)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
             if !accountSearch.isEmpty {
