@@ -159,4 +159,53 @@ final class ThemeTests: XCTestCase {
         let dr = abs(a.0 - b.0), dg = abs(a.1 - b.1), db = abs(a.2 - b.2)
         return (dr + dg + db) / 3.0
     }
+
+    /// `tooltipBackground` used to alias `elevatedSurface` in every `fromPlanned`
+    /// palette, so tooltips had the same fill as raised cards. Even with a shadow
+    /// and border, a tooltip should read as a distinct floating layer. Every
+    /// palette that defines both tokens must keep them perceptibly separate.
+    func testTooltipBackgroundIsDistinctFromElevatedSurface() {
+        for palette in allPalettes {
+            for (appearance, tokens) in [("light", palette.light), ("dark", palette.dark)] {
+                guard let elevatedHex = tokens.elevatedSurface,
+                      let tooltipHex = tokens.tooltipBackground else {
+                    continue
+                }
+                let distance = Self.perceptualDistance(Self.rgb(elevatedHex), Self.rgb(tooltipHex))
+                XCTAssertGreaterThanOrEqual(
+                    distance, 3.0,
+                    "\(palette.displayName) \(appearance): tooltipBackground (\(tooltipHex)) is too close to elevatedSurface (\(elevatedHex)) — tooltips will read as cards instead of floating layers. Expected ≥ 3.0, got \(distance)."
+                )
+            }
+        }
+    }
+
+    /// `primarySubtle` and `accentSubtle` used to both alias `selection` (a neutral
+    /// gray) in `fromPlanned`, even when `primary` and `accent` were different colors.
+    /// That meant a primary button and an accent badge shared the same subtle fill,
+    /// losing the tint that ties them to their respective hues. When primary and
+    /// accent differ, their subtle variants must also differ.
+    func testAccentSubtleIsDistinctFromPrimarySubtleWhenColorsDiffer() {
+        for palette in allPalettes {
+            for (appearance, tokens) in [("light", palette.light), ("dark", palette.dark)] {
+                guard let primaryHex = tokens.primary,
+                      let accentHex = tokens.accent,
+                      let primarySubtleHex = tokens.primarySubtle,
+                      let accentSubtleHex = tokens.accentSubtle else {
+                    continue
+                }
+                let primaryDistance = Self.perceptualDistance(Self.rgb(primaryHex), Self.rgb(accentHex))
+                let subtleDistance = Self.perceptualDistance(Self.rgb(primarySubtleHex), Self.rgb(accentSubtleHex))
+                // If primary and accent are already the same color (GitNest's unified
+                // brand design), their subtle variants can match — that's intentional.
+                // But if primary and accent differ, the subtle fills must differ too.
+                if primaryDistance >= 6.0 {
+                    XCTAssertGreaterThanOrEqual(
+                        subtleDistance, 3.0,
+                        "\(palette.displayName) \(appearance): primarySubtle (\(primarySubtleHex)) and accentSubtle (\(accentSubtleHex)) are too close even though primary (\(primaryHex)) and accent (\(accentHex)) differ. The subtle fills should carry their respective tints. Expected ≥ 3.0, got \(subtleDistance)."
+                    )
+                }
+            }
+        }
+    }
 }
