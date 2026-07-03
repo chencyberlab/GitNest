@@ -262,7 +262,7 @@ final class SetupCoordinator: ObservableObject {
         logStore.append("Add account: wrote gitconfig + includeIf, created \(folder).")
 
         await addAccountReverify()
-        accountManager.accounts = accountManager.orderedAccounts(GitConfig.loadAccounts())
+        accountManager.loadAccounts()
         addAccountBusy = false
     }
 

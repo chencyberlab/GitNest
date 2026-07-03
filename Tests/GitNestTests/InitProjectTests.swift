@@ -151,6 +151,38 @@ final class InitProjectTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: accountFolder.path))
     }
 
+    func testInitAndPushProjectRefusesCopiedSymlinkBeforeTouchingTargetGit() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let target = root.appendingPathComponent("private-repo")
+        let targetGit = target.appendingPathComponent(".git")
+        try FileManager.default.createDirectory(at: targetGit, withIntermediateDirectories: true)
+        try "private history\n".write(to: targetGit.appendingPathComponent("HEAD"),
+                                      atomically: true,
+                                      encoding: .utf8)
+        let source = root.appendingPathComponent("myproj")
+        try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+
+        let accountFolder = root.appendingPathComponent("github-me")
+        let workingPath = accountFolder.appendingPathComponent("myproj")
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: source.path,
+            workingPath: workingPath.path,
+            repoName: "myproj",
+            willCopy: true,
+            sourceOrigin: "git@github.com:other/private-repo.git"
+        )
+
+        let result = GitHub.initAndPushProject(plan, visibility: .private)
+
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.stderr.contains("real project directory"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: targetGit.path), "target clone's .git must be left intact")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: workingPath.path), "copied symlink should be removed")
+    }
+
     @MainActor
     func testInitProjectRefreshesRepoListAfterSuccessfulPush() async throws {
         let root = try makeTempDirectory()

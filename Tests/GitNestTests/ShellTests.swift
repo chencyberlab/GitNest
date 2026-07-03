@@ -196,6 +196,7 @@ final class ShellTests: XCTestCase {
         XCTAssertNil(env["GIT_COMMITTER_NAME"])
         XCTAssertNil(env["GIT_COMMITTER_EMAIL"])
         XCTAssertNil(env["GIT_ASKPASS"])
+        XCTAssertEqual(env["LC_ALL"], "C")
         XCTAssertEqual(env["GIT_TERMINAL_PROMPT"], "0")
         XCTAssertEqual(env["GH_EDITOR"], "nano")
         XCTAssertTrue(env["PATH"]?.hasSuffix(":/custom/bin") == true)

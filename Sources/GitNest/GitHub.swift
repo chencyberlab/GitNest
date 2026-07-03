@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// A repository as returned by GitHub repository list/view calls.
@@ -1213,6 +1214,10 @@ enum GitHub {
                 }
                 try fm.copyItem(atPath: plan.sourcePath, toPath: plan.workingPath)
                 log.append("Copied project to \(plan.workingPath)")
+                guard isRealDirectory(at: plan.workingPath) else {
+                    try? fm.removeItem(atPath: plan.workingPath)
+                    return failure("copy did not produce a real project directory at \(plan.workingPath)", log)
+                }
                 let copiedGit = (plan.workingPath as NSString).appendingPathComponent(".git")
                 let copiedOrigin = originURL(at: plan.workingPath)
                 let shouldDropCopiedGit = shouldDropCopiedGitHistory(
@@ -1326,6 +1331,12 @@ enum GitHub {
         log.append("Pushed \(branch) to \(repoFullName)")
 
         return ShellResult(exitCode: 0, stdout: log.joined(separator: "\n"), stderr: push.stderr)
+    }
+
+    private static func isRealDirectory(at path: String) -> Bool {
+        var info = stat()
+        guard lstat(path, &info) == 0 else { return false }
+        return (info.st_mode & S_IFMT) == S_IFDIR
     }
 
     /// Stage everything and commit. Returns the `add` result early if staging fails.

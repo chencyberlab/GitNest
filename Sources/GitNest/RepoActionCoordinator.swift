@@ -96,9 +96,18 @@ final class RepoActionCoordinator: ObservableObject {
     }
 
     private static func volumeSupportsCaseSensitiveNames(at path: String) -> Bool? {
-        let url = URL(fileURLWithPath: path)
-        let values = try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
-        return values?.volumeSupportsCaseSensitiveNames
+        var url = URL(fileURLWithPath: path)
+        let fm = FileManager.default
+        while true {
+            if fm.fileExists(atPath: url.path),
+               let values = try? url.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]),
+               let isCaseSensitive = values.volumeSupportsCaseSensitiveNames {
+                return isCaseSensitive
+            }
+            let parent = url.deletingLastPathComponent()
+            guard parent.path != url.path else { return nil }
+            url = parent
+        }
     }
 
     func clone(_ repo: Repo, in account: Account? = nil) async {

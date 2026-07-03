@@ -303,6 +303,63 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(error.message.contains("overlaps"))
     }
 
+    func testWritePrivatelyPreservesSymlinkedConfigFile() throws {
+        let root = try makeTempDirectory(prefix: "GitNestSymlinkWriteTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let managed = root.appendingPathComponent("managed")
+        try FileManager.default.createDirectory(at: managed, withIntermediateDirectories: true)
+        let target = managed.appendingPathComponent("config")
+        let link = root.appendingPathComponent("config")
+        try "original\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "managed/config")
+
+        XCTAssertTrue(AccountSetup.writePrivately("updated\n", to: link.path))
+
+        XCTAssertTrue(isSymbolicLink(link), "write must preserve the dotfile symlink")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "updated\n")
+        XCTAssertEqual(try String(contentsOf: link, encoding: .utf8), "updated\n")
+    }
+
+    func testBackupAndRestorePreserveSymlinkedConfigTarget() throws {
+        let root = try makeTempDirectory(prefix: "GitNestSymlinkRestoreTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let managed = root.appendingPathComponent("managed")
+        try FileManager.default.createDirectory(at: managed, withIntermediateDirectories: true)
+        let target = managed.appendingPathComponent("config")
+        let link = root.appendingPathComponent("config")
+        try "original\n".write(to: target, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "managed/config")
+
+        guard let backup = try AccountSetup.backup(link.path) else {
+            return XCTFail("Expected symlinked target content to be backed up")
+        }
+        XCTAssertEqual(try String(contentsOfFile: backup, encoding: .utf8), "original\n")
+        XCTAssertTrue(AccountSetup.writePrivately("updated\n", to: link.path))
+
+        AccountSetup.restore(backup, to: link.path)
+
+        XCTAssertTrue(isSymbolicLink(link), "restore must preserve the dotfile symlink")
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "original\n")
+    }
+
+    func testRestoreWithoutBackupPreservesBrokenSymlink() throws {
+        let root = try makeTempDirectory(prefix: "GitNestBrokenSymlinkRestoreTest")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let managed = root.appendingPathComponent("managed")
+        try FileManager.default.createDirectory(at: managed, withIntermediateDirectories: true)
+        let target = managed.appendingPathComponent("config")
+        let link = root.appendingPathComponent("config")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "managed/config")
+
+        XCTAssertNil(try AccountSetup.backup(link.path))
+        XCTAssertTrue(AccountSetup.writePrivately("created\n", to: link.path))
+
+        AccountSetup.restore(nil, to: link.path)
+
+        XCTAssertTrue(isSymbolicLink(link), "rollback must not delete a pre-existing symlink")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
+    }
+
     func testRandomPassphraseIsNonEmptyUniqueAndFullEntropy() {
         let a = AccountSetup.randomPassphrase()
         let b = AccountSetup.randomPassphrase()
@@ -414,5 +471,16 @@ final class AccountSetupTests: XCTestCase {
         guard case .failure = AccountSetup.identity(fromUserJSON: "not json") else {
             return XCTFail("garbage payload must be a failure, not a crash or empty identity")
         }
+    }
+
+    private func makeTempDirectory(prefix: String) throws -> URL {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("\(prefix)-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private func isSymbolicLink(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
     }
 }

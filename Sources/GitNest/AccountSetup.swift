@@ -412,16 +412,17 @@ enum AccountSetup {
 
     /// Write `text` to `path` so the file is mode 0600 the instant it appears —
     /// never momentarily world-readable, and without downgrading a file that was
-    /// already hardened. A 0600 temp file is created in the same directory and
-    /// `rename(2)`d over the destination (atomic, replaces in place).
+    /// already hardened. A 0600 temp file is created in the same directory as the
+    /// real destination and `rename(2)`d over it (atomic, replaces in place).
     static func writePrivately(_ text: String, to path: String) -> Bool {
         let fm = FileManager.default
-        let dir = (path as NSString).deletingLastPathComponent
+        let destination = pathResolvingFinalSymlink(path)
+        let dir = (destination as NSString).deletingLastPathComponent
         let tmp = (dir as NSString).appendingPathComponent(".gitnest-tmp-\(UUID().uuidString.prefix(8))")
         guard fm.createFile(atPath: tmp,
                             contents: Data(text.utf8),
                             attributes: [.posixPermissions: 0o600]) else { return false }
-        let renamed = tmp.withCString { t in path.withCString { p in rename(t, p) } }
+        let renamed = tmp.withCString { t in destination.withCString { p in rename(t, p) } }
         if renamed != 0 {
             try? fm.removeItem(atPath: tmp)
             return false
@@ -433,18 +434,19 @@ enum AccountSetup {
     /// file didn't exist before this run, so its creation is undone instead.
     static func restore(_ backup: String?, to path: String) {
         let fm = FileManager.default
+        let destination = pathResolvingFinalSymlink(path)
         guard let backup else {
-            try? fm.removeItem(atPath: path)
+            try? fm.removeItem(atPath: destination)
             return
         }
-        // Copy to a sibling temp then rename over `path`, so there is never a window
-        // where `path` is missing — a concurrent `git` reading ~/.gitconfig (e.g. a
-        // background status sweep) could otherwise transiently fail.
-        let tmp = path + ".gitnest-restore-\(UUID().uuidString.prefix(8))"
+        // Copy to a sibling temp then rename over the real destination, so there is
+        // never a window where the config is missing — a concurrent `git` reading
+        // ~/.gitconfig (e.g. a background status sweep) could otherwise fail.
+        let tmp = destination + ".gitnest-restore-\(UUID().uuidString.prefix(8))"
         do {
             try? fm.removeItem(atPath: tmp)
             try fm.copyItem(atPath: backup, toPath: tmp)
-            if tmp.withCString({ t in path.withCString { p in rename(t, p) } }) != 0 {
+            if tmp.withCString({ t in destination.withCString { p in rename(t, p) } }) != 0 {
                 try? fm.removeItem(atPath: tmp)
             }
         } catch {
@@ -455,13 +457,30 @@ enum AccountSetup {
     /// Timestamped backup before editing a file (no-op when the file is absent).
     @discardableResult
     static func backup(_ path: String) throws -> String? {
-        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let source = pathResolvingFinalSymlink(path)
+        guard FileManager.default.fileExists(atPath: source) else { return nil }
         var dest = backupDestination(for: path)
         while FileManager.default.fileExists(atPath: dest) {
             dest = backupDestination(for: path)
         }
-        try FileManager.default.copyItem(atPath: path, toPath: dest)
+        try FileManager.default.copyItem(atPath: source, toPath: dest)
         return dest
+    }
+
+    /// Dotfile managers often make `~/.ssh/config` or `~/.gitconfig` a symlink.
+    /// `rename(2)` over the link path would replace the link itself, forking the
+    /// user's managed config. Resolve only the final component: parent directory
+    /// symlinks should keep behaving like normal filesystem paths.
+    private static func pathResolvingFinalSymlink(_ path: String) -> String {
+        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
+            return path
+        }
+        if target.hasPrefix("/") { return target }
+        let dir = (path as NSString).deletingLastPathComponent
+        return URL(fileURLWithPath: dir)
+            .appendingPathComponent(target)
+            .standardizedFileURL
+            .path
     }
 
     static func backupDestination(for path: String,

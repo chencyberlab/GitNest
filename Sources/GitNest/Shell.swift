@@ -172,6 +172,9 @@ enum Shell {
 
         let currentPath = environment["PATH"] ?? ""
         environment["PATH"] = developerPath + (currentPath.isEmpty ? "" : ":\(currentPath)")
+        // A few git fallbacks still have to classify stderr text. Force the C
+        // locale so Homebrew git's translated messages don't break those guards.
+        environment["LC_ALL"] = "C"
         // There is no terminal to answer a username/password prompt on, so make
         // git fail fast instead of waiting forever on one.
         environment["GIT_TERMINAL_PROMPT"] = "0"

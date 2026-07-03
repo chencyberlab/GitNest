@@ -178,4 +178,23 @@ final class CoordinatorTests: XCTestCase {
             "/users/me/work/tools"
         )
     }
+
+    func testRepoActionBusyPathKeyUsesExistingAncestorForMissingPaths() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("GitNestBusyPathTest-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let values = try root.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey])
+        guard let isCaseSensitive = values.volumeSupportsCaseSensitiveNames else {
+            throw XCTSkip("volume case-sensitivity is unavailable")
+        }
+        let missingPath = root
+            .appendingPathComponent("Tools")
+            .appendingPathComponent("Repo")
+            .path
+        let expected = isCaseSensitive ? missingPath : missingPath.lowercased()
+
+        XCTAssertEqual(RepoActionCoordinator.busyPathKey(for: missingPath), expected)
+    }
 }
