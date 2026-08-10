@@ -66,17 +66,24 @@ final class RepoManager: ObservableObject {
     /// success/failure branches without a network call. Production passes the real
     /// `GitHub.listRepos`.
     private let listRepos: @Sendable (String) -> Result<[Repo], CommandError>
+    /// Per-clone status probe. Injected so the local-first/live-remote ordering is
+    /// testable without fetching a real repository.
+    private let repoStatus: @Sendable (String, Bool) -> RepoStatus?
 
     init(ghChain: GhChain,
          logStore: LogStore,
          accountManager: AccountManager,
          listRepos: @escaping @Sendable (String) -> Result<[Repo], CommandError> = {
              GitHub.listRepos(owner: $0)
+         },
+         repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus? = {
+             GitHub.status(at: $0, refreshRemote: $1)
          }) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.accountManager = accountManager
         self.listRepos = listRepos
+        self.repoStatus = repoStatus
         bindFilteredRepos()
         rebuildFilteredRepos()
     }
@@ -215,7 +222,7 @@ final class RepoManager: ObservableObject {
                 }
             }
             await refreshClonedStatus(for: account)
-            await refreshStatuses(for: account, refreshRemote: true)
+            await refreshStatusesLocallyThenRemotely(for: account)
             if accountManager.selectedAccount?.alias == owner {
                 isCheckingRepoRemotes = false
                 setRepoRefreshMessage("Repos and remote status refreshed just now.", autoDismiss: true)
@@ -431,38 +438,131 @@ final class RepoManager: ObservableObject {
             if accountManager.selectedAccount?.alias == alias, !repoStatuses.isEmpty { repoStatuses = [:] }
             return
         }
-        let previous = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
-        let next = await runBlocking { () -> [Repo.ID: RepoStatus] in
+        let repoStatus = self.repoStatus
+        let probed = await runBlocking { () -> [Repo.ID: RepoStatus] in
             var out: [Repo.ID: RepoStatus] = [:]
             for target in targets {
-                guard var status = GitHub.status(at: target.path, refreshRemote: refreshRemote) else { continue }
-                // Local-only rescans don't fetch, so they can't re-confirm the
-                // remote — they'd reset every row to `.unchecked` and wipe the
-                // green "current after live fetch" pill on the next 10s tick.
-                // Carry forward the last live-fetch verdict while the upstream is
-                // unchanged (and the fresh parse hasn't found something newer,
-                // e.g. `[gone]`).
-                if !refreshRemote, status.remoteState == .unchecked,
-                   let prev = previous[target.id] {
-                    if status.hasUpstream, prev.hasUpstream, prev.upstreamRef == status.upstreamRef {
-                        switch prev.remoteState {
-                        case .checked, .failed:
-                            status.remoteState = prev.remoteState
-                        case .unchecked, .noUpstream, .upstreamGone:
-                            break
-                        }
-                    } else if !status.hasUpstream, !prev.hasUpstream, prev.remoteState == .noUpstream {
-                        status.remoteState = .noUpstream
-                    }
-                }
+                guard let status = repoStatus(target.path, refreshRemote) else { continue }
                 out[target.id] = status
             }
             return out
+        }
+        // Carry-forward merges against the map as it is *now*, not a pre-probe
+        // snapshot: a scoped live refresh (push/pull/fetch) can commit its verdict
+        // while this sweep's git processes are still running, and merging from a
+        // stale snapshot would revert that verdict until the next live pass.
+        var next = probed
+        if !refreshRemote {
+            let previous = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
+            for (id, status) in probed {
+                next[id] = Self.carryingForwardRemoteState(status, previous: previous[id])
+            }
         }
         // Only publish when something actually changed — otherwise the 10s timer
         // would re-render the repo list (and reset hover/tooltip tracking) for nothing.
         repoStatusesCache[alias] = next
         if accountManager.selectedAccount?.alias == alias, next != repoStatuses { repoStatuses = next }
+    }
+
+    /// Local-only rescans don't fetch, so they can't re-confirm the remote — they'd
+    /// reset every row to `.unchecked` and wipe the green "current after live fetch"
+    /// pill on the next 10s tick. Carry forward the last live-fetch verdict while the
+    /// upstream is unchanged (and the fresh parse hasn't found something newer, e.g.
+    /// `[gone]`).
+    ///
+    /// Pure + `nonisolated` so the account-wide sweep and the single-repo probe share
+    /// one rule instead of two copies that can drift, and so the rule itself is
+    /// directly unit-testable.
+    nonisolated static func carryingForwardRemoteState(_ status: RepoStatus,
+                                                       previous: RepoStatus?) -> RepoStatus {
+        guard status.remoteState == .unchecked, let previous else { return status }
+        var next = status
+        if status.hasUpstream, previous.hasUpstream, previous.upstreamRef == status.upstreamRef {
+            switch previous.remoteState {
+            case .checked, .failed:
+                next.remoteState = previous.remoteState
+            case .unchecked, .noUpstream, .upstreamGone:
+                break
+            }
+        } else if !status.hasUpstream, !previous.hasUpstream, previous.remoteState == .noUpstream {
+            next.remoteState = .noUpstream
+        }
+        return next
+    }
+
+    /// Re-probe a single clone and merge just its entry.
+    ///
+    /// Every repo action uses this instead of the account-wide sweep, because an action
+    /// only ever changes the one repo it ran in. With `refreshRemote` (clone/pull/fetch/
+    /// push) that matters most: pushing one repo used to fetch every other clone in the
+    /// account, so the row stayed disabled for N sequential network round trips over
+    /// work it hadn't done. The local-only callers (commit, stash, delete) scope for the
+    /// same reason, minus the network — they were spawning 2 git processes per sibling
+    /// to re-read state nothing had touched.
+    ///
+    /// Siblings keep their last verdict via `carryingForwardRemoteState` — the same
+    /// carry-forward the 10s local tick already relies on — and are picked up by that
+    /// tick (local) and the repo-list load (live). The account-wide sweep still runs on
+    /// repo-list loads, which is where a whole-account resync belongs.
+    func refreshStatus(for repo: Repo, in account: Account, refreshRemote: Bool = false) async {
+        let alias = account.alias
+        let sourceCloned = accountManager.selectedAccount?.alias == alias
+            ? clonedRepos
+            : (clonedReposCache[alias] ?? [])
+        // Not a clone (deleted, or the folder was taken over) — drop any stale entry
+        // rather than leave a badge describing a repo that is no longer there.
+        guard sourceCloned.contains(repo.id) else {
+            commitStatus(nil, for: repo.id, alias: alias)
+            return
+        }
+        let path = localPath(repo, in: account)
+        let repoStatus = self.repoStatus
+        let probed = await runBlocking { repoStatus(path, refreshRemote) }
+        guard let probed else {
+            commitStatus(nil, for: repo.id, alias: alias)
+            return
+        }
+        // Read after the probe for the same reason as the sweep: carry forward the
+        // freshest verdict, not one from before this probe's git processes ran.
+        let previous = (accountManager.selectedAccount?.alias == alias
+            ? repoStatuses
+            : (repoStatusesCache[alias] ?? [:]))[repo.id]
+        commitStatus(refreshRemote ? probed : Self.carryingForwardRemoteState(probed, previous: previous),
+                     for: repo.id,
+                     alias: alias)
+    }
+
+    /// Merge (or remove) one repo's status in both the cache and — only while that
+    /// account is still the visible one — the published map. Split out so the
+    /// single-repo path keeps the sweep's two invariants: the target account's cache
+    /// is always authoritative, and nothing is published for an account the user has
+    /// since switched away from.
+    private func commitStatus(_ status: RepoStatus?, for id: Repo.ID, alias: String) {
+        var cache = repoStatusesCache[alias] ?? [:]
+        if let status {
+            cache[id] = status
+        } else {
+            cache.removeValue(forKey: id)
+        }
+        repoStatusesCache[alias] = cache
+
+        guard accountManager.selectedAccount?.alias == alias else { return }
+        // Same "only publish real changes" rule as the sweep — a no-op probe must not
+        // re-render the list and reset hover/tooltip tracking.
+        if let status {
+            if repoStatuses[id] != status { repoStatuses[id] = status }
+        } else if repoStatuses[id] != nil {
+            repoStatuses.removeValue(forKey: id)
+        }
+    }
+
+    /// Publish the cheap local view first so change/stash/ahead badges become
+    /// usable without waiting for every network fetch. The live pass stays
+    /// sequential for now: this improves perceived latency without increasing
+    /// concurrent SSH/network load.
+    func refreshStatusesLocallyThenRemotely(for account: Account) async {
+        await refreshStatuses(for: account)
+        await refreshStatuses(for: account, refreshRemote: true)
     }
 
     // MARK: Per-repo state

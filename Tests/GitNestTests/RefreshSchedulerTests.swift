@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import GitNest
 
@@ -8,21 +9,26 @@ import XCTest
 /// here (e.g. background accounts polling every 30s) would matter.
 @MainActor
 final class RefreshSchedulerTests: XCTestCase {
+    /// Mirrors `RepoManager`'s own production defaults so a test overrides only the
+    /// seam it cares about — no per-seam branch here as more seams are injected.
     private func makeManager(
-        listRepos: (@Sendable (String) -> Result<[Repo], CommandError>)? = nil
+        listRepos: @escaping @Sendable (String) -> Result<[Repo], CommandError> = {
+            GitHub.listRepos(owner: $0)
+        },
+        repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus? = {
+            GitHub.status(at: $0, refreshRemote: $1)
+        }
     ) -> (RepoManager, AccountManager) {
         let logStore = LogStore()
         let ghChain = GhChain()
         let accountManager = AccountManager(ghChain: ghChain,
                                             logStore: logStore,
                                             authProcessController: AuthProcessController())
-        let repoManager: RepoManager
-        if let listRepos {
-            repoManager = RepoManager(ghChain: ghChain, logStore: logStore,
-                                      accountManager: accountManager, listRepos: listRepos)
-        } else {
-            repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
-        }
+        let repoManager = RepoManager(ghChain: ghChain,
+                                      logStore: logStore,
+                                      accountManager: accountManager,
+                                      listRepos: listRepos,
+                                      repoStatus: repoStatus)
         return (repoManager, accountManager)
     }
 
@@ -164,6 +170,38 @@ final class RefreshSchedulerTests: XCTestCase {
                      "a failed load must not record a refresh time")
         XCTAssertTrue(repo.shouldAutoRefreshRepos(for: "vis"),
                       "a failed refresh must leave the account due for the next tick")
+    }
+
+    func testLocalStatusIsPublishedBeforeLiveRemoteStatus() async {
+        let acct = account("vis")
+        let target = Repo(name: "tools",
+                          nameWithOwner: "vis/tools",
+                          description: nil,
+                          visibility: "private",
+                          updatedAt: nil,
+                          url: "https://example.com/vis/tools")
+        let (manager, accounts) = makeManager(repoStatus: { _, refreshRemote in
+            var status = RepoStatus()
+            status.changedFiles = refreshRemote ? 2 : 1
+            status.remoteState = refreshRemote ? .checked : .unchecked
+            return status
+        })
+        accounts.selectedAccount = acct
+        manager.repos = [target]
+        manager.clonedRepos = [target.id]
+
+        var publishedChangeCounts: [Int] = []
+        let observation = manager.$repoStatuses.dropFirst().sink { statuses in
+            if let count = statuses[target.id]?.changedFiles {
+                publishedChangeCounts.append(count)
+            }
+        }
+        defer { observation.cancel() }
+
+        await manager.refreshStatusesLocallyThenRemotely(for: acct)
+
+        XCTAssertEqual(publishedChangeCounts, [1, 2])
+        XCTAssertEqual(manager.repoStatuses[target.id]?.remoteState, .checked)
     }
 
     func testLocalStatusRefreshPreservesRemoteFailureUntilLiveCheckSucceeds() async throws {

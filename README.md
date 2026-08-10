@@ -88,7 +88,9 @@ single main window, with separate read-only windows for inspecting working diffs
   every in-app action and automatically every 10 seconds, so changes you make in
   another editor or terminal appear on their own within ~10s. The 10-second scan
   stays local-only; repo-list loads and repo-list auto-refreshes perform the
-  upstream fetch check.
+  upstream fetch check. An action on one repo re-checks **only that repo** against
+  its remote — cloning, pulling, fetching, or pushing one clone never fetches the
+  others, so the row unblocks after a single round trip instead of one per clone.
 - **Init project**: choose a local folder, copy it into the selected account's
   GitHub folder if needed, create a private/public GitHub repo, push it, then
   refresh the repo list. Optional cleanup can move the original selected folder
@@ -112,7 +114,7 @@ It shells out to tools you already have:
 | Clone | `git clone git@github-<account>:OWNER/REPO.git <account-folder>/REPO` |
 | Init project | `gh auth switch -u <account>`, verify active `gh` login, `git init`, `gh repo create`, `git push -u origin <branch>` |
 | Pull | `git -C <local-path> pull` |
-| Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch`; repo-list loads also run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` first so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only. |
+| Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch`; repo-list loads publish this fast local status first, then run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only, and a clone/pull/fetch/push runs the live check for just the repo you acted on. |
 | View working diff | `git --no-optional-locks -C <local-path> status --porcelain=v1 -z --untracked-files=all`, then an on-demand `git --no-optional-locks -C <local-path> diff --no-ext-diff --no-color --no-textconv --unified=3 <captured-HEAD> -- <selected-path>`; untracked files use `git diff --no-index … /dev/null <selected-path>` so they appear as additions. An untracked folder that holds its own repository is reported as such instead of diffed — git lists it as a single entry with nothing inside to compare. |
 | Open local folder/editor/terminal | Finder uses `NSWorkspace.open`; configured editors and terminals use `/usr/bin/open -a <app> <local-path>` |
 | Commit | `git -C <local-path> add -A && git -C <local-path> commit -m "<msg>"` |

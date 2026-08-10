@@ -237,18 +237,29 @@ private struct DetailView: View {
     /// Shown when no account is selected. Mirrors the repo-list empty state: an
     /// SF Symbol, a one-line hint, and a nudge toward the action that fixes it.
     private var emptyAccountState: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 30))
-                .foregroundStyle(theme.textTertiary)
-            Text("No account selected")
-                .font(Theme.title(15))
-                .foregroundStyle(theme.text)
-            Text("Pick an account on the left to see its repositories.")
-                .font(.system(size: 12))
-                .foregroundStyle(theme.textMuted)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        // Scrollable on purpose: a macOS NavigationSplitView only gives the sidebar
+        // its title-bar safe-area inset while the detail column holds a scroll view.
+        // Every other detail state has one (repo list, expanded output); without one
+        // here the whole sidebar slid ~40pt up and "GitNest / Beta" collided with the
+        // traffic lights. `minHeight` keeps the content centred exactly as before —
+        // it fills the pane, so nothing ever actually scrolls.
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 10) {
+                    Image(systemName: "person.crop.circle.badge.plus")
+                        .font(.system(size: 30))
+                        .foregroundStyle(theme.textTertiary)
+                    Text("No account selected")
+                        .font(Theme.title(15))
+                        .foregroundStyle(theme.text)
+                    Text("Pick an account on the left to see its repositories.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(theme.textMuted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, minHeight: geo.size.height)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

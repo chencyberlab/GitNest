@@ -100,7 +100,7 @@ final class RepoActionCoordinator: ObservableObject {
             logStore.append(failureMessage
                             ?? "✗ Cannot \(action) \(repo.name): \(path) is no longer a clone of \(repo.nameWithOwner).")
             await repoManager.refreshClonedStatus(for: account)
-            await repoManager.refreshStatuses(for: account)
+            await repoManager.refreshStatus(for: repo, in: account)
             return false
         }
         return true
@@ -144,7 +144,7 @@ final class RepoActionCoordinator: ObservableObject {
             conflicts.removeValue(forKey: repo.id)
             repoManager.commitCloneState(cloned, conflicts, for: alias)
             logStore.append("\(repo.nameWithOwner) is already cloned at \(dest).")
-            await repoManager.refreshStatuses(for: account, refreshRemote: true)
+            await repoManager.refreshStatus(for: repo, in: account, refreshRemote: true)
             return
         case .occupied(let conflict):
             conflicts[repo.id] = conflict
@@ -160,7 +160,7 @@ final class RepoActionCoordinator: ObservableObject {
         let res = await runBlocking { GitHub.clone(repo: repo, sshHost: account.sshHost, into: folder) }
         logStore.report(res, ok: "cloned \(repo.name)")
         await repoManager.refreshClonedStatus(for: account)
-        await repoManager.refreshStatuses(for: account, refreshRemote: true)
+        await repoManager.refreshStatus(for: repo, in: account, refreshRemote: true)
     }
 
     func pull(_ repo: Repo, in account: Account? = nil) async {
@@ -186,7 +186,7 @@ final class RepoActionCoordinator: ObservableObject {
                 Pulling now could overwrite or merge into your local work, so nothing was changed. Check the repository status and try again.
                 """
             ))
-            await repoManager.refreshStatuses(for: account)
+            await repoManager.refreshStatus(for: repo, in: account)
             return
         }
         if dirty {
@@ -199,7 +199,7 @@ final class RepoActionCoordinator: ObservableObject {
                 Pulling now could overwrite or merge into your local work. Commit, stash, or discard your changes before pulling.
                 """
             ))
-            await repoManager.refreshStatuses(for: account)
+            await repoManager.refreshStatus(for: repo, in: account)
             return
         }
 
@@ -212,7 +212,7 @@ final class RepoActionCoordinator: ObservableObject {
                 message: AlertStore.PullWarning.message(repoName: repo.name, gitOutput: res.stdout + res.stderr)
             ))
         }
-        await repoManager.refreshStatuses(for: account, refreshRemote: true)
+        await repoManager.refreshStatus(for: repo, in: account, refreshRemote: true)
     }
 
     /// Download remote changes without merging. Safe even with uncommitted work,
@@ -228,7 +228,7 @@ final class RepoActionCoordinator: ObservableObject {
         logStore.append("Fetching \(repo.name)…")
         let res = await runBlocking { GitHub.fetch(at: path) }
         logStore.report(res, ok: "fetched \(repo.name)")
-        await repoManager.refreshStatuses(for: account, refreshRemote: true)
+        await repoManager.refreshStatus(for: repo, in: account, refreshRemote: true)
     }
 
     func push(_ repo: Repo, in account: Account? = nil) async {
@@ -240,7 +240,7 @@ final class RepoActionCoordinator: ObservableObject {
         logStore.append("Pushing \(repo.name)…")
         let res = await runBlocking { GitHub.push(at: path) }
         logStore.report(res, ok: "pushed \(repo.name)")
-        await repoManager.refreshStatuses(for: account, refreshRemote: true)
+        await repoManager.refreshStatus(for: repo, in: account, refreshRemote: true)
     }
 
     func openGitHubRepo(_ repo: Repo) {
@@ -558,7 +558,7 @@ final class RepoActionCoordinator: ObservableObject {
         let res = await runBlocking { FileOps.moveToTrash(path) }
         logStore.report(res, ok: "moved \(repo.name) to Trash")
         await repoManager.refreshClonedStatus(for: account)
-        await repoManager.refreshStatuses(for: account)
+        await repoManager.refreshStatus(for: repo, in: account)
     }
 
     func commit(_ repo: Repo, message: String, in account: Account? = nil) async {
@@ -571,7 +571,7 @@ final class RepoActionCoordinator: ObservableObject {
         logStore.append("Committing \(repo.name): “\(message)”…")
         let res = await runBlocking { GitHub.commitAll(at: path, message: message) }
         logStore.report(res, ok: "committed \(repo.name)")
-        await repoManager.refreshStatuses(for: account)
+        await repoManager.refreshStatus(for: repo, in: account)
     }
 
     // MARK: Stash (local parking; never touches GitHub)
@@ -627,7 +627,7 @@ final class RepoActionCoordinator: ObservableObject {
         } else {
             logStore.report(res, ok: "stashed changes in \(repo.name)")
         }
-        await repoManager.refreshStatuses(for: account)
+        await repoManager.refreshStatus(for: repo, in: account)
         return res.ok && !nothingToStash
     }
 
@@ -667,14 +667,14 @@ final class RepoActionCoordinator: ObservableObject {
         }
         guard let res else {
             logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing changed. Try again.")
-            await repoManager.refreshStatuses(for: account)
+            await repoManager.refreshStatus(for: repo, in: account)
             return
         }
         logStore.report(res, ok: "\(done) stash@{\(index)} in \(repo.name)")
         if !res.ok {
             logStore.append("⚠ \(repo.name): git stash \(running) didn't complete — your stash was kept. Resolve any conflicts in your working tree, then drop it when you're done.")
         }
-        await repoManager.refreshStatuses(for: account)
+        await repoManager.refreshStatus(for: repo, in: account)
     }
 
     /// Discard stash@{index} without restoring it. Destructive — the UI confirms
@@ -692,10 +692,10 @@ final class RepoActionCoordinator: ObservableObject {
         }
         guard let res else {
             logStore.append("⚠ \(repo.name): the stash list changed since you opened it — refreshed, nothing dropped.")
-            await repoManager.refreshStatuses(for: account)
+            await repoManager.refreshStatus(for: repo, in: account)
             return
         }
         logStore.report(res, ok: "dropped stash@{\(index)} in \(repo.name)")
-        await repoManager.refreshStatuses(for: account)
+        await repoManager.refreshStatus(for: repo, in: account)
     }
 }
