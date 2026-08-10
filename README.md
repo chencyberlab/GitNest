@@ -6,7 +6,7 @@
 A tiny native macOS (SwiftUI) GUI for a local multi-account GitHub setup. It
 shows your configured accounts, which account each SSH key authenticates as,
 and lets you browse, clone, initialize, commit, push, and clean up repos from a
-single window.
+single main window, with separate read-only windows for inspecting working diffs.
 
 ## What it shows / does
 
@@ -73,6 +73,15 @@ single window.
   pending — an amber `✎` with a count for uncommitted/untracked files, a purple
   `↑` for local commits not yet pushed, an amber `↓` for commits behind the
   remote, and a green check when the clone is current after a live upstream fetch.
+  Click the amber change count for the grouped file summary, then **View Diff…**
+  to open a separate read-only window showing the current working tree against
+  the latest local commit (`HEAD`). The viewer includes staged, unstaged, and
+  untracked files, with old/new line numbers and themed additions/removals. Press
+  **⌘F** (or use the sidebar search field) to search the captured diff: file paths
+  match on plain text, `*`/`?` globs, or fuzzy abbreviations, and changed code
+  matches on plain text or globs; selecting a code result opens its file and jumps
+  to the exact diff line. The viewer is local-only and never fetches or modifies
+  files.
   If local and remote both have commits, a warning badge marks the repo as
   diverged. The drive icon also turns amber whenever there is anything to commit,
   pull, push, or fix before treating the clone as current. Statuses refresh after
@@ -104,6 +113,7 @@ It shells out to tools you already have:
 | Init project | `gh auth switch -u <account>`, verify active `gh` login, `git init`, `gh repo create`, `git push -u origin <branch>` |
 | Pull | `git -C <local-path> pull` |
 | Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch`; repo-list loads also run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` first so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only. |
+| View working diff | `git --no-optional-locks -C <local-path> status --porcelain=v1 -z --untracked-files=all`, then an on-demand `git --no-optional-locks -C <local-path> diff --no-ext-diff --no-color --no-textconv --unified=3 <captured-HEAD> -- <selected-path>`; untracked files use `git diff --no-index … /dev/null <selected-path>` so they appear as additions. An untracked folder that holds its own repository is reported as such instead of diffed — git lists it as a single entry with nothing inside to compare. |
 | Open local folder/editor/terminal | Finder uses `NSWorkspace.open`; configured editors and terminals use `/usr/bin/open -a <app> <local-path>` |
 | Commit | `git -C <local-path> add -A && git -C <local-path> commit -m "<msg>"` |
 | Push | `git -C <local-path> push` after confirmation |

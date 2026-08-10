@@ -37,4 +37,32 @@ final class SearchTests: XCTestCase {
         XCTAssertTrue(RepoSearch.matches(query: "repo dash", repo: repo))
         XCTAssertTrue(AccountSearch.matches(query: "own github", account: account))
     }
+
+    /// The working-diff search matches one compiled query against tens of thousands
+    /// of lines, so compiling must be equivalent to the per-call path it replaces.
+    func testCompiledQueryMatchesTheSameWayAsTheOneShotCall() {
+        let haystacks = ["multigitmanager", "owner/tools"]
+        for query in ["git", "m*g*manager", "mgm", "owner tools", "zzzz", "  "] {
+            XCTAssertEqual(
+                WildcardMatcher.matches(WildcardMatcher.compile(query), haystacks: haystacks),
+                WildcardMatcher.matches(query: query, haystacks: haystacks),
+                "compiled and one-shot disagree on \(query)")
+        }
+    }
+
+    /// `.literal` exists for long text (diff lines), where fuzzy subsequence
+    /// matching hits nearly everything. Substring and glob still work there.
+    func testLiteralStrictnessDropsFuzzySubsequenceButKeepsSubstringAndGlob() {
+        let line = ["let newaccountvalue = refresh()"]
+        let fuzzy = WildcardMatcher.compile("nacv")
+        XCTAssertTrue(WildcardMatcher.matches(fuzzy, haystacks: line))
+        XCTAssertFalse(WildcardMatcher.matches(fuzzy, haystacks: line, strictness: .literal))
+
+        XCTAssertTrue(
+            WildcardMatcher.matches(WildcardMatcher.compile("account"), haystacks: line, strictness: .literal))
+        XCTAssertTrue(
+            WildcardMatcher.matches(WildcardMatcher.compile("let*refresh*"), haystacks: line, strictness: .literal))
+        XCTAssertTrue(
+            WildcardMatcher.matches(WildcardMatcher.compile(""), haystacks: line, strictness: .literal))
+    }
 }

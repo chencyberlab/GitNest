@@ -33,6 +33,39 @@ extension String {
         set.subtract(CharacterSet(charactersIn: "\u{200C}\u{200D}"))   // ZWNJ, ZWJ
         return set
     }()
+
+    /// Same threat model as `sanitizedForSingleLineDisplay()` — in particular the
+    /// bidi overrides/isolates behind "Trojan Source" (CVE-2021-42574) — but for a
+    /// verbatim line of source code (a diff line, a hunk header) rather than a git
+    /// metadata label. A hard tab is common, legitimate indentation there, so unlike
+    /// the label sanitizer it is preserved instead of stripped.
+    ///
+    /// The result is also capped: a diff of a minified bundle has single lines
+    /// hundreds of kilobytes long, and handing one of those to a `Text` that sizes
+    /// to its ideal width wedges layout. Truncation is marked with an ellipsis, and
+    /// only affects display — search still matches against the full line.
+    func sanitizedForCodeLineDisplay(maxCharacters: Int = 1000) -> String {
+        var out = String()
+        var kept = 0
+        // Grapheme-by-grapheme rather than scalar-by-scalar: the cap must not be
+        // able to cut an emoji sequence in half. Lazily walked, so a 500 KB line
+        // is never fully traversed.
+        for character in self {
+            guard kept < maxCharacters else {
+                out.append("…")
+                break
+            }
+            var scalars = String.UnicodeScalarView()
+            for scalar in character.unicodeScalars
+            where scalar == "\t" || !Self.unsafeDisplayScalars.contains(scalar) {
+                scalars.append(scalar)
+            }
+            guard !scalars.isEmpty else { continue }
+            out.unicodeScalars.append(contentsOf: scalars)
+            kept += 1
+        }
+        return out
+    }
 }
 
 /// Sanitise a folder name so it is a valid GitHub repository name.

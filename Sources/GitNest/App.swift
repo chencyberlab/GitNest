@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 @main
 struct GitNestApp: App {
@@ -12,12 +12,18 @@ struct GitNestApp: App {
                 .frame(minWidth: 920, minHeight: 580)
         }
         .defaultSize(width: 980, height: 660)
+
+        WindowGroup("Working Changes", for: WorkingDiffTarget.self) { target in
+            WorkingDiffWindowRoot(target: target.wrappedValue)
+                .gitNestEnvironment(appDelegate.model)
+        }
+        .defaultSize(width: 1040, height: 700)
     }
 }
 
-/// This is a single-window utility, so quit the whole app when that window's red
-/// X is clicked instead of leaving it running in the Dock (SwiftUI's default for a
-/// WindowGroup). Multiple windows still work — it only terminates on the *last* close.
+/// Quit the app after its last main/diff window closes instead of leaving it
+/// running in the Dock (SwiftUI's default for a WindowGroup). Closing the main
+/// window alone keeps any working-diff windows alive for continued inspection.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()

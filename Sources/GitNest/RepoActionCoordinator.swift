@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 @MainActor
 final class RepoActionCoordinator: ObservableObject {
@@ -25,15 +25,31 @@ final class RepoActionCoordinator: ObservableObject {
     private let logStore: LogStore
     private let alertStore: AlertStore
     private let accountManager: AccountManager
+    private let loadWorkingTreeChanges: @Sendable (String) -> Result<GitWorkingTreeSnapshot, CommandError>
+    private let loadWorkingFileDiff: @Sendable (String, GitFileChange, GitDiffBase) -> Result<GitFileDiff, CommandError>
 
-    init(repoManager: RepoManager,
-         logStore: LogStore,
-         alertStore: AlertStore,
-         accountManager: AccountManager) {
+    init(
+        repoManager: RepoManager,
+        logStore: LogStore,
+        alertStore: AlertStore,
+        accountManager: AccountManager,
+        loadWorkingTreeChanges: @escaping @Sendable (String) -> Result<GitWorkingTreeSnapshot, CommandError> = {
+            GitHub.workingTreeChanges(at: $0)
+        },
+        loadWorkingFileDiff:
+            @escaping @Sendable (String, GitFileChange, GitDiffBase) -> Result<
+                GitFileDiff,
+                CommandError
+            > = {
+                GitHub.workingFileDiff(at: $0, file: $1, base: $2)
+            }
+    ) {
         self.repoManager = repoManager
         self.logStore = logStore
         self.alertStore = alertStore
         self.accountManager = accountManager
+        self.loadWorkingTreeChanges = loadWorkingTreeChanges
+        self.loadWorkingFileDiff = loadWorkingFileDiff
     }
 
     func isRepoActionBusy(_ repo: Repo) -> Bool {
@@ -335,6 +351,123 @@ final class RepoActionCoordinator: ObservableObject {
             return .failure(CommandError(message: "This repository isn't cloned locally."))
         }
         return await runBlocking { GitHub.changedFiles(at: path) }
+    }
+
+    /// Capture an account-explicit target for a secondary diff window. Keeping the
+    /// resolved path in the value prevents a later account switch from redirecting
+    /// an already-open window to another clone with the same repository name.
+    func workingDiffTarget(for repo: Repo, in account: Account) -> WorkingDiffTarget {
+        WorkingDiffTarget(
+            repoName: repo.name,
+            nameWithOwner: repo.nameWithOwner,
+            accountAlias: account.alias,
+            localPath: repoManager.localPath(repo, in: account))
+    }
+
+    /// Load the exact comparison base and changed-file inventory for a diff window.
+    /// This is read-only and local, so it runs off the main actor without `GhChain`.
+    func workingTreeChanges(for target: WorkingDiffTarget) async -> Result<GitWorkingTreeSnapshot, CommandError> {
+        guard Self.isGitClone(at: target.localPath) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally anymore."))
+        }
+        let load = loadWorkingTreeChanges
+        return await runBlocking { load(target.localPath) }
+    }
+
+    /// Load one selected file's patch on demand. The window owns a generation token
+    /// so a result from an earlier selection cannot replace the current file.
+    func workingFileDiff(
+        for target: WorkingDiffTarget,
+        file: GitFileChange,
+        base: GitDiffBase
+    ) async -> Result<GitFileDiff, CommandError> {
+        guard Self.isGitClone(at: target.localPath) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally anymore."))
+        }
+        let load = loadWorkingFileDiff
+        return await runBlocking { load(target.localPath, file, base) }
+    }
+
+    /// Build the wildcard-search index only when the user starts searching. Git
+    /// processes are intentionally serialized inside one blocking job: launching a
+    /// process per file concurrently would make large working trees less responsive.
+    func workingDiffSearchIndex(
+        for target: WorkingDiffTarget,
+        snapshot: GitWorkingTreeSnapshot
+    ) async -> Result<GitWorkingDiffSearchIndex, CommandError> {
+        guard Self.isGitClone(at: target.localPath) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally anymore."))
+        }
+        let load = loadWorkingFileDiff
+        return await runBlocking {
+            var entries: [GitWorkingDiffSearchFile] = []
+            var indexedLineCount = 0
+            var indexedPatchBytes = 0
+            var isTruncated = false
+            var failedFileCount = 0
+
+            for (position, file) in snapshot.files.enumerated() {
+                guard position < GitWorkingDiffSearch.maximumIndexedFiles,
+                    indexedLineCount < GitWorkingDiffSearch.maximumIndexedLines,
+                    indexedPatchBytes < GitWorkingDiffSearch.maximumIndexedPatchBytes
+                else {
+                    entries.append(GitWorkingDiffSearch.indexedFile(file, diff: nil, maximumLines: 0).entry)
+                    isTruncated = true
+                    continue
+                }
+
+                switch load(target.localPath, file, snapshot.base) {
+                case .success(let diff):
+                    let patchBytes = GitWorkingDiffSearch.patchByteCount(diff)
+                    let remainingPatchBytes = GitWorkingDiffSearch.maximumIndexedPatchBytes - indexedPatchBytes
+                    guard patchBytes <= remainingPatchBytes else {
+                        entries.append(GitWorkingDiffSearch.indexedFile(file, diff: nil, maximumLines: 0).entry)
+                        isTruncated = true
+                        continue
+                    }
+                    let remainingLines = GitWorkingDiffSearch.maximumIndexedLines - indexedLineCount
+                    let indexed = GitWorkingDiffSearch.indexedFile(
+                        file,
+                        diff: diff,
+                        maximumLines: remainingLines)
+                    entries.append(indexed.entry)
+                    indexedLineCount += indexed.entry.lines.count
+                    indexedPatchBytes += patchBytes
+                    isTruncated = isTruncated || indexed.isTruncated
+                case .failure:
+                    entries.append(GitWorkingDiffSearch.indexedFile(file, diff: nil, maximumLines: 0).entry)
+                    failedFileCount += 1
+                }
+            }
+            return .success(
+                GitWorkingDiffSearchIndex(
+                    files: entries,
+                    isCodeIndexTruncated: isTruncated,
+                    failedFileCount: failedFileCount))
+        }
+    }
+
+    /// Matching can walk tens of thousands of changed lines, so keep it off the
+    /// main actor just like the process-backed indexing step.
+    func workingDiffSearchMatches(
+        query: String,
+        index: GitWorkingDiffSearchIndex
+    ) async -> GitWorkingDiffSearchMatches {
+        await runBlocking { GitWorkingDiffSearch.matches(query: query, in: index) }
+    }
+
+    /// File-path results do not need to wait for every patch process in the full
+    /// index, so the sidebar can surface them immediately while code is indexing.
+    func workingDiffPathMatches(
+        query: String,
+        snapshot: GitWorkingTreeSnapshot
+    ) async -> GitWorkingDiffSearchMatches {
+        await runBlocking { GitWorkingDiffSearch.pathMatches(query: query, files: snapshot.files) }
+    }
+
+    private static func isGitClone(at path: String) -> Bool {
+        let gitDir = (path as NSString).appendingPathComponent(".git")
+        return FileManager.default.fileExists(atPath: gitDir)
     }
 
     /// Load recent commits for the history popover. Read-only and network-free —

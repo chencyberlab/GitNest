@@ -9,11 +9,14 @@ struct ChangeSummaryButton: View {
     let count: Int
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @EnvironmentObject private var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.theme) private var theme
     @State private var showing = false
 
     var body: some View {
-        Button { showing.toggle() } label: {
+        Button {
+            showing.toggle()
+        } label: {
             HStack(spacing: 2) {
                 Image(systemName: "pencil").font(.system(size: 9, weight: .bold))
                 Text("\(count)").font(.system(size: 10, weight: .bold))
@@ -28,15 +31,27 @@ struct ChangeSummaryButton: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .tooltip("\(count) changed file\(count == 1 ? "" : "s") — click for a summary")
-        .accessibilityLabel("\(count) changed files. Show summary.")
+        .tooltip("\(count) changed file\(count == 1 ? "" : "s") — click for summary and diff")
+        .accessibilityLabel(
+            "\(count) changed file\(count == 1 ? "" : "s"). Show summary and diff options."
+        )
         .popover(isPresented: $showing, arrowEdge: .bottom) {
             // Re-inject the object graph: on macOS a popover gets a fresh environment
             // branch, so @EnvironmentObject lookups inside it aren't guaranteed to
             // inherit from the presenter. See EnvironmentInjection / AGENTS.md.
-            ChangeSummaryContent(repo: repo, account: account)
-                .gitNestEnvironment(model)
+            ChangeSummaryContent(
+                repo: repo,
+                account: account,
+                viewDiff: openDiffWindow
+            )
+            .gitNestEnvironment(model)
         }
+    }
+
+    private func openDiffWindow() {
+        let target = repoActionCoordinator.workingDiffTarget(for: repo, in: account)
+        showing = false
+        openWindow(value: target)
     }
 }
 
@@ -45,6 +60,7 @@ struct ChangeSummaryButton: View {
 struct ChangeSummaryContent: View {
     let repo: Repo
     let account: Account
+    let viewDiff: () -> Void
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
@@ -109,7 +125,15 @@ struct ChangeSummaryContent: View {
             }
 
         case .loaded(let groups):
-            loadedList(groups)
+            VStack(spacing: 10) {
+                loadedList(groups)
+                ThemeDivider()
+                Button(action: viewDiff) {
+                    Label("View Diff…", systemImage: "doc.text.magnifyingglass")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
         }
     }
 
@@ -162,11 +186,13 @@ struct ChangeSummaryContent: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    /// Sanitized like every other git-sourced single-line string: a filename can
+    /// legally carry the same bidi/control scalars as a commit subject.
     private func line(for file: GitFileChange) -> String {
         if let original = file.originalPath {
-            return "\(original) → \(file.path)"
+            return "\(original) → \(file.path)".sanitizedForSingleLineDisplay()
         }
-        return file.path
+        return file.path.sanitizedForSingleLineDisplay()
     }
 
     private func color(for status: GitChangeStatus) -> Color {

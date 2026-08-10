@@ -10,6 +10,30 @@ import XCTest
 /// primitives down locks the whole action surface.
 @MainActor
 final class RepoActionCoordinatorTests: XCTestCase {
+    private final class LockedDiffCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshotPaths: [String] = []
+        private var diffPaths: [String] = []
+
+        func recordSnapshot(_ path: String) {
+            lock.lock()
+            snapshotPaths.append(path)
+            lock.unlock()
+        }
+
+        func recordDiff(_ path: String) {
+            lock.lock()
+            diffPaths.append(path)
+            lock.unlock()
+        }
+
+        func counts() -> (snapshot: Int, diff: Int) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (snapshotPaths.count, diffPaths.count)
+        }
+    }
+
     private func makeCoordinator(repos: [Repo], account: Account) -> RepoActionCoordinator {
         let ghChain = GhChain()
         let logStore = LogStore()
@@ -110,6 +134,151 @@ final class RepoActionCoordinatorTests: XCTestCase {
         // `ghost` is not in the configured accounts list.
         XCTAssertNil(coordinator.beginRepoAction(r, in: removed))
         XCTAssertFalse(coordinator.isRepoActionBusy(r))
+    }
+
+    /// The read-only diff orchestration must use its injected domain closures so it
+    /// remains testable without touching a real repository or spawning Git.
+    func testWorkingDiffUsesInjectedLoaders() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("gitnest-diff-coordinator-\(UUID().uuidString)")
+        try fileManager.createDirectory(
+            at: directory.appendingPathComponent(".git"),
+            withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let file = GitFileChange(path: "work.swift", originalPath: nil, status: .modified)
+        let snapshot = GitWorkingTreeSnapshot(base: .head("abc123"), files: [file])
+        let expectedDiff = GitFileDiff(additions: 1, deletions: 0, content: .noLineChanges)
+        let calls = LockedDiffCalls()
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let accountManager = AccountManager(
+            ghChain: ghChain,
+            logStore: logStore,
+            authProcessController: AuthProcessController())
+        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let coordinator = RepoActionCoordinator(
+            repoManager: repoManager,
+            logStore: logStore,
+            alertStore: AlertStore(),
+            accountManager: accountManager,
+            loadWorkingTreeChanges: { path in
+                calls.recordSnapshot(path)
+                return .success(snapshot)
+            },
+            loadWorkingFileDiff: { path, _, _ in
+                calls.recordDiff(path)
+                return .success(expectedDiff)
+            }
+        )
+        let target = WorkingDiffTarget(
+            repoName: "tools",
+            nameWithOwner: "me/tools",
+            accountAlias: "me",
+            localPath: directory.path)
+
+        guard case .success(let loadedSnapshot) = await coordinator.workingTreeChanges(for: target) else {
+            return XCTFail("snapshot loader was not used")
+        }
+        guard
+            case .success(let loadedDiff) = await coordinator.workingFileDiff(
+                for: target,
+                file: file,
+                base: loadedSnapshot.base)
+        else {
+            return XCTFail("diff loader was not used")
+        }
+        XCTAssertEqual(loadedSnapshot.files.map(\.path), ["work.swift"])
+        XCTAssertEqual(loadedDiff, expectedDiff)
+        XCTAssertEqual(calls.counts().snapshot, 1)
+        XCTAssertEqual(calls.counts().diff, 1)
+    }
+
+    func testWorkingDiffSearchUsesInjectedLoaderAndFindsChangedCode() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("gitnest-diff-search-coordinator-\(UUID().uuidString)")
+        try fileManager.createDirectory(
+            at: directory.appendingPathComponent(".git"),
+            withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let files = [
+            GitFileChange(path: "Sources/App.swift", originalPath: nil, status: .modified),
+            GitFileChange(path: "README.md", originalPath: nil, status: .modified),
+        ]
+        let snapshot = GitWorkingTreeSnapshot(base: .head("abc123"), files: files)
+        let calls = LockedDiffCalls()
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let accountManager = AccountManager(
+            ghChain: ghChain,
+            logStore: logStore,
+            authProcessController: AuthProcessController())
+        let repoManager = RepoManager(
+            ghChain: ghChain,
+            logStore: logStore,
+            accountManager: accountManager)
+        let coordinator = RepoActionCoordinator(
+            repoManager: repoManager,
+            logStore: logStore,
+            alertStore: AlertStore(),
+            accountManager: accountManager,
+            loadWorkingFileDiff: { path, file, _ in
+                calls.recordDiff(path)
+                let patch = "@@ -1 +1 @@\n-old\n+searchable \(file.path)\n"
+                return .success(GitDiffParser.parse(unifiedPatch: patch))
+            })
+        let target = WorkingDiffTarget(
+            repoName: "tools",
+            nameWithOwner: "me/tools",
+            accountAlias: "me",
+            localPath: directory.path)
+
+        guard
+            case .success(let index) = await coordinator.workingDiffSearchIndex(
+                for: target,
+                snapshot: snapshot)
+        else {
+            return XCTFail("search index loader failed")
+        }
+        let matches = await coordinator.workingDiffSearchMatches(query: "searchable app", index: index)
+
+        XCTAssertEqual(calls.counts().diff, 2)
+        XCTAssertEqual(index.files.count, 2)
+        XCTAssertEqual(matches.code.map(\.file.path), ["Sources/App.swift"])
+        XCTAssertEqual(matches.code.first?.line.newLineNumber, 1)
+    }
+
+    func testWorkingDiffRefusesMissingCloneBeforeCallingLoader() async {
+        let calls = LockedDiffCalls()
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let accountManager = AccountManager(ghChain: ghChain,
+                                            logStore: logStore,
+                                            authProcessController: AuthProcessController())
+        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let coordinator = RepoActionCoordinator(
+            repoManager: repoManager,
+            logStore: logStore,
+            alertStore: AlertStore(),
+            accountManager: accountManager,
+            loadWorkingTreeChanges: { path in
+                calls.recordSnapshot(path)
+                return .success(GitWorkingTreeSnapshot(base: .emptyRepository, files: []))
+            }
+        )
+        let target = WorkingDiffTarget(repoName: "missing",
+                                       nameWithOwner: "me/missing",
+                                       accountAlias: "me",
+                                       localPath: "/tmp/gitnest-definitely-missing-diff-clone")
+
+        guard case .failure(let error) = await coordinator.workingTreeChanges(for: target) else {
+            return XCTFail("missing clone should fail")
+        }
+        XCTAssertTrue(error.message.contains("isn't cloned"))
+        XCTAssertEqual(calls.counts().snapshot, 0)
     }
 
     // MARK: safeGitHubURL (R1 — don't open a remote-supplied non-web URL)
