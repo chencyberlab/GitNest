@@ -5,7 +5,7 @@ import Foundation
 /// log viewer. Mirrors GitFileChange/GitChanges: the parser is kept separate from
 /// the shell call so it can be unit-tested without a real repo.
 struct GitCommit: Identifiable, Sendable {
-    let id = UUID()
+    var id: String { hash }
     let hash: String          // full commit hash
     let shortHash: String     // git's abbreviated hash
     let subject: String       // first line of the message

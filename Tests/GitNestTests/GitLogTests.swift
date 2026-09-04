@@ -30,6 +30,16 @@ final class GitLogTests: XCTestCase {
         XCTAssertEqual(commits[1].relativeDate, "yesterday")
     }
 
+    func testCommitIdentityUsesTheStableFullHash() {
+        let output = record("abc123def456", "abc123d", "Add feature", "Alice", "2 hours ago")
+
+        let firstLoad = GitLog.parse(logZ: output)
+        let secondLoad = GitLog.parse(logZ: output)
+
+        XCTAssertEqual(firstLoad.first?.id, "abc123def456")
+        XCTAssertEqual(firstLoad.first?.id, secondLoad.first?.id)
+    }
+
     func testHandlesSubjectWithSpacesPunctuationAndColons() {
         let output = record("h1", "h1", "feat: add thing (with parens), commas & a colon", "A", "now")
         let commits = GitLog.parse(logZ: output)

@@ -118,6 +118,7 @@ It shells out to tools you already have:
 | View working diff | `git --no-optional-locks -C <local-path> status --porcelain=v1 -z --untracked-files=all`, then an on-demand `git --no-optional-locks -C <local-path> diff --no-ext-diff --no-color --no-textconv --unified=3 <captured-HEAD> -- <selected-path>`; untracked files use `git diff --no-index … /dev/null <selected-path>` so they appear as additions. An untracked folder that holds its own repository is reported as such instead of diffed — git lists it as a single entry with nothing inside to compare. |
 | Open local folder/editor/terminal | Finder uses `NSWorkspace.open`; configured editors and terminals use `/usr/bin/open -a <app> <local-path>` |
 | Commit | `git -C <local-path> add -A && git -C <local-path> commit -m "<msg>"` |
+| View recent commit history | `git --no-optional-locks -C <local-path> log -n 20 --no-color -z --pretty=format:<machine-readable-fields>` |
 | Push | `git -C <local-path> push` after confirmation |
 | Delete local | Moves `<local-path>` to Trash via `FileManager.trashItem` |
 
@@ -461,7 +462,12 @@ delegated to `gh` and your SSH setup.
 
 Notes:
 
+- **Git actions** groups Fetch, Pull, Commit, Push, and Stash into one compact
+  repository-row menu.
 - **Commit** stages everything (`git add -A`) and needs a message.
+- **Commit history** is available for local clones from the row's **Open or inspect**
+  button (or its right-click menu). It shows the latest 20 commits on the current
+  local branch and never changes the repository.
 - **Push** asks for confirmation first, then runs a plain `git push`.
 - **Init project** creates the remote repo and runs the first `git push -u`
   automatically.

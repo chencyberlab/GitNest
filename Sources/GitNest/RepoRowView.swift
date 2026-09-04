@@ -25,21 +25,35 @@ struct RepoRowView: View {
     let customEditorName: String
     let customTerminalName: String
 
-    /// Which read-only popover (if any) the row is showing, opened from its
-    /// right-click menu (cloned repos only). One `item:`-driven popover keeps the
-    /// two mutually exclusive — SwiftUI only reliably presents one popover per view,
-    /// so they can't each carry their own `isPresented` binding.
+    /// Which secondary popover (if any) the row is showing. One `item:`-driven
+    /// popover keeps the inspectors and stash mutually exclusive — SwiftUI only
+    /// reliably presents one popover per view, so they can't each carry their own
+    /// `isPresented` binding.
     @State private var activePopover: RowPopover?
+
+    /// A popover or dialog requested from inside Open / Inspect or Git actions.
+    /// Presentation waits for the parent menu popover to disappear; asking AppKit
+    /// to replace one popover with another in the same event is timing-dependent.
+    @State private var pendingPresentation: PendingPresentation?
 
     /// Cursor-over feedback for the row. Only affects unselected rows — a selected
     /// row always wins with the accent rail so the active row stays unambiguous.
     @State private var isHovering = false
 
-    /// Read-only popovers reachable from the row's context menu.
+    /// Secondary popovers reachable from the row controls.
     private enum RowPopover: String, Identifiable {
         case history
         case incoming
+        case stash
         var id: String { rawValue }
+    }
+
+    private enum PendingPresentation {
+        case history
+        case incoming
+        case stash
+        case commit
+        case push
     }
 
     var body: some View {
@@ -98,6 +112,9 @@ struct RepoRowView: View {
             case .incoming:
                 IncomingCommitsContent(repo: repo, account: account)
                     .gitNestEnvironment(model)
+            case .stash:
+                StashContent(repo: repo, account: account)
+                    .gitNestEnvironment(model)
             }
         }
     }
@@ -118,7 +135,7 @@ struct RepoRowView: View {
     // MARK: Context menu
 
     /// Right-click menu: GitHub navigation and clipboard helpers that would clutter
-    /// the inline action row. Cloned repos also get history and a Finder reveal.
+    /// the inline action row. Cloned repos also get the local commit inspectors.
     @ViewBuilder
     private func rowContextMenu(cloned: Bool) -> some View {
         Button {
@@ -134,7 +151,7 @@ struct RepoRowView: View {
         if cloned {
             Divider()
             Button { activePopover = .history } label: {
-                Label("Commit History…", systemImage: "clock.arrow.circlepath")
+                Label("View Commit History…", systemImage: "clock.arrow.circlepath")
             }
             Button { activePopover = .incoming } label: {
                 Label("Incoming Commits…", systemImage: "arrow.down.to.line")
@@ -160,20 +177,7 @@ struct RepoRowView: View {
         HStack(spacing: 7) {
             if cloned {
                 openMenu
-                iconButton("arrow.triangle.2.circlepath", "Fetch from origin (git fetch)") {
-                    Task { await repoActionCoordinator.fetch(repo, in: account) }
-                }
-                iconButton("arrow.down", "Pull (git pull)") {
-                    Task { await repoActionCoordinator.pull(repo, in: account) }
-                }
-                iconButton("pencil", "Commit all changes…") {
-                    commitMessage = ""
-                    commitTarget = RepoActionTarget(repo: repo, account: account)
-                }
-                iconButton("arrow.up", "Push (git push)") {
-                    pushTarget = RepoActionTarget(repo: repo, account: account)
-                }
-                stashMenu
+                gitActionsMenu
                 iconButton("trash", "Move local folder to Trash (recoverable)",
                            tint: theme.error, fill: theme.errorSubtle) {
                     deleteTarget = RepoActionTarget(repo: repo, account: account)
@@ -189,22 +193,22 @@ struct RepoRowView: View {
                 }
             }
         }
-        // A pull/push/commit/clone is already running for this repo — block a second
-        // one rather than let two git processes collide on the same local folder.
+        // A local repo action is already running — block another rather than let
+        // two git processes collide on the same folder.
         .disabled(repoActionCoordinator.isRepoActionBusy(repo))
     }
 
     // MARK: Open menu
 
     private var openMenu: some View {
-        ActionPopoverButton(systemName: "folder", help: "Open…") { isPresented in
+        ActionPopoverButton(systemName: "folder", help: "Open or inspect…") { isPresented in
             VStack(alignment: .leading, spacing: 0) {
-                openPopoverButton("Finder", systemImage: "folder") {
+                popoverButton("Finder", systemImage: "folder") {
                     isPresented.wrappedValue = false
                     repoActionCoordinator.openLocalFolder(repo, in: account)
                 }
 
-                openPopoverButton("GitHub", systemImage: "globe") {
+                popoverButton("GitHub", systemImage: "globe") {
                     isPresented.wrappedValue = false
                     repoActionCoordinator.openGitHubRepo(repo)
                 }
@@ -213,8 +217,8 @@ struct RepoRowView: View {
                     openPopoverDisabledRow("Editor not configured",
                                            systemImage: "chevron.left.forwardslash.chevron.right")
                 } else {
-                    openPopoverButton(preferredEditor.displayName(customAppName: customEditorName),
-                                      systemImage: "chevron.left.forwardslash.chevron.right") {
+                    popoverButton(preferredEditor.displayName(customAppName: customEditorName),
+                                  systemImage: "chevron.left.forwardslash.chevron.right") {
                         isPresented.wrappedValue = false
                         Task {
                             await repoActionCoordinator.openInEditor(repo,
@@ -228,8 +232,8 @@ struct RepoRowView: View {
                 if preferredTerminal == .none {
                     openPopoverDisabledRow("Terminal not configured", systemImage: "terminal")
                 } else {
-                    openPopoverButton(preferredTerminal.displayName(customAppName: customTerminalName),
-                                      systemImage: "terminal") {
+                    popoverButton(preferredTerminal.displayName(customAppName: customTerminalName),
+                                  systemImage: "terminal") {
                         isPresented.wrappedValue = false
                         Task {
                             await repoActionCoordinator.openInTerminal(repo,
@@ -239,28 +243,100 @@ struct RepoRowView: View {
                         }
                     }
                 }
+
+                ThemeDivider()
+                    .padding(.vertical, 5)
+
+                popoverButton("View Commit History…", systemImage: "clock.arrow.circlepath") {
+                    queuePresentation(.history, closing: isPresented)
+                }
+
+                popoverButton("Incoming Commits…", systemImage: "arrow.down.to.line") {
+                    queuePresentation(.incoming, closing: isPresented)
+                }
             }
             .padding(8)
             .frame(width: 220)
             .background(theme.surface)
+            .onDisappear(perform: completePendingPresentation)
         }
     }
 
-    // MARK: Stash menu
+    // MARK: Git actions menu
 
-    /// Archivebox button opening the interactive stash popover (stash current
-    /// changes, then apply / pop / drop entries). The popover owns its own state;
-    /// the row just provides the trigger.
-    private var stashMenu: some View {
-        ActionPopoverButton(systemName: "archivebox", help: "Stash…") { _ in
-            StashContent(repo: repo, account: account)
-                .gitNestEnvironment(model)
+    /// Keep the row compact by grouping the related git operations behind one
+    /// control. Trash stays separate because it acts on the folder rather than the
+    /// repository and deserves a visually distinct destructive affordance.
+    private var gitActionsMenu: some View {
+        ActionPopoverButton(systemName: "ellipsis.circle", help: "Git actions…") { isPresented in
+            VStack(alignment: .leading, spacing: 0) {
+                popoverButton("Fetch", systemImage: "arrow.triangle.2.circlepath") {
+                    isPresented.wrappedValue = false
+                    Task { await repoActionCoordinator.fetch(repo, in: account) }
+                }
+
+                popoverButton("Pull", systemImage: "arrow.down") {
+                    isPresented.wrappedValue = false
+                    Task { await repoActionCoordinator.pull(repo, in: account) }
+                }
+
+                ThemeDivider()
+                    .padding(.vertical, 5)
+
+                popoverButton("Commit All Changes…", systemImage: "pencil") {
+                    queuePresentation(.commit, closing: isPresented)
+                }
+
+                popoverButton("Push…", systemImage: "arrow.up") {
+                    queuePresentation(.push, closing: isPresented)
+                }
+
+                popoverButton("Stash…", systemImage: "archivebox") {
+                    queuePresentation(.stash, closing: isPresented)
+                }
+            }
+            .padding(8)
+            .frame(width: 220)
+            .background(theme.surface)
+            .onDisappear(perform: completePendingPresentation)
         }
     }
 
-    private func openPopoverButton(_ title: String,
-                                   systemImage: String,
-                                   action: @escaping () -> Void) -> some View {
+    private func queuePresentation(
+        _ presentation: PendingPresentation,
+        closing isPresented: Binding<Bool>
+    ) {
+        pendingPresentation = presentation
+        isPresented.wrappedValue = false
+    }
+
+    /// Called by the menu content's disappearance, after its popover has yielded the
+    /// presentation slot. The extra main-actor turn lets AppKit finish detaching the
+    /// old popover before SwiftUI evaluates the next presentation binding.
+    private func completePendingPresentation() {
+        guard let presentation = pendingPresentation else { return }
+        pendingPresentation = nil
+        Task { @MainActor in
+            await Task.yield()
+            switch presentation {
+            case .history:
+                activePopover = .history
+            case .incoming:
+                activePopover = .incoming
+            case .stash:
+                activePopover = .stash
+            case .commit:
+                commitMessage = ""
+                commitTarget = RepoActionTarget(repo: repo, account: account)
+            case .push:
+                pushTarget = RepoActionTarget(repo: repo, account: account)
+            }
+        }
+    }
+
+    private func popoverButton(_ title: String,
+                               systemImage: String,
+                               action: @escaping () -> Void) -> some View {
         OpenPopoverRow(title: title, systemImage: systemImage, action: action)
     }
 

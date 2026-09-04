@@ -27,9 +27,14 @@ struct CommitHistoryContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Recent commits in \(repo.name)")
-                .font(Theme.title(14))
-                .foregroundStyle(theme.text)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Recent commits in \(repo.name)")
+                    .font(Theme.title(14))
+                    .foregroundStyle(theme.text)
+                Text("Latest 20 commits on the current local branch.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(theme.textMuted)
+            }
             content
         }
         .padding(16)

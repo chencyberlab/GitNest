@@ -1,11 +1,11 @@
 import SwiftUI
 
 /// Interactive popover for a cloned repo's stashes: create one from the current
-/// changes, and apply / pop / drop existing entries. Opened from the row's
-/// archivebox button (`ActionPopoverButton`); the trigger lives in the row, this is
-/// just the content. Mutating actions go through the coordinator's busy guard, and
-/// the list reloads after each so a shifted `stash@{N}` index is never reused. Drop —
-/// the one destructive, non-recoverable action — is confirmed inline before it runs.
+/// changes, and apply / pop / drop existing entries. Opened from the row's Git
+/// actions menu; the trigger lives in the row, this is just the content. Mutating
+/// actions go through the coordinator's busy guard, and the list reloads after each
+/// so a shifted `stash@{N}` index is never reused. Drop — the one destructive,
+/// non-recoverable action — is confirmed inline before it runs.
 struct StashContent: View {
     let repo: Repo
     let account: Account
