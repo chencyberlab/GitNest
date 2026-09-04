@@ -76,4 +76,15 @@ final class StringHelpersTests: XCTestCase {
         let capped = (family + family).sanitizedForCodeLineDisplay(maxCharacters: 1)
         XCTAssertEqual(capped, family + "…")
     }
+
+    func testMultilineDisplayPreservesParagraphsAndTabsButStripsSpoofingControls() {
+        let value = "Subject\n\tBody\u{202e} text\u{1b}\nTail"
+        XCTAssertEqual(value.sanitizedForMultilineDisplay(), "Subject\n\tBody text\nTail")
+    }
+
+    func testMultilineDisplayCapsTheWholeMessageWithoutSplittingGraphemes() {
+        let family = "👨‍👩‍👧"
+        let value = family + "\nsecond line"
+        XCTAssertEqual(value.sanitizedForMultilineDisplay(maxCharacters: 1), family + "…")
+    }
 }

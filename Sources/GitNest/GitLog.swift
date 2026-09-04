@@ -1,9 +1,10 @@
 import Foundation
 
 /// One commit from `git log`, for the lightweight history popover. Deliberately
-/// minimal — this powers a quick "what landed here recently" summary, not a full
-/// log viewer. Mirrors GitFileChange/GitChanges: the parser is kept separate from
-/// the shell call so it can be unit-tested without a real repo.
+/// minimal — this powers a quick "what landed here recently" summary; full metadata
+/// and patches are loaded separately after the user selects a commit. Mirrors
+/// GitFileChange/GitChanges: the parser is kept separate from the shell call so it
+/// can be unit-tested without a real repo.
 struct GitCommit: Identifiable, Sendable {
     var id: String { hash }
     let hash: String          // full commit hash

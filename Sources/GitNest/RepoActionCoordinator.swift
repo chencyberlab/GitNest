@@ -27,6 +27,9 @@ final class RepoActionCoordinator: ObservableObject {
     private let accountManager: AccountManager
     private let loadWorkingTreeChanges: @Sendable (String) -> Result<GitWorkingTreeSnapshot, CommandError>
     private let loadWorkingFileDiff: @Sendable (String, GitFileChange, GitDiffBase) -> Result<GitFileDiff, CommandError>
+    private let loadCommitSnapshot: @Sendable (String, String) -> Result<GitCommitSnapshot, CommandError>
+    private let loadCommitFileDiff:
+        @Sendable (String, GitCommitSnapshot, GitFileChange) -> Result<GitFileDiff, CommandError>
 
     init(
         repoManager: RepoManager,
@@ -42,6 +45,16 @@ final class RepoActionCoordinator: ObservableObject {
                 CommandError
             > = {
                 GitHub.workingFileDiff(at: $0, file: $1, base: $2)
+            },
+        loadCommitSnapshot: @escaping @Sendable (String, String) -> Result<GitCommitSnapshot, CommandError> = {
+            GitHub.commitSnapshot(at: $0, hash: $1)
+        },
+        loadCommitFileDiff:
+            @escaping @Sendable (String, GitCommitSnapshot, GitFileChange) -> Result<
+                GitFileDiff,
+                CommandError
+            > = {
+                GitHub.commitFileDiff(at: $0, snapshot: $1, file: $2)
             }
     ) {
         self.repoManager = repoManager
@@ -50,6 +63,8 @@ final class RepoActionCoordinator: ObservableObject {
         self.accountManager = accountManager
         self.loadWorkingTreeChanges = loadWorkingTreeChanges
         self.loadWorkingFileDiff = loadWorkingFileDiff
+        self.loadCommitSnapshot = loadCommitSnapshot
+        self.loadCommitFileDiff = loadCommitFileDiff
     }
 
     func isRepoActionBusy(_ repo: Repo) -> Bool {
@@ -468,6 +483,54 @@ final class RepoActionCoordinator: ObservableObject {
     private static func isGitClone(at path: String) -> Bool {
         let gitDir = (path as NSString).appendingPathComponent(".git")
         return FileManager.default.fileExists(atPath: gitDir)
+    }
+
+    /// Capture an immutable, account-explicit route for a commit-detail window.
+    /// The resolved path prevents a later account switch from redirecting it.
+    func commitDetailTarget(
+        for repo: Repo,
+        in account: Account,
+        commit: GitCommit
+    ) -> CommitDetailTarget {
+        CommitDetailTarget(
+            repoName: repo.name,
+            nameWithOwner: repo.nameWithOwner,
+            accountAlias: account.alias,
+            localPath: repoManager.localPath(repo, in: account),
+            hash: commit.hash,
+            shortHash: commit.shortHash)
+    }
+
+    /// Load one immutable commit and its changed-file inventory. This is read-only
+    /// and local, so it runs off the main actor without `GhChain`.
+    func commitDetails(for target: CommitDetailTarget) async -> Result<GitCommitSnapshot, CommandError> {
+        guard Self.isGitClone(at: target.localPath) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally anymore."))
+        }
+        let load = loadCommitSnapshot
+        return await runBlocking { load(target.localPath, target.hash) }
+    }
+
+    /// Load only the selected file's patch. The window validates its generation
+    /// token after this returns so a stale selection cannot replace the new one.
+    func commitFileDiff(
+        for target: CommitDetailTarget,
+        snapshot: GitCommitSnapshot,
+        file: GitFileChange
+    ) async -> Result<GitFileDiff, CommandError> {
+        guard Self.isGitClone(at: target.localPath) else {
+            return .failure(CommandError(message: "This repository isn't cloned locally anymore."))
+        }
+        guard snapshot.detail.hash.caseInsensitiveCompare(target.hash) == .orderedSame else {
+            return .failure(CommandError(message: "The commit detail window is out of date. Refresh it and try again."))
+        }
+        let load = loadCommitFileDiff
+        return await runBlocking { load(target.localPath, snapshot, file) }
+    }
+
+    func copyCommitSHA(_ hash: String) {
+        guard GitCommitDetails.isValidObjectID(hash) else { return }
+        copyToClipboard(hash, describing: "commit SHA")
     }
 
     /// Load recent commits for the history popover. Read-only and network-free —

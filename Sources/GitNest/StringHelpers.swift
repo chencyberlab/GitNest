@@ -66,6 +66,30 @@ extension String {
         }
         return out
     }
+
+    /// Sanitize untrusted prose while preserving ordinary line breaks and tabs.
+    /// Commit bodies need their paragraph structure, but can carry the same bidi
+    /// and control bytes as subjects. The total cap prevents a crafted multi-megabyte
+    /// message from making SwiftUI measure an unbounded `Text` view.
+    func sanitizedForMultilineDisplay(maxCharacters: Int = 20_000) -> String {
+        var out = String()
+        var kept = 0
+        for character in self {
+            guard kept < maxCharacters else {
+                out.append("…")
+                break
+            }
+            var scalars = String.UnicodeScalarView()
+            for scalar in character.unicodeScalars
+            where scalar == "\n" || scalar == "\t" || !Self.unsafeDisplayScalars.contains(scalar) {
+                scalars.append(scalar)
+            }
+            guard !scalars.isEmpty else { continue }
+            out.unicodeScalars.append(contentsOf: scalars)
+            kept += 1
+        }
+        return out
+    }
 }
 
 /// Sanitise a folder name so it is a valid GitHub repository name.

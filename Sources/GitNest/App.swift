@@ -18,12 +18,18 @@ struct GitNestApp: App {
                 .gitNestEnvironment(appDelegate.model)
         }
         .defaultSize(width: 1040, height: 700)
+
+        WindowGroup("Commit Details", for: CommitDetailTarget.self) { target in
+            CommitDetailWindowRoot(target: target.wrappedValue)
+                .gitNestEnvironment(appDelegate.model)
+        }
+        .defaultSize(width: 1040, height: 700)
     }
 }
 
-/// Quit the app after its last main/diff window closes instead of leaving it
+/// Quit the app after its last main/inspection window closes instead of leaving it
 /// running in the Dock (SwiftUI's default for a WindowGroup). Closing the main
-/// window alone keeps any working-diff windows alive for continued inspection.
+/// window alone keeps any diff/detail windows alive for continued inspection.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()

@@ -11,6 +11,7 @@ struct IncomingCommitsContent: View {
     let account: Account
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
     @EnvironmentObject private var repoManager: RepoManager
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
@@ -37,7 +38,7 @@ struct IncomingCommitsContent: View {
                     .foregroundStyle(theme.text)
                 // Frames every state below: this is the remote→local direction, so
                 // it's never about the user's own local edits (a common mix-up).
-                Text("New commits on GitHub not yet in your branch, as of the last fetch.")
+                Text("New commits on GitHub not yet in your branch, as of the last fetch. Select one to inspect it.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -120,27 +121,38 @@ struct IncomingCommitsContent: View {
     }
 
     private func commitRow(_ commit: GitCommit) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(commit.shortHash)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(theme.accent)
-                    .textSelection(.enabled)
-                Text(untrusted: commit.subject)
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if !commitMeta(commit).isEmpty {
-                Text(untrusted: commitMeta(commit))
-                    .font(.system(size: 10))
+        Button {
+            openWindow(value: repoActionCoordinator.commitDetailTarget(for: repo, in: account, commit: commit))
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(commit.shortHash)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(theme.accent)
+                        Text(untrusted: commit.subject)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    if !commitMeta(commit).isEmpty {
+                        Text(untrusted: commitMeta(commit))
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .tooltip("View changes in commit \(commit.shortHash)")
     }
 
     private func commitMeta(_ commit: GitCommit) -> String {

@@ -2,12 +2,13 @@ import SwiftUI
 
 /// Lightweight, read-only commit-history popover for a cloned repo. Loads recent
 /// commits on demand when it appears, mirroring `ChangeSummaryContent` — kept out
-/// of the interval scan, and deliberately not a full log viewer (just the latest
-/// commits, subject + author + relative date).
+/// of the interval scan. This remains a small subject/author/date list; selecting a
+/// row opens the heavier commit metadata and patch viewer on demand.
 struct CommitHistoryContent: View {
     let repo: Repo
     let account: Account
     @EnvironmentObject private var repoActionCoordinator: RepoActionCoordinator
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.theme) private var theme
     @State private var phase: Phase = .loading
 
@@ -31,9 +32,10 @@ struct CommitHistoryContent: View {
                 Text("Recent commits in \(repo.name)")
                     .font(Theme.title(14))
                     .foregroundStyle(theme.text)
-                Text("Latest 20 commits on the current local branch.")
+                Text("Latest 20 commits on the current local branch. Select one to inspect its changes.")
                     .font(.system(size: 11))
                     .foregroundStyle(theme.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             content
         }
@@ -94,27 +96,38 @@ struct CommitHistoryContent: View {
     }
 
     private func commitRow(_ commit: GitCommit) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                Text(commit.shortHash)
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(theme.accent)
-                    .textSelection(.enabled)
-                Text(untrusted: commit.subject)
-                    .font(.system(size: 12))
-                    .foregroundStyle(theme.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if !commitMeta(commit).isEmpty {
-                Text(untrusted: commitMeta(commit))
-                    .font(.system(size: 10))
+        Button {
+            openWindow(value: repoActionCoordinator.commitDetailTarget(for: repo, in: account, commit: commit))
+        } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(commit.shortHash)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(theme.accent)
+                        Text(untrusted: commit.subject)
+                            .font(.system(size: 12))
+                            .foregroundStyle(theme.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    if !commitMeta(commit).isEmpty {
+                        Text(untrusted: commitMeta(commit))
+                            .font(.system(size: 10))
+                            .foregroundStyle(theme.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
                     .foregroundStyle(theme.textTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
             }
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
+        .tooltip("View changes in commit \(commit.shortHash)")
     }
 
     private func commitMeta(_ commit: GitCommit) -> String {

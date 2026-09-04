@@ -34,6 +34,30 @@ final class RepoActionCoordinatorTests: XCTestCase {
         }
     }
 
+    private final class LockedCommitCalls: @unchecked Sendable {
+        private let lock = NSLock()
+        private var snapshotInputs: [(path: String, hash: String)] = []
+        private var diffPaths: [String] = []
+
+        func recordSnapshot(path: String, hash: String) {
+            lock.lock()
+            snapshotInputs.append((path, hash))
+            lock.unlock()
+        }
+
+        func recordDiff(path: String) {
+            lock.lock()
+            diffPaths.append(path)
+            lock.unlock()
+        }
+
+        func values() -> (snapshot: [(path: String, hash: String)], diffPaths: [String]) {
+            lock.lock()
+            defer { lock.unlock() }
+            return (snapshotInputs, diffPaths)
+        }
+    }
+
     private func makeCoordinator(repos: [Repo], account: Account) -> RepoActionCoordinator {
         let ghChain = GhChain()
         let logStore = LogStore()
@@ -279,6 +303,77 @@ final class RepoActionCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(error.message.contains("isn't cloned"))
         XCTAssertEqual(calls.counts().snapshot, 0)
+    }
+
+    /// Commit inspection stays local and uses injected domain closures, so the
+    /// coordinator path can be exercised without invoking Git.
+    func testCommitDetailsUseInjectedLoaders() async throws {
+        let fileManager = FileManager.default
+        let directory = fileManager.temporaryDirectory
+            .appendingPathComponent("gitnest-commit-coordinator-\(UUID().uuidString)")
+        try fileManager.createDirectory(
+            at: directory.appendingPathComponent(".git"),
+            withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directory) }
+
+        let hash = String(repeating: "a", count: 40)
+        let file = GitFileChange(path: "Sources/App.swift", originalPath: nil, status: .modified)
+        let snapshot = GitCommitSnapshot(
+            detail: GitCommitDetail(
+                hash: hash,
+                shortHash: "aaaaaaa",
+                authoredAt: "2026-09-04T10:00:00+09:30",
+                parentHashes: [String(repeating: "b", count: 40)],
+                author: "Tester",
+                message: "Inspect commit"),
+            files: [file])
+        let expectedDiff = GitFileDiff(additions: 1, deletions: 1, content: .noLineChanges)
+        let calls = LockedCommitCalls()
+        let ghChain = GhChain()
+        let logStore = LogStore()
+        let accountManager = AccountManager(
+            ghChain: ghChain,
+            logStore: logStore,
+            authProcessController: AuthProcessController())
+        let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
+        let coordinator = RepoActionCoordinator(
+            repoManager: repoManager,
+            logStore: logStore,
+            alertStore: AlertStore(),
+            accountManager: accountManager,
+            loadCommitSnapshot: { path, loadedHash in
+                calls.recordSnapshot(path: path, hash: loadedHash)
+                return .success(snapshot)
+            },
+            loadCommitFileDiff: { path, _, _ in
+                calls.recordDiff(path: path)
+                return .success(expectedDiff)
+            })
+        let target = CommitDetailTarget(
+            repoName: "tools",
+            nameWithOwner: "me/tools",
+            accountAlias: "me",
+            localPath: directory.path,
+            hash: hash,
+            shortHash: "aaaaaaa")
+
+        guard case .success(let loadedSnapshot) = await coordinator.commitDetails(for: target) else {
+            return XCTFail("commit snapshot loader was not used")
+        }
+        guard
+            case .success(let loadedDiff) = await coordinator.commitFileDiff(
+                for: target,
+                snapshot: loadedSnapshot,
+                file: file)
+        else {
+            return XCTFail("commit diff loader was not used")
+        }
+
+        let values = calls.values()
+        XCTAssertEqual(values.snapshot.map(\.path), [directory.path])
+        XCTAssertEqual(values.snapshot.map(\.hash), [hash])
+        XCTAssertEqual(values.diffPaths, [directory.path])
+        XCTAssertEqual(loadedDiff, expectedDiff)
     }
 
     // MARK: safeGitHubURL (R1 — don't open a remote-supplied non-web URL)

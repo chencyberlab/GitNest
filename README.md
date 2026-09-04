@@ -6,7 +6,8 @@
 A tiny native macOS (SwiftUI) GUI for a local multi-account GitHub setup. It
 shows your configured accounts, which account each SSH key authenticates as,
 and lets you browse, clone, initialize, commit, push, and clean up repos from a
-single main window, with separate read-only windows for inspecting working diffs.
+single main window, with separate read-only windows for inspecting working changes
+and committed diffs.
 
 ## What it shows / does
 
@@ -65,10 +66,12 @@ single main window, with separate read-only windows for inspecting working diffs
   space-separated terms are all required. A counter shows matches vs total, and
   each account keeps its own search text while you switch between accounts.
 - **Remote-only repos**: clone into the selected account folder.
-- **Cloned repos**: use the **Open...** menu to open the local folder in Finder,
+- **Cloned repos**: use the **Open or inspect...** menu to open the local folder in Finder,
   the GitHub repo in your browser, your configured GUI editor, or your configured
-  terminal. You can also pull, commit all, push after confirmation, or move the
-  local folder to Trash after confirmation. Local delete does not touch GitHub.
+  terminal, or to view recent commit history. Select a commit to open its metadata,
+  changed files, and per-file additions/removals in a separate read-only window.
+  You can also use the compact **Git actions** menu to fetch, pull, commit all,
+  push after confirmation, or manage stashes. Local delete does not touch GitHub.
 - **Status indicators**: each cloned row shows, at a glance, whether it has work
   pending — an amber `✎` with a count for uncommitted/untracked files, a purple
   `↑` for local commits not yet pushed, an amber `↓` for commits behind the
@@ -119,6 +122,7 @@ It shells out to tools you already have:
 | Open local folder/editor/terminal | Finder uses `NSWorkspace.open`; configured editors and terminals use `/usr/bin/open -a <app> <local-path>` |
 | Commit | `git -C <local-path> add -A && git -C <local-path> commit -m "<msg>"` |
 | View recent commit history | `git --no-optional-locks -C <local-path> log -n 20 --no-color -z --pretty=format:<machine-readable-fields>` |
+| Inspect a commit | `git --no-optional-locks -C <local-path> show -s -z --format=<machine-readable-fields> <commit>` plus `git diff --name-status -z --find-renames <first-parent> <commit> --`; selecting a file lazily runs `git diff --no-ext-diff --no-color --no-textconv --find-renames --unified=3 <first-parent> <commit> -- <path>`. Root commits are compared with an empty tree. |
 | Push | `git -C <local-path> push` after confirmation |
 | Delete local | Moves `<local-path>` to Trash via `FileManager.trashItem` |
 
@@ -456,9 +460,9 @@ Expected:
 
 ## Scope
 
-List + search + clone + init project + pull + commit + push + local/remote status
-indicators + local folder cleanup. It does not manage branches or tokens. Auth is
-delegated to `gh` and your SSH setup.
+List + search + clone + init project + pull + commit + push + read-only commit
+history/diffs + local/remote status indicators + local folder cleanup. It does not
+manage branches or tokens. Auth is delegated to `gh` and your SSH setup.
 
 Notes:
 
@@ -467,7 +471,11 @@ Notes:
 - **Commit** stages everything (`git add -A`) and needs a message.
 - **Commit history** is available for local clones from the row's **Open or inspect**
   button (or its right-click menu). It shows the latest 20 commits on the current
-  local branch and never changes the repository.
+  local branch and never changes the repository. Click a commit to inspect its full
+  message, changed files, and line-by-line additions/removals. Metadata and the file
+  list load without materializing every patch; only the selected file's bounded patch
+  is loaded, so large histories do not eagerly allocate every diff. Merge commits are
+  compared with their first parent.
 - **Push** asks for confirmation first, then runs a plain `git push`.
 - **Init project** creates the remote repo and runs the first `git push -u`
   automatically.
