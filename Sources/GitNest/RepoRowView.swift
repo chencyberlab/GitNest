@@ -91,6 +91,15 @@ struct RepoRowView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(SelectionBackground(selected: selected, isHovered: isHovering))
+        .overlay {
+            if repoManager.highlightRepoID == repo.id {
+                RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                    .strokeBorder(theme.accent, lineWidth: 2)
+                    .padding(1)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: repoManager.highlightRepoID == repo.id)
         .overlay(alignment: .bottom) {
             rowDivider
         }

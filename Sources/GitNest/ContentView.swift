@@ -180,6 +180,7 @@ struct ContentView: View {
 private struct DetailView: View {
     @EnvironmentObject var accountManager: AccountManager
     @EnvironmentObject var repoManager: RepoManager
+    @EnvironmentObject var repoActionCoordinator: RepoActionCoordinator
     @EnvironmentObject var projectWorkflow: ProjectWorkflow
     @EnvironmentObject var alertStore: AlertStore
     @Environment(\.theme) private var theme
@@ -202,6 +203,9 @@ private struct DetailView: View {
     let customEditorName: String
     let customTerminalName: String
 
+    @FocusState private var repoSearchFocused: Bool
+    @FocusState private var repoListFocused: Bool
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let account = accountManager.selectedAccount {
@@ -209,6 +213,7 @@ private struct DetailView: View {
                 ThemeDivider()
                 if !repoManager.isLoadingRepos && !repoManager.repos.isEmpty {
                     repoSearchBar
+                    attentionStrip
                 }
                 RepoListView(
                     account: account,
@@ -219,7 +224,8 @@ private struct DetailView: View {
                     preferredEditor: preferredEditor,
                     preferredTerminal: preferredTerminal,
                     customEditorName: customEditorName,
-                    customTerminalName: customTerminalName
+                    customTerminalName: customTerminalName,
+                    listFocused: $repoListFocused
                 )
                 cloneBar
             } else {
@@ -230,6 +236,7 @@ private struct DetailView: View {
         }
         .padding(18)
         .background(theme.surface)
+        .background(repoListKeyHandlers(for: accountManager.selectedAccount))
     }
 
     // MARK: Empty state
@@ -341,13 +348,30 @@ private struct DetailView: View {
 
     private var repoSearchBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(theme.textMuted)
+            Button {
+                repoSearchFocused = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(repoSearchFocused ? theme.accent : theme.textMuted)
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("f", modifiers: .command)
+            .tooltip("Focus repo search (⌘F)")
+
             TextField("Filter repos — name, glob (m*ger), or fuzzy “mgm”",
                       text: $repoManager.repoSearch)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
+                .focused($repoSearchFocused)
+                .onExitCommand {
+                    if !repoManager.repoSearch.isEmpty {
+                        repoManager.repoSearch = ""
+                    } else {
+                        repoSearchFocused = false
+                        repoListFocused = true
+                    }
+                }
             if !repoManager.repoSearch.isEmpty {
                 Text("\(repoManager.filteredRepos.count)/\(repoManager.repos.count)")
                     .font(.system(size: 11, weight: .semibold))
@@ -368,6 +392,113 @@ private struct DetailView: View {
             .strokeBorder(theme.border, lineWidth: 1))
     }
 
+    // MARK: Attention strip
+
+    @ViewBuilder
+    private var attentionStrip: some View {
+        let summary = repoManager.attentionSummary
+        if !summary.isEmpty {
+            HStack(spacing: 8) {
+                Text("Needs attention")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.textMuted)
+                ForEach(RepoAttentionKind.allCases) { kind in
+                    let count = summary.count(for: kind)
+                    if count > 0 {
+                        attentionChip(kind, count: count)
+                    }
+                }
+                Spacer(minLength: 0)
+                if repoManager.attentionFilter != nil {
+                    Button("Show all") {
+                        repoManager.attentionFilter = nil
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(theme.accent)
+                    .tooltip("Clear the attention filter")
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func attentionChip(_ kind: RepoAttentionKind, count: Int) -> some View {
+        let selected = repoManager.attentionFilter == kind
+        return Button {
+            repoManager.toggleAttentionFilter(kind)
+        } label: {
+            HStack(spacing: 4) {
+                Text(kind.title)
+                Text("\(count)")
+                    .fontWeight(.semibold)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(selected ? theme.primaryText : theme.text)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(selected ? theme.primary : theme.surfaceMuted)
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(selected ? Color.clear : theme.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .tooltip(kind.help)
+    }
+
+    // MARK: Keyboard
+
+    /// Invisible shortcut targets so open/commit work even when focus is on the
+    /// search field. Arrow selection uses `onMoveCommand` on the focused list.
+    @ViewBuilder
+    private func repoListKeyHandlers(for account: Account?) -> some View {
+        if let account {
+            ZStack {
+                Button("Open selected repo") {
+                    openSelectedRepo(in: account)
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+
+                Button("Commit selected repo") {
+                    beginCommitSelected(in: account)
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+            }
+            .opacity(0.01)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private func openSelectedRepo(in account: Account) {
+        guard let repo = selectedVisibleRepo() else { return }
+        guard repoManager.isCloned(repo) else { return }
+        if preferredEditor != .none {
+            Task {
+                await repoActionCoordinator.openInEditor(repo,
+                                                         in: account,
+                                                         editor: preferredEditor,
+                                                         customAppName: customEditorName)
+            }
+        } else {
+            repoActionCoordinator.openLocalFolder(repo, in: account)
+        }
+    }
+
+    private func beginCommitSelected(in account: Account) {
+        guard let repo = selectedVisibleRepo(),
+              repoManager.isCloned(repo),
+              (repoManager.repoStatuses[repo.id]?.changedFiles ?? 0) > 0,
+              !repoActionCoordinator.isRepoActionBusy(repo) else { return }
+        commitMessage = ""
+        commitTarget = RepoActionTarget(repo: repo, account: account)
+    }
+
+    private func selectedVisibleRepo() -> Repo? {
+        guard let id = repoManager.selectedRepo else { return nil }
+        return repoManager.filteredRepos.first(where: { $0.id == id })
+            ?? repoManager.repos.first(where: { $0.id == id })
+    }
+
     // MARK: Clone bar
 
     private var cloneBar: some View {
@@ -376,12 +507,19 @@ private struct DetailView: View {
             Label("Cloned locally", systemImage: "internaldrive.fill").foregroundStyle(theme.accent)
             Spacer()
             repoRefreshStatus
-            Text(repoManager.repoSearch.isEmpty
-                 ? "\(repoManager.repos.count) repo(s)"
-                 : "\(repoManager.filteredRepos.count) of \(repoManager.repos.count) repo(s)")
+            Text(repoListCountLabel)
                 .foregroundStyle(theme.textMuted)
         }
         .font(.system(size: 11, weight: .medium))
+    }
+
+    private var repoListCountLabel: String {
+        let shown = repoManager.filteredRepos.count
+        let total = repoManager.repos.count
+        if repoManager.attentionFilter != nil || !repoManager.repoSearch.isEmpty {
+            return "\(shown) of \(total) repo(s)"
+        }
+        return "\(total) repo(s)"
     }
 
     @ViewBuilder

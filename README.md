@@ -65,6 +65,12 @@ and committed diffs.
   `multi-git-manager`), and glob wildcards (`*`, `?`, e.g. `m*ger`). Multiple
   space-separated terms are all required. A counter shows matches vs total, and
   each account keeps its own search text while you switch between accounts.
+  Press **⌘F** to focus the search field; with the repo list focused, **↑/↓**
+  moves the selection, **⌘↩** opens the selected clone in your configured editor
+  (or Finder if none is set), and **⌘⇧C** opens the commit sheet when that clone
+  has local changes. When any cloned repos need work, an attention strip under
+  the search shows counts for dirty / ahead / behind / diverged — click a chip to
+  filter the list to that set.
 - **Remote-only repos**: clone into the selected account folder.
 - **Cloned repos**: use the **Open or inspect...** menu to open the local folder in Finder,
   the GitHub repo in your browser, your configured GUI editor, or your configured
@@ -96,7 +102,8 @@ and committed diffs.
   others, so the row unblocks after a single round trip instead of one per clone.
 - **Init project**: choose a local folder, copy it into the selected account's
   GitHub folder if needed, create a private/public GitHub repo, push it, then
-  show the new repo in the list immediately and refresh from GitHub. Optional
+  show the new repo in the list immediately (selected, scrolled into view, and
+  briefly highlighted) and refresh from GitHub. Optional
   cleanup can move the original selected folder to Trash after a successful
   upload. Overlapping Load repos / refresh requests are queued (not dropped), so
   a refresh that was already running cannot leave the new repo missing until

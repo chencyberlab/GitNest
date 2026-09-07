@@ -12,12 +12,20 @@ final class RepoManager: ObservableObject {
     @Published var repoSortField: RepoSortField = .updated
     @Published var repoSortAscending: Bool = false   // updated default: newest first
 
-    /// Repos narrowed by the wild-search query, then sorted (cloned on top).
-    /// This is a cached derivative of `repos`, `repoSearch`, `repoSortField`,
-    /// `repoSortAscending`, and `clonedRepos`; it is recomputed only when one of
-    /// those inputs changes, avoiding O(n log n) work on every view update.
+    /// Repos narrowed by the wild-search query and optional attention filter, then
+    /// sorted (cloned on top). Cached so the list avoids O(n log n) work on every
+    /// view update.
     @Published var filteredRepos: [Repo] = []
     private var filteredReposCancellable: AnyCancellable?
+
+    /// Active attention-strip filter (`nil` = show everything that matches search).
+    @Published var attentionFilter: RepoAttentionKind? = nil
+
+    /// Repo briefly highlighted after init (or similar reveal) so the row is easy
+    /// to spot when the list scrolls. Cleared automatically after a short linger.
+    @Published var highlightRepoID: Repo.ID?
+    private var highlightClearTask: Task<Void, Never>?
+    static let highlightLingerNanoseconds: UInt64 = 1_600_000_000
 
     @Published var clonedRepos: Set<Repo.ID> = []
     @Published var repoStatuses: [Repo.ID: RepoStatus] = [:]
@@ -109,14 +117,15 @@ final class RepoManager: ObservableObject {
     }
 
     private func bindFilteredRepos() {
-        filteredReposCancellable = Publishers
-            .CombineLatest4($repoSearch, $repos, $repoSortField, $repoSortAscending)
-            .combineLatest($clonedRepos)
-            .sink { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.rebuildFilteredRepos()
-                }
+        filteredReposCancellable = Publishers.CombineLatest(
+            Publishers.CombineLatest4($repoSearch, $repos, $repoSortField, $repoSortAscending),
+            Publishers.CombineLatest3($clonedRepos, $repoStatuses, $attentionFilter)
+        )
+        .sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.rebuildFilteredRepos()
             }
+        }
     }
 
     /// Recompute `filteredRepos` from the current inputs. Exposed so tests can
@@ -127,28 +136,79 @@ final class RepoManager: ObservableObject {
             repos: repos,
             clonedRepos: clonedRepos,
             sortField: repoSortField,
-            sortAscending: repoSortAscending
+            sortAscending: repoSortAscending,
+            attentionFilter: attentionFilter,
+            statuses: repoStatuses
         )
     }
 
-    static func filteredRepos(query: String,
-                              repos: [Repo],
-                              clonedRepos: Set<Repo.ID>,
-                              sortField: RepoSortField,
-                              sortAscending: Bool) -> [Repo] {
+    /// Attention counts for the strip — all cloned repos with status, independent
+    /// of the current search/filter so the chips stay stable while browsing.
+    var attentionSummary: RepoAttentionSummary {
+        RepoAttention.summary(statuses: repoStatuses, clonedRepos: clonedRepos)
+    }
+
+    nonisolated static func filteredRepos(query: String,
+                                          repos: [Repo],
+                                          clonedRepos: Set<Repo.ID>,
+                                          sortField: RepoSortField,
+                                          sortAscending: Bool,
+                                          attentionFilter: RepoAttentionKind? = nil,
+                                          statuses: [Repo.ID: RepoStatus] = [:]) -> [Repo] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base = trimmed.isEmpty ? repos : repos.filter { RepoSearch.matches(query: trimmed, repo: $0) }
+        var base = trimmed.isEmpty ? repos : repos.filter { RepoSearch.matches(query: trimmed, repo: $0) }
+        if let attentionFilter {
+            base = base.filter { repo in
+                guard let status = statuses[repo.id] else { return false }
+                return RepoAttention.matches(status, kind: attentionFilter)
+            }
+        }
         return base.sorted { a, b in
             reposInOrder(a, b, clonedRepos: clonedRepos, sortField: sortField, sortAscending: sortAscending)
         }
     }
 
+    /// Toggle an attention chip: same chip again clears; another chip replaces.
+    func toggleAttentionFilter(_ kind: RepoAttentionKind) {
+        attentionFilter = (attentionFilter == kind) ? nil : kind
+    }
+
+    /// Move the selection within the currently filtered list. `delta` of -1/+1
+    /// is ↑/↓; with nothing selected, ↓ lands on the first row and ↑ on the last.
+    func moveRepoSelection(by delta: Int) {
+        let list = filteredRepos
+        guard !list.isEmpty else { return }
+        let currentIndex = selectedRepo.flatMap { id in list.firstIndex(where: { $0.id == id }) }
+        let nextIndex: Int
+        if let currentIndex {
+            nextIndex = max(0, min(list.count - 1, currentIndex + delta))
+        } else {
+            nextIndex = delta >= 0 ? 0 : list.count - 1
+        }
+        selectedRepo = list[nextIndex].id
+        if let alias = accountManager.selectedAccount?.alias {
+            selectedRepoCache[alias] = list[nextIndex].id
+        }
+    }
+
+    /// Brief accent flash on a row so a just-revealed repo is easy to find.
+    func flashHighlight(for repoID: Repo.ID) {
+        highlightClearTask?.cancel()
+        highlightRepoID = repoID
+        highlightClearTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: Self.highlightLingerNanoseconds)
+            guard !Task.isCancelled, let self, self.highlightRepoID == repoID else { return }
+            self.highlightRepoID = nil
+            self.highlightClearTask = nil
+        }
+    }
+
     /// Cloned-first, then the selected column/direction, with name as a stable
     /// tie-break so equal dates keep a deterministic order.
-    static func reposInOrder(_ a: Repo, _ b: Repo,
-                             clonedRepos: Set<Repo.ID>,
-                             sortField: RepoSortField,
-                             sortAscending: Bool) -> Bool {
+    nonisolated static func reposInOrder(_ a: Repo, _ b: Repo,
+                                         clonedRepos: Set<Repo.ID>,
+                                         sortField: RepoSortField,
+                                         sortAscending: Bool) -> Bool {
         let ac = clonedRepos.contains(a.id), bc = clonedRepos.contains(b.id)
         if ac != bc { return ac }   // cloned rows pinned above remote-only rows
         switch sortField {
@@ -335,7 +395,7 @@ final class RepoManager: ObservableObject {
     }
 
     /// Make sure `repo` is on screen for `account`: upsert if missing, clear a
-    /// search that would hide it, and select the row.
+    /// search/filter that would hide it, select the row, and briefly highlight it.
     func ensureRepoVisible(_ repo: Repo, for account: Account) {
         let owner = account.alias
         let cached = repoCache[owner] ?? (accountManager.selectedAccount?.alias == owner ? repos : [])
@@ -347,8 +407,14 @@ final class RepoManager: ObservableObject {
         if !query.isEmpty && !RepoSearch.matches(query: query, repo: repo) {
             repoSearch = ""
         }
+        // Attention filters only match rows with status; a just-init'd repo often
+        // has none yet, so clear any active chip that would hide it.
+        if attentionFilter != nil {
+            attentionFilter = nil
+        }
         selectedRepo = repo.id
         selectedRepoCache[owner] = repo.id
+        flashHighlight(for: repo.id)
     }
 
     /// Status-line copy for a failed repo refresh. Pure + `nonisolated` so the
@@ -762,6 +828,9 @@ final class RepoManager: ObservableObject {
         repoStatuses = repoStatusesCache[alias] ?? [:]
         repoFolderConflicts = repoFolderConflictsCache[alias] ?? [:]
         repoSearch = repoSearchCache[alias] ?? ""
+        attentionFilter = nil
+        highlightClearTask?.cancel()
+        highlightRepoID = nil
 
         if let cachedSelection = selectedRepoCache[alias],
            repos.contains(where: { $0.id == cachedSelection }) {

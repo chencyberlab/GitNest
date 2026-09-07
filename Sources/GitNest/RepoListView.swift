@@ -29,32 +29,52 @@ struct RepoListView: View {
     let customEditorName: String
     let customTerminalName: String
 
+    var listFocused: FocusState<Bool>.Binding
+
     var body: some View {
         VStack(spacing: 0) {
             repoListHeader
             ThemeDivider()
-            ScrollView {
-                if repoManager.filteredRepos.isEmpty {
-                    repoListEmptyState
-                } else {
-                    LazyVStack(spacing: 2) {
-                        ForEach(Array(repoManager.filteredRepos.enumerated()), id: \.element.id) { index, repo in
-                            RepoRowView(
-                                repo: repo,
-                                account: account,
-                                isLast: index == repoManager.filteredRepos.count - 1,
-                                commitTarget: $commitTarget,
-                                commitMessage: $commitMessage,
-                                pushTarget: $pushTarget,
-                                deleteTarget: $deleteTarget,
-                                preferredEditor: preferredEditor,
-                                preferredTerminal: preferredTerminal,
-                                customEditorName: customEditorName,
-                                customTerminalName: customTerminalName
-                            )
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if repoManager.filteredRepos.isEmpty {
+                        repoListEmptyState
+                    } else {
+                        LazyVStack(spacing: 2) {
+                            ForEach(Array(repoManager.filteredRepos.enumerated()), id: \.element.id) { index, repo in
+                                RepoRowView(
+                                    repo: repo,
+                                    account: account,
+                                    isLast: index == repoManager.filteredRepos.count - 1,
+                                    commitTarget: $commitTarget,
+                                    commitMessage: $commitMessage,
+                                    pushTarget: $pushTarget,
+                                    deleteTarget: $deleteTarget,
+                                    preferredEditor: preferredEditor,
+                                    preferredTerminal: preferredTerminal,
+                                    customEditorName: customEditorName,
+                                    customTerminalName: customTerminalName
+                                )
+                                .id(repo.id)
+                            }
                         }
+                        .padding(.vertical, 4)
                     }
-                    .padding(.vertical, 4)
+                }
+                .focusable()
+                .focused(listFocused)
+                .onMoveCommand { direction in
+                    switch direction {
+                    case .up: repoManager.moveRepoSelection(by: -1)
+                    case .down: repoManager.moveRepoSelection(by: 1)
+                    default: break
+                    }
+                }
+                .onChange(of: repoManager.selectedRepo) { id in
+                    scrollToRepo(id, proxy: proxy)
+                }
+                .onChange(of: repoManager.highlightRepoID) { id in
+                    scrollToRepo(id, proxy: proxy)
                 }
             }
         }
@@ -104,6 +124,13 @@ struct RepoListView: View {
         }
     }
 
+    private func scrollToRepo(_ id: Repo.ID?, proxy: ScrollViewProxy) {
+        guard let id, repoManager.filteredRepos.contains(where: { $0.id == id }) else { return }
+        withAnimation(.easeInOut(duration: 0.25)) {
+            proxy.scrollTo(id, anchor: .center)
+        }
+    }
+
     // MARK: Header
 
     private var repoListHeader: some View {
@@ -149,12 +176,19 @@ struct RepoListView: View {
                 .foregroundStyle(theme.textTertiary)
             Text(repoManager.repos.isEmpty
                  ? "No repositories loaded yet."
-                 : "No repositories match “\(repoManager.repoSearch)”.")
+                 : (repoManager.attentionFilter != nil
+                    ? "No repositories match this attention filter."
+                    : "No repositories match “\(repoManager.repoSearch)”."))
                 .font(.system(size: 12))
                 .foregroundStyle(theme.textMuted)
             if !repoManager.repos.isEmpty {
-                Button("Clear search") { repoManager.repoSearch = "" }
-                    .buttonStyle(SubtleButtonStyle())
+                if repoManager.attentionFilter != nil {
+                    Button("Show all repos") { repoManager.attentionFilter = nil }
+                        .buttonStyle(SubtleButtonStyle())
+                } else {
+                    Button("Clear search") { repoManager.repoSearch = "" }
+                        .buttonStyle(SubtleButtonStyle())
+                }
             }
         }
         .frame(maxWidth: .infinity)
