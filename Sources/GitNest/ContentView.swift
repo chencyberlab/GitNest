@@ -284,7 +284,7 @@ private struct DetailView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Choose a local project folder, create a GitHub repo, and push it")
-                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isLoadingRepos || projectWorkflow.isForkingProject)
+                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isBusyWithVisibleRepoLoad || projectWorkflow.isForkingProject)
 
                 Button {
                     showForkSheet = true
@@ -294,7 +294,7 @@ private struct DetailView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "Fork a GitHub repository into this account and clone it")
-                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isLoadingRepos || projectWorkflow.isForkingProject)
+                .disabled(!ready || projectWorkflow.isInitializingProject || repoManager.isBusyWithVisibleRepoLoad || projectWorkflow.isForkingProject)
 
                 Button {
                     Task { await repoManager.loadRepos(for: account) }
@@ -303,7 +303,7 @@ private struct DetailView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .tooltip(gateHint ?? "List every repo \(account.alias) owns (via gh)")
-                .disabled(!ready || repoManager.isLoadingRepos || projectWorkflow.isInitializingProject || projectWorkflow.isForkingProject)
+                .disabled(!ready || repoManager.isBusyWithVisibleRepoLoad || projectWorkflow.isInitializingProject || projectWorkflow.isForkingProject)
             }
         }
     }

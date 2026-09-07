@@ -96,8 +96,11 @@ and committed diffs.
   others, so the row unblocks after a single round trip instead of one per clone.
 - **Init project**: choose a local folder, copy it into the selected account's
   GitHub folder if needed, create a private/public GitHub repo, push it, then
-  refresh the repo list. Optional cleanup can move the original selected folder
-  to Trash after a successful upload.
+  show the new repo in the list immediately and refresh from GitHub. Optional
+  cleanup can move the original selected folder to Trash after a successful
+  upload. Overlapping Load repos / refresh requests are queued (not dropped), so
+  a refresh that was already running cannot leave the new repo missing until
+  restart.
 
 Every action button has a tooltip explaining what it does. All command output
 appears in the **Output** pane at the bottom.

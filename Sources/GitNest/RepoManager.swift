@@ -35,8 +35,28 @@ final class RepoManager: ObservableObject {
     var repoSearchCache: [String: String] = [:]
     var selectedRepoCache: [String: Repo.ID] = [:]
     var repoLoadsInFlight: Set<String> = []
+    /// When a `loadRepos` arrives while one is already running for that owner, we
+    /// record the request here and run another pass after the in-flight one
+    /// finishes — instead of silently dropping it. Dropping was the bug behind
+    /// "init succeeded but the new repo never appeared until restart": the
+    /// post-init refresh (or a manual Load repos) could land during the long
+    /// remote-status pass and be ignored, leaving a stale list on screen.
+    private var pendingRepoLoads: [String: PendingRepoLoad] = [:]
+    private var repoLoadWaiters: [String: [CheckedContinuation<Void, Never>]] = [:]
     var repoAutoRefreshAccounts: Set<String> = []
     var repoLastRefreshAt: [String: Date] = [:]
+
+    /// Intent coalesced onto an in-flight load. `silent` stays true only if every
+    /// waiter wants silent; `userInitiated` becomes true if any waiter does.
+    private struct PendingRepoLoad {
+        var silent: Bool
+        var userInitiated: Bool
+
+        mutating func merge(silent: Bool, userInitiated: Bool) {
+            self.silent = self.silent && silent
+            self.userInitiated = self.userInitiated || userInitiated
+        }
+    }
 
     /// Seconds between automatic rescans of cloned-repo status. Change here to tune.
     static let statusRefreshSeconds: UInt64 = 10
@@ -174,13 +194,64 @@ final class RepoManager: ObservableObject {
 
     // MARK: Repo loading
 
+    /// True while the visible account is mid list-fetch or mid remote-status pass.
+    /// Header actions (Load repos / Init / Fork) disable on this so a click can't
+    /// look like a no-op while `repoLoadsInFlight` is still held.
+    var isBusyWithVisibleRepoLoad: Bool {
+        isLoadingRepos || isRefreshingRepos || isCheckingRepoRemotes
+    }
+
     func loadRepos(for account: Account, silent: Bool = false, userInitiated: Bool = true) async {
         let owner = account.alias
-        guard !repoLoadsInFlight.contains(owner) else { return }
-        repoLoadsInFlight.insert(owner)
-        defer { repoLoadsInFlight.remove(owner) }
         if userInitiated { repoAutoRefreshAccounts.insert(owner) }
 
+        // Coalesce onto the in-flight pass instead of returning immediately. The
+        // caller still awaits until a load that includes their intent has finished
+        // (including any follow-up pass drained from `pendingRepoLoads`).
+        if repoLoadsInFlight.contains(owner) {
+            var pending = pendingRepoLoads[owner] ?? PendingRepoLoad(silent: silent, userInitiated: userInitiated)
+            pending.merge(silent: silent, userInitiated: userInitiated)
+            pendingRepoLoads[owner] = pending
+            await waitForRepoLoadIdle(owner)
+            return
+        }
+
+        repoLoadsInFlight.insert(owner)
+        defer {
+            repoLoadsInFlight.remove(owner)
+            resumeRepoLoadWaiters(owner)
+        }
+
+        var passSilent = silent
+        var passUserInitiated = userInitiated
+        while true {
+            if passUserInitiated { repoAutoRefreshAccounts.insert(owner) }
+            await performRepoLoad(for: account, silent: passSilent)
+            if let pending = pendingRepoLoads.removeValue(forKey: owner) {
+                passSilent = pending.silent
+                passUserInitiated = pending.userInitiated
+                continue
+            }
+            break
+        }
+    }
+
+    private func waitForRepoLoadIdle(_ owner: String) async {
+        guard repoLoadsInFlight.contains(owner) else { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            repoLoadWaiters[owner, default: []].append(continuation)
+        }
+    }
+
+    private func resumeRepoLoadWaiters(_ owner: String) {
+        let waiters = repoLoadWaiters.removeValue(forKey: owner) ?? []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func performRepoLoad(for account: Account, silent: Bool) async {
+        let owner = account.alias
         let isVisibleAccount = accountManager.selectedAccount?.alias == owner
         let hasVisibleRepos = isVisibleAccount && !repos.isEmpty
         if isVisibleAccount {
@@ -240,6 +311,44 @@ final class RepoManager: ObservableObject {
                 setRepoRefreshMessage(Self.repoRefreshFailureMessage(hasCachedRepos: hasCachedRepos))
             }
         }
+    }
+
+    /// Insert or replace `repo` in the account's cache (and the visible list when
+    /// that account is selected). Used after init so a just-created repo appears
+    /// even when `user/repos` briefly lags behind `gh repo create`.
+    func upsertRepo(_ repo: Repo, for account: Account) {
+        let owner = account.alias
+        var list = repoCache[owner] ?? []
+        if accountManager.selectedAccount?.alias == owner, list.isEmpty, !repos.isEmpty {
+            // Visible list is the source of truth until the first cache write.
+            list = repos
+        }
+        if let index = list.firstIndex(where: { $0.id == repo.id }) {
+            list[index] = repo
+        } else {
+            list.insert(repo, at: 0)
+        }
+        repoCache[owner] = list
+        if accountManager.selectedAccount?.alias == owner {
+            repos = list
+        }
+    }
+
+    /// Make sure `repo` is on screen for `account`: upsert if missing, clear a
+    /// search that would hide it, and select the row.
+    func ensureRepoVisible(_ repo: Repo, for account: Account) {
+        let owner = account.alias
+        let cached = repoCache[owner] ?? (accountManager.selectedAccount?.alias == owner ? repos : [])
+        if !cached.contains(where: { $0.id == repo.id }) {
+            upsertRepo(repo, for: account)
+        }
+        guard accountManager.selectedAccount?.alias == owner else { return }
+        let query = repoSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty && !RepoSearch.matches(query: query, repo: repo) {
+            repoSearch = ""
+        }
+        selectedRepo = repo.id
+        selectedRepoCache[owner] = repo.id
     }
 
     /// Status-line copy for a failed repo refresh. Pure + `nonisolated` so the
@@ -368,8 +477,9 @@ final class RepoManager: ObservableObject {
     /// Non-visible accounts update only their cache (no UI churn); the visible one
     /// shows the usual indicator. Accounts are refreshed one at a time through the
     /// gh chain, with the selected account last so the visible rows get the freshest
-    /// result. Per-owner in-flight guards in loadRepos keep this from stacking on a
-    /// manual load already running.
+    /// result. Per-owner coalescing in loadRepos serializes overlapping loads: a
+    /// request that arrives mid-flight queues a follow-up pass instead of stacking
+    /// concurrent gh list calls.
     func autoRefreshRepoListTick() async {
         guard repoAutoRefreshSeconds > 0, canAutoRefresh else { return }
         let selected = accountManager.selectedAccount?.alias

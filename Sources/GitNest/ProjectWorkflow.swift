@@ -109,7 +109,7 @@ final class ProjectWorkflow: ObservableObject {
             guard let originalSourceIdentity,
                   Self.fileIdentity(at: plan.sourcePath) == originalSourceIdentity else {
                 logStore.append("⚠ Original folder was not moved to Trash because it changed during initialization.")
-                await refreshReposAfterInit(plan.account)
+                await revealInitializedRepo(plan, visibility: visibility)
                 return res.ok
             }
             logStore.append("Moving original folder to Trash…")
@@ -117,12 +117,41 @@ final class ProjectWorkflow: ObservableObject {
             logStore.report(trash, ok: "moved original \(plan.sourceName) to Trash")
         }
         if res.ok {
-            await refreshReposAfterInit(plan.account)
+            await revealInitializedRepo(plan, visibility: visibility)
         } else {
             await repoManager.refreshClonedStatus(for: plan.account)
             await repoManager.refreshStatuses(for: plan.account, refreshRemote: true)
         }
         return res.ok
+    }
+
+    /// Show the just-created repo immediately, then reconcile with a full list
+    /// refresh. `user/repos` can lag briefly behind `gh repo create`, and a
+    /// wholesale list replace would wipe an optimistic row — so we re-ensure
+    /// visibility after the refresh as well.
+    private func revealInitializedRepo(_ plan: ProjectInitPlan, visibility: RepoVisibilityChoice) async {
+        let created = Self.repoPlaceholder(for: plan, visibility: visibility)
+        repoManager.ensureRepoVisible(created, for: plan.account)
+        await repoManager.refreshClonedStatus(for: plan.account)
+        await refreshReposAfterInit(plan.account)
+        repoManager.ensureRepoVisible(created, for: plan.account)
+        await repoManager.refreshClonedStatus(for: plan.account)
+    }
+
+    /// Local stand-in for a repo we just created+pushed. Enough for the row and
+    /// clone-path probe; the next successful list refresh replaces it with the
+    /// API's fuller metadata when GitHub's listing catches up.
+    nonisolated static func repoPlaceholder(for plan: ProjectInitPlan,
+                                            visibility: RepoVisibilityChoice) -> Repo {
+        let nameWithOwner = "\(plan.account.alias)/\(plan.repoName)"
+        return Repo(
+            name: plan.repoName,
+            nameWithOwner: nameWithOwner,
+            description: nil,
+            visibility: visibility.rawValue,
+            updatedAt: ISO8601DateFormatter().string(from: Date()),
+            url: "https://github.com/\(nameWithOwner)"
+        )
     }
 
     /// Fork a GitHub repository into the selected account and clone it into the

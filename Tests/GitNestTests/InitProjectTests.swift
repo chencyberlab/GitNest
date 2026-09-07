@@ -200,6 +200,8 @@ final class InitProjectTests: XCTestCase {
         let logStore = LogStore()
         let auth = AuthProcessController()
         let accountManager = AccountManager(ghChain: ghChain, logStore: logStore, authProcessController: auth)
+        accountManager.accounts = [account]
+        accountManager.selectedAccount = account
         let repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
         let workflow = ProjectWorkflow(
             ghChain: ghChain,
@@ -217,6 +219,27 @@ final class InitProjectTests: XCTestCase {
 
         XCTAssertTrue(ok)
         XCTAssertEqual(refreshedAliases, ["me"])
+        // Optimistic reveal must put the created repo on screen even when the
+        // injected refresh does not itself populate the list from GitHub.
+        XCTAssertEqual(repoManager.repos.map(\.name), ["new-project"])
+        XCTAssertEqual(repoManager.selectedRepo, "me/new-project")
+    }
+
+    @MainActor
+    func testRepoPlaceholderUsesInitPlanIdentity() {
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: "/tmp/x")
+        let plan = ProjectInitPlan(
+            account: account,
+            sourcePath: "/tmp/x/proj",
+            workingPath: "/tmp/x/proj",
+            repoName: "proj",
+            willCopy: false
+        )
+        let repo = ProjectWorkflow.repoPlaceholder(for: plan, visibility: .private)
+        XCTAssertEqual(repo.name, "proj")
+        XCTAssertEqual(repo.nameWithOwner, "me/proj")
+        XCTAssertEqual(repo.visibility, "private")
+        XCTAssertEqual(repo.url, "https://github.com/me/proj")
     }
 
     @MainActor
