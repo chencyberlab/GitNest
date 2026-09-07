@@ -10,6 +10,9 @@ struct CommitDetailWindowRoot: View {
     @StateObject private var tooltip = TooltipController()
     @AppStorage("appearancePreference") private var appearancePreference = "system"
     @AppStorage("colorThemeID") private var colorThemeID = ColorThemePalette.gitNest.id
+    @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
+    @AppStorage("windowTransparencyPercent") private var windowTransparencyPercent =
+        WindowTransparencyPreference.defaultPercent
 
     private var theme: Theme {
         Theme(palette: ColorThemePalette.palette(for: colorThemeID) ?? .gitNest)
@@ -35,7 +38,8 @@ struct CommitDetailWindowRoot: View {
             }
         }
         .frame(minWidth: 760, minHeight: 480)
-        .background(theme.background)
+        .background(PaneBackground())
+        .windowTransparency(enabled: windowTransparencyEnabled, percent: windowTransparencyPercent)
         .environment(\.theme, theme)
         .coordinateSpace(name: TooltipController.space)
         .overlay { TooltipOverlay() }
@@ -43,12 +47,11 @@ struct CommitDetailWindowRoot: View {
         .tint(theme.accent)
         .preferredColorScheme(resolvedScheme)
         .navigationTitle(target.map { "Commit \($0.shortHash) — \($0.repoName)" } ?? "Commit Details")
-        .toolbarBackground(
-            theme.hasCustomWindowChrome ? theme.windowChromeBackground : .clear,
-            for: .windowToolbar)
-        .toolbarBackground(
-            theme.hasCustomWindowChrome ? .visible : .automatic,
-            for: .windowToolbar)
+        .gitNestToolbarBackground(
+            transparent: windowTransparencyEnabled,
+            percent: windowTransparencyPercent,
+            theme: theme
+        )
     }
 }
 

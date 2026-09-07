@@ -115,6 +115,10 @@ appears in the **Output** pane at the bottom.
 The UI uses shared adaptive colors and typography from `Theme.swift`, so light
 and dark modes both read correctly. The appearance switcher in the sidebar header (next to
 "ACCOUNTS") is remembered across launches via `@AppStorage("appearancePreference")`.
+Settings also includes an optional **Window transparency** toggle (frosted glass;
+desktop shows through) with a **0–100%** amount slider, persisted as
+`@AppStorage("windowTransparencyEnabled")` and
+`@AppStorage("windowTransparencyPercent")`.
 
 ## How it works under the hood
 

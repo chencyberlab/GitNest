@@ -6,6 +6,8 @@ struct SettingsPopoverView: View {
     @Binding var showSettings: Bool
     @Binding var appearancePreference: String
     @Binding var colorThemeID: String
+    @Binding var windowTransparencyEnabled: Bool
+    @Binding var windowTransparencyPercent: Int
     @Binding var repoAutoRefreshSeconds: Int
     @Binding var accountStatusLoadModeRaw: String
     @Binding var preferredEditorRaw: String
@@ -68,6 +70,35 @@ struct SettingsPopoverView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            settingsSection(
+                title: "Window transparency",
+                help: "Frosted glass over the desktop. The slider sets one global amount for the whole window (0% = solid look, 100% = maximum glass). Turn the switch off for fully opaque chrome."
+            ) {
+                Toggle("Transparent window", isOn: $windowTransparencyEnabled)
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Transparent window")
+
+                if windowTransparencyEnabled {
+                    HStack(spacing: 10) {
+                        Slider(
+                            value: Binding(
+                                get: { Double(WindowTransparencyPreference.clampedPercent(windowTransparencyPercent)) },
+                                set: { windowTransparencyPercent = Int($0.rounded()) }
+                            ),
+                            in: 0...100,
+                            step: 5
+                        )
+                        .accessibilityLabel("Transparency amount")
+                        Text("\(WindowTransparencyPreference.clampedPercent(windowTransparencyPercent))%")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(theme.textMuted)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
             }
 
             settingsSection(

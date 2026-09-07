@@ -32,6 +32,11 @@ struct ContentView: View {
     /// Persisted colour-scheme palette choice.
     @AppStorage("colorThemeID") var colorThemeID: String = ColorThemePalette.gitNest.id
 
+    /// Frosted glass window — desktop shows through when on.
+    @AppStorage("windowTransparencyEnabled") var windowTransparencyEnabled: Bool = false
+    /// How see-through panes are while transparency is on (0…100).
+    @AppStorage("windowTransparencyPercent") var windowTransparencyPercent: Int = WindowTransparencyPreference.defaultPercent
+
     /// Output pane starts collapsed to save vertical space; choice is remembered.
     @AppStorage("outputExpanded") var outputExpanded: Bool = false
 
@@ -86,6 +91,8 @@ struct ContentView: View {
                 showSettings: $showSettings,
                 appearancePreference: $appearancePreference,
                 colorThemeID: $colorThemeID,
+                windowTransparencyEnabled: $windowTransparencyEnabled,
+                windowTransparencyPercent: $windowTransparencyPercent,
                 repoAutoRefreshSeconds: $repoAutoRefreshSeconds,
                 accountStatusLoadModeRaw: $accountStatusLoadModeRaw,
                 preferredEditorRaw: $preferredEditorRaw,
@@ -115,14 +122,14 @@ struct ContentView: View {
         .navigationTitle("GitNest")
         .tint(theme.accent)
         .preferredColorScheme(resolvedScheme)
-        // Recolour the title bar so third-party palettes (Dracula, Cyberpunk, …)
-        // match the content area instead of staying system black/white. The default
-        // GitNest theme leaves the window tokens nil (OS-following), so we apply no
-        // background — keeping `.automatic` visibility makes that a true no-op.
-        .toolbarBackground(theme.hasCustomWindowChrome ? theme.windowChromeBackground : .clear,
-                           for: .windowToolbar)
-        .toolbarBackground(theme.hasCustomWindowChrome ? .visible : .automatic,
-                           for: .windowToolbar)
+        // Title bar uses the same pane opacity as the rest of the window so the
+        // traffic-light strip doesn't become a clearer hole than the sidebar.
+        .gitNestToolbarBackground(
+            transparent: windowTransparencyEnabled,
+            percent: windowTransparencyPercent,
+            theme: theme
+        )
+        .windowTransparency(enabled: windowTransparencyEnabled, percent: windowTransparencyPercent)
         .coordinateSpace(name: TooltipController.space)
         .overlay { TooltipOverlay() }
         .environmentObject(tooltip)
@@ -235,7 +242,7 @@ private struct DetailView: View {
             LogOutputView(outputExpanded: $outputExpanded)
         }
         .padding(18)
-        .background(theme.surface)
+        .background(PaneBackground())
         .background(repoListKeyHandlers(for: accountManager.selectedAccount))
     }
 

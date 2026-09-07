@@ -10,6 +10,9 @@ struct WorkingDiffWindowRoot: View {
     @StateObject private var tooltip = TooltipController()
     @AppStorage("appearancePreference") private var appearancePreference = "system"
     @AppStorage("colorThemeID") private var colorThemeID = ColorThemePalette.gitNest.id
+    @AppStorage("windowTransparencyEnabled") private var windowTransparencyEnabled = false
+    @AppStorage("windowTransparencyPercent") private var windowTransparencyPercent =
+        WindowTransparencyPreference.defaultPercent
 
     private var theme: Theme {
         Theme(palette: ColorThemePalette.palette(for: colorThemeID) ?? .gitNest)
@@ -35,7 +38,8 @@ struct WorkingDiffWindowRoot: View {
             }
         }
         .frame(minWidth: 760, minHeight: 480)
-        .background(theme.background)
+        .background(PaneBackground())
+        .windowTransparency(enabled: windowTransparencyEnabled, percent: windowTransparencyPercent)
         .environment(\.theme, theme)
         // A secondary scene gets a fresh environment branch. Every `.tooltip`
         // below requires the same controller/overlay pair installed by ContentView;
@@ -46,13 +50,11 @@ struct WorkingDiffWindowRoot: View {
         .tint(theme.accent)
         .preferredColorScheme(resolvedScheme)
         .navigationTitle(target.map { "Working Changes — \($0.repoName)" } ?? "Working Changes")
-        .toolbarBackground(
-            theme.hasCustomWindowChrome ? theme.windowChromeBackground : .clear,
-            for: .windowToolbar
+        .gitNestToolbarBackground(
+            transparent: windowTransparencyEnabled,
+            percent: windowTransparencyPercent,
+            theme: theme
         )
-        .toolbarBackground(
-            theme.hasCustomWindowChrome ? .visible : .automatic,
-            for: .windowToolbar)
     }
 }
 

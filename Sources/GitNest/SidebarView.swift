@@ -15,6 +15,8 @@ struct SidebarView: View {
 
     @Binding var appearancePreference: String
     @Binding var colorThemeID: String
+    @Binding var windowTransparencyEnabled: Bool
+    @Binding var windowTransparencyPercent: Int
     @Binding var repoAutoRefreshSeconds: Int
     @Binding var accountStatusLoadModeRaw: String
     @Binding var preferredEditorRaw: String
@@ -49,6 +51,17 @@ struct SidebarView: View {
         let query = accountSearch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return accountManager.accounts }
         return accountManager.accounts.filter { AccountSearch.matches(query: query, account: $0) }
+    }
+
+    private var refreshFooter: some View {
+        Button { accountManager.refreshAll(statusMode: accountStatusLoadMode, manual: true) } label: {
+            Label("Refresh", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(SubtleButtonStyle())
+        .tooltip("Reload accounts and run SSH/gh checks using the selected account-status mode")
+        .padding(10)
+        // Hairline so the footer still reads as a bar without a second opacity layer.
+        .overlay(alignment: .top) { ThemeDivider() }
     }
 
     var body: some View {
@@ -127,15 +140,13 @@ struct SidebarView: View {
             .coordinateSpace(name: Self.accountListSpace)
         }
         .frame(minWidth: 280)
-        .background(theme.surface)
-        .safeAreaInset(edge: .bottom) {
-            Button { accountManager.refreshAll(statusMode: accountStatusLoadMode, manual: true) } label: {
-                Label("Refresh", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(SubtleButtonStyle())
-            .tooltip("Reload accounts and run SSH/gh checks using the selected account-status mode")
-            .padding(10)
+        // Regular footer (not safeAreaInset) so one PaneBackground covers the
+        // whole column — inset footers sat outside the fill and looked like a
+        // clearer strip than the account list.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            refreshFooter
         }
+        .background(PaneBackground())
         .confirmationDialog(
             "Run gh auth login?",
             isPresented: Binding(
@@ -459,12 +470,14 @@ struct SidebarView: View {
         }
         .buttonStyle(.plain)
         .foregroundStyle(theme.accent)
-        .tooltip("Settings — account status, repo auto-refresh, and open actions")
+        .tooltip("Settings — appearance, transparency, account status, and open actions")
         .popover(isPresented: $showSettings, arrowEdge: .bottom) {
             SettingsPopoverView(
                 showSettings: $showSettings,
                 appearancePreference: $appearancePreference,
                 colorThemeID: $colorThemeID,
+                windowTransparencyEnabled: $windowTransparencyEnabled,
+                windowTransparencyPercent: $windowTransparencyPercent,
                 repoAutoRefreshSeconds: $repoAutoRefreshSeconds,
                 accountStatusLoadModeRaw: $accountStatusLoadModeRaw,
                 preferredEditorRaw: $preferredEditorRaw,

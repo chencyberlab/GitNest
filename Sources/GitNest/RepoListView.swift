@@ -79,7 +79,7 @@ struct RepoListView: View {
             }
         }
         .frame(minHeight: 240)
-        .background(theme.surface)
+        .background(PaneBackground())
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
             .strokeBorder(theme.border, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))
