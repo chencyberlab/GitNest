@@ -10,6 +10,11 @@ struct GitNestApp: App {
             ContentView()
                 .gitNestEnvironment(appDelegate.model)
                 .frame(minWidth: 920, minHeight: 580)
+                .background {
+                    WindowPlacementBridge()
+                        .frame(width: 0, height: 0)
+                        .allowsHitTesting(false)
+                }
         }
         .defaultSize(width: 980, height: 660)
 

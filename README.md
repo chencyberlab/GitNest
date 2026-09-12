@@ -131,6 +131,11 @@ GitNest palette keeps the macOS title bar; custom palettes retain their matching
 fill. Glass uses one pane fill across the detail column, including the repo list,
 and applies when a window opens as well as when you toggle the setting.
 
+The main window remembers its size, position, and monitor across launches. If that
+monitor is disconnected, GitNest opens on the primary monitor instead. Restored
+windows stay within the screen's usable area if its resolution or arrangement has
+changed. Inspection windows do not overwrite the main window's saved position.
+
 ## How it works under the hood
 
 It shells out to tools you already have:
