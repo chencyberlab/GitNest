@@ -79,7 +79,8 @@ struct RepoListView: View {
             }
         }
         .frame(minHeight: 240)
-        .background(PaneBackground())
+        // DetailView already paints the pane. A second translucent fill here
+        // compounds its opacity and makes the list denser than its surroundings.
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
             .strokeBorder(theme.border, lineWidth: 1))
         .clipShape(RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous))

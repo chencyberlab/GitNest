@@ -126,7 +126,10 @@ and dark modes both read correctly. The appearance switcher in the sidebar heade
 Settings also includes an optional **Window transparency** toggle (frosted glass;
 desktop shows through) with a **0–100%** amount slider, persisted as
 `@AppStorage("windowTransparencyEnabled")` and
-`@AppStorage("windowTransparencyPercent")`.
+`@AppStorage("windowTransparencyPercent")`. With transparency off, the built-in
+GitNest palette keeps the macOS title bar; custom palettes retain their matching
+fill. Glass uses one pane fill across the detail column, including the repo list,
+and applies when a window opens as well as when you toggle the setting.
 
 ## How it works under the hood
 

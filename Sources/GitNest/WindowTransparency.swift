@@ -59,8 +59,8 @@ extension EnvironmentValues {
     }
 }
 
-/// Configures the hosting `NSWindow` for a translucent chrome (clear + non-opaque
-/// + transparent title bar) or restores the normal solid window when turned off.
+/// Configures the hosting `NSWindow` for translucent chrome (clear + non-opaque)
+/// or restores the normal solid window when turned off.
 enum WindowTransparency {
     /// Desired chrome flags for the toggle. Pure + testable without allocating a
     /// real `NSWindow` (creating windows in XCTest can SIGSEGV in some hosts).
@@ -87,33 +87,41 @@ enum WindowTransparency {
         window.isOpaque = chrome.isOpaque
         window.backgroundColor = chrome.usesClearBackground ? .clear : NSColor.windowBackgroundColor
         window.titleVisibility = .visible
-        if !enabled {
-            window.contentView?.needsLayout = true
-            window.contentView?.needsDisplay = true
-            window.invalidateShadow()
-        }
+        // AppKit caches the opaque shadow as well as the content layout. Refresh
+        // both transitions so enabling glass does not wait for a window resize.
+        window.contentView?.needsLayout = true
+        window.contentView?.needsDisplay = true
+        window.invalidateShadow()
     }
 }
 
-/// Finds the view's window and applies / restores transparency. Uses
-/// `DispatchQueue.main.async` because `nsView.window` is often still nil during
-/// `makeNSView` / the first `updateNSView` pass.
+/// Applies the latest preference when the bridge actually joins a window. A
+/// single queued retry can run before attachment and lose the launch preference.
 struct WindowTransparencyBridge: NSViewRepresentable {
     var enabled: Bool
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        scheduleApply(on: view)
+    func makeNSView(context: Context) -> WindowView {
+        let view = WindowView(frame: .zero)
+        view.enabled = enabled
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        scheduleApply(on: nsView)
+    func updateNSView(_ nsView: WindowView, context: Context) {
+        nsView.enabled = enabled
     }
 
-    private func scheduleApply(on view: NSView) {
-        DispatchQueue.main.async {
-            guard let window = view.window else { return }
+    final class WindowView: NSView {
+        var enabled = false {
+            didSet { applyToWindow() }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            applyToWindow()
+        }
+
+        private func applyToWindow() {
+            guard let window else { return }
             WindowTransparency.apply(enabled, to: window)
         }
     }
@@ -166,8 +174,8 @@ extension View {
         modifier(WindowTransparencyModifier(enabled: enabled, percent: percent))
     }
 
-    /// Solid-or-glass fill used for the window toolbar so the traffic-light strip
-    /// matches the panes instead of going fully clear.
+    /// Glass matches the pane opacity; custom palettes supply their solid fill.
+    /// With glass off, the built-in palette leaves toolbar styling to macOS.
     func gitNestToolbarBackground(transparent: Bool,
                                   percent: Int,
                                   theme: Theme) -> some View {
@@ -175,10 +183,10 @@ extension View {
             if transparent {
                 return theme.surface.opacity(WindowTransparencyPreference.paneOpacity(percent: percent))
             }
-            return theme.hasCustomWindowChrome ? theme.windowChromeBackground : theme.surface
+            return theme.hasCustomWindowChrome ? theme.windowChromeBackground : .clear
         }()
         return self
-            .toolbarBackground(.visible, for: .windowToolbar)
+            .toolbarBackground(transparent || theme.hasCustomWindowChrome ? .visible : .automatic, for: .windowToolbar)
             .toolbarBackground(fill, for: .windowToolbar)
     }
 }
