@@ -121,6 +121,53 @@ final class ScopedStatusRefreshTests: XCTestCase {
         XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 0)
     }
 
+    func testBackgroundLiveRefreshesDoNotBlockVisibleAccountsLocalScan() async {
+        for scoped in [false, true] {
+            let background = Account(
+                alias: "other", name: "Other", email: "other@example.com", folder: "/tmp/gitnest-other")
+            let target = repo("tools")
+            let probe = DelayedFirstProbe()
+            let localPaths = ProbedPaths()
+            defer { probe.release.signal() }
+            let (manager, accounts) = makeManager(repoStatus: { path, refreshRemote in
+                if refreshRemote {
+                    XCTAssertEqual(path, "/tmp/gitnest-other/tools")
+                    return probe.run()
+                }
+                localPaths.record(path)
+                return makeStatus(changed: 3, remote: .unchecked)
+            })
+            accounts.accounts = [account, background]
+            manager.repos = [target]
+            manager.clonedRepos = [target.id]
+            // The same GitHub repo can be cloned under both accounts. Only the
+            // background account's local folder is waiting for the remote probe.
+            manager.repoCache[background.alias] = [target]
+            manager.clonedReposCache[background.alias] = [target.id]
+            let live = Task {
+                if scoped {
+                    await manager.refreshStatus(for: target, in: background, refreshRemote: true)
+                } else {
+                    await manager.refreshStatuses(for: background, refreshRemote: true)
+                }
+            }
+            while !probe.started.isSet { await Task.yield() }
+
+            await manager.autoRefreshStatusesTick()
+
+            XCTAssertEqual(localPaths.all(), ["/tmp/gitnest-me/tools"], "scoped: \(scoped)")
+            XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 3)
+            XCTAssertEqual(manager.repoStatusesCache[account.alias]?[target.id]?.changedFiles, 3)
+            XCTAssertNil(manager.repoStatusesCache[background.alias]?[target.id])
+
+            probe.release.signal()
+            await live.value
+
+            XCTAssertEqual(manager.repoStatusesCache[background.alias]?[target.id]?.changedFiles, 9)
+            XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 3)
+        }
+    }
+
     func testSlowScopedProbeCannotOverwriteANewerProbe() async {
         let probe = DelayedFirstProbe()
         defer { probe.release.signal() }

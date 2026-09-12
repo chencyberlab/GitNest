@@ -210,6 +210,8 @@ So two rules stack on top of the interval you pick:
 A **background refresh updates only that account's cache** — the on-screen list, the
 "Refreshing…/refreshed just now" status line, and the cloned/status badges all
 belong to the *visible* account, so other accounts refresh with no visible flicker.
+The visible account's 10-second local status scan continues while other accounts
+fetch; it waits for live checks of its own repositories to finish.
 When you **switch** to an account it is treated as visible and refreshed immediately
 if it has gone stale past its (now visible) effective interval, so you always land
 on fresh data.

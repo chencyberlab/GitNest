@@ -102,7 +102,9 @@ final class RepoManager: ObservableObject {
     /// siblings. Only the latest request for each repo may publish its result.
     private var statusRefreshSessions: [String: [Repo.ID: UUID]] = [:]
     private var cloneScanSessions: [String: UUID] = [:]
-    private var liveStatusSessions: Set<UUID> = []
+    /// Only the account being fetched must defer local ticks. A slow background
+    /// account must not freeze the visible account's dirty/stash/ahead badges.
+    private var liveStatusSessions: [String: Set<UUID>] = [:]
 
     init(
         ghChain: GhChain,
@@ -613,7 +615,7 @@ final class RepoManager: ObservableObject {
             !isCheckingRepoRemotes,
             // Scoped Fetch/Push/Pull checks need the same protection as a
             // post-load sweep: a timer tick must not supersede their live result.
-            liveStatusSessions.isEmpty
+            liveStatusSessions[account.alias, default: []].isEmpty
         else { return }
         await refreshStatuses(for: account)
     }
@@ -631,8 +633,8 @@ final class RepoManager: ObservableObject {
         let previous = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
         let requestedIDs = Set(sourceRepos.map(\.id)).union(previous.keys)
         let session = UUID()
-        if refreshRemote { liveStatusSessions.insert(session) }
-        defer { liveStatusSessions.remove(session) }
+        if refreshRemote { liveStatusSessions[alias, default: []].insert(session) }
+        defer { liveStatusSessions[alias]?.remove(session) }
         for id in requestedIDs {
             statusRefreshSessions[alias, default: [:]][id] = session
         }
@@ -704,8 +706,8 @@ final class RepoManager: ObservableObject {
     func refreshStatus(for repo: Repo, in account: Account, refreshRemote: Bool = false) async {
         let alias = account.alias
         let session = UUID()
-        if refreshRemote { liveStatusSessions.insert(session) }
-        defer { liveStatusSessions.remove(session) }
+        if refreshRemote { liveStatusSessions[alias, default: []].insert(session) }
+        defer { liveStatusSessions[alias]?.remove(session) }
         statusRefreshSessions[alias, default: [:]][repo.id] = session
         let sourceCloned = accountManager.selectedAccount?.alias == alias
             ? clonedRepos
