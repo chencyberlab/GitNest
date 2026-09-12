@@ -2,6 +2,22 @@ import XCTest
 @testable import GitNest
 
 final class GitStatusTests: XCTestCase {
+    func testUntrackedFilesRemainVisibleWhenGitConfigHidesThem() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestUntracked-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.path
+        XCTAssertTrue(Shell.run(["git", "-C", path, "init", "-b", "main"]).ok)
+        XCTAssertTrue(Shell.run(["git", "-C", path, "config", "status.showUntrackedFiles", "no"]).ok)
+        try "local work\n".write(
+            to: directory.appendingPathComponent("untracked.txt"),
+            atomically: true, encoding: .utf8)
+
+        XCTAssertTrue(try GitHub.hasUncommittedChanges(at: path).get())
+        XCTAssertEqual(GitHub.status(at: path)?.changedFiles, 1)
+        XCTAssertEqual(try GitHub.changedFiles(at: path).get().map(\.path), ["untracked.txt"])
+    }
+
     func testRepoStatusParsesAheadBehindAndUpstreamRemote() {
         let output = """
         ## main...origin/main [ahead 2, behind 3]

@@ -9,6 +9,101 @@ final class InitProjectTests: XCTestCase {
         XCTAssertTrue(GitHub.remoteLooksLike("git@github-work:owner/repo.git", owner: "owner", repoName: "repo"))
     }
 
+    func testRemoteLooksLikeHandlesSSHURLsWithExplicitPorts() {
+        XCTAssertTrue(
+            GitHub.remoteLooksLike(
+                "ssh://git@github-me:22/owner/repo.git", owner: "owner",
+                repoName: "repo", expectedSSHHost: "github-me"))
+        XCTAssertFalse(
+            GitHub.remoteLooksLike(
+                "ssh://git@github-other:22/owner/repo.git", owner: "owner",
+                repoName: "repo", expectedSSHHost: "github-me"))
+        XCTAssertTrue(
+            GitHub.remoteLooksLike(
+                "https://user@github.com:443/owner/repo.git", owner: "owner",
+                repoName: "repo"))
+    }
+
+    func testRemoteLooksLikeRejectsNonGitTransportSchemes() {
+        for scheme in ["file", "ftp", "custom"] {
+            XCTAssertFalse(
+                GitHub.remoteLooksLike(
+                    "\(scheme)://github.com/owner/repo.git",
+                    owner: "owner", repoName: "repo"))
+        }
+    }
+
+    func testInitRefusesDetachedHeadBeforeChangingBranchesOrStagingFiles() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let project = root.appendingPathComponent("project")
+        try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
+        let path = project.path
+        for args in [
+            ["init", "-b", "main"], ["config", "user.name", "Tester"],
+            ["config", "user.email", "t@example.com"], ["config", "commit.gpgsign", "false"],
+            ["commit", "--no-verify", "--allow-empty", "-m", "first"],
+            ["commit", "--no-verify", "--allow-empty", "-m", "second"],
+        ] {
+            let result = Shell.run(["git", "-C", path] + args)
+            XCTAssertTrue(result.ok, result.stderr)
+        }
+        let originalMain = Shell.run(["git", "-C", path, "rev-parse", "main"]).stdout
+        XCTAssertTrue(Shell.run(["git", "-C", path, "checkout", "--detach", "HEAD~1"]).ok)
+        let detachedHead = Shell.run(["git", "-C", path, "rev-parse", "HEAD"]).stdout
+        try "keep local work\n".write(
+            to: project.appendingPathComponent("work.txt"),
+            atomically: true, encoding: .utf8)
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: root.path)
+        let plan = ProjectInitPlan(
+            account: account, sourcePath: path, workingPath: path,
+            repoName: "project", willCopy: false)
+
+        let result = GitHub.initAndPushProject(plan, visibility: .private)
+
+        XCTAssertFalse(result.ok)
+        XCTAssertTrue(result.stderr.contains("detached HEAD"))
+        XCTAssertEqual(Shell.run(["git", "-C", path, "rev-parse", "main"]).stdout, originalMain)
+        XCTAssertEqual(Shell.run(["git", "-C", path, "rev-parse", "HEAD"]).stdout, detachedHead)
+        XCTAssertEqual(Shell.run(["git", "-C", path, "status", "--porcelain"]).stdout, "?? work.txt\n")
+    }
+
+    func testInitRefusesToCopyLinkedGitMetadataBeforeTouchingSourceOrDestination() throws {
+        let root = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let source = root.appendingPathComponent("source")
+        let metadata = root.appendingPathComponent("metadata")
+        let accountFolder = root.appendingPathComponent("account")
+        let destination = accountFolder.appendingPathComponent("project")
+        let fm = FileManager.default
+        try fm.createDirectory(at: source, withIntermediateDirectories: true)
+        try fm.createDirectory(at: metadata, withIntermediateDirectories: true)
+        let sentinel = metadata.appendingPathComponent("config")
+        try "keep original config\n".write(to: sentinel, atomically: true, encoding: .utf8)
+        let sourceGit = source.appendingPathComponent(".git")
+        let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: accountFolder.path)
+        let plan = ProjectInitPlan(
+            account: account, sourcePath: source.path, workingPath: destination.path,
+            repoName: "project", willCopy: true)
+
+        for symlink in [false, true] {
+            if symlink {
+                try fm.createSymbolicLink(at: sourceGit, withDestinationURL: metadata)
+            } else {
+                try "gitdir: \(metadata.path)\n".write(to: sourceGit, atomically: true, encoding: .utf8)
+            }
+
+            let result = GitHub.initAndPushProject(plan, visibility: .private)
+
+            XCTAssertFalse(result.ok)
+            XCTAssertTrue(result.stderr.contains("linked Git metadata"))
+            XCTAssertFalse(fm.fileExists(atPath: accountFolder.path))
+            XCTAssertTrue(fm.fileExists(atPath: sourceGit.path))
+            XCTAssertEqual(try String(contentsOf: sentinel, encoding: .utf8), "keep original config\n")
+            try fm.removeItem(at: sourceGit)
+        }
+    }
+
     func testRemoteLooksLikeIsCaseInsensitive() {
         XCTAssertTrue(GitHub.remoteLooksLike("git@GitHub.com:Owner/Repo.git", owner: "owner", repoName: "repo"))
     }

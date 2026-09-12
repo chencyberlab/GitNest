@@ -29,6 +29,7 @@ enum AccountSetup {
     static func foldersOverlap(_ a: String, _ b: String) -> Bool {
         let pathA = normalizedFolderPath(a)
         let pathB = normalizedFolderPath(b)
+        if pathA == "/" || pathB == "/" { return true }
         return pathA == pathB || pathA.hasPrefix(pathB + "/") || pathB.hasPrefix(pathA + "/")
     }
 
@@ -262,10 +263,22 @@ enum AccountSetup {
 
     /// Append a `Host github-<alias>` block to `~/.ssh/config` if absent (backs up
     /// first). Returns the block written, or "" when it was already configured.
-    static func ensureSSHConfig(alias: String) -> Result<SSHConfigResult, CommandError> {
+    static func ensureSSHConfig(
+        alias: String,
+        configPath: String = sshConfigPath()
+    ) -> Result<SSHConfigResult, CommandError> {
         let host = "github-\(alias)"
-        let path = sshConfigPath()
-        let existing = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        let path = configPath
+        let existing: String
+        do {
+            existing = try String(contentsOfFile: path, encoding: .utf8)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            existing = ""
+        } catch {
+            // An unreadable/undecodable config is not an empty config. Replacing
+            // it would silently discard every existing host even if backup succeeds.
+            return .failure(CommandError(message: "could not read ~/.ssh/config: \(error.localizedDescription)"))
+        }
         if containsHostEntry(host: host, in: existing) {
             return .success(SSHConfigResult(block: "", backupPath: nil))   // already present — leave it alone
         }
@@ -371,14 +384,17 @@ enum AccountSetup {
         // leave the old `includeIf.gitdir:<old-folder>` rule behind, so both the
         // old and new folder would load this account — a silent accumulation of
         // stale rules. Removing first then re-adding guarantees exactly one rule.
-        removeIncludeRules(pointingTo: accountCfg)
+        let remove = removeIncludeRules(pointingTo: accountCfg)
+        guard remove.ok else { return fail(remove) }
 
         // Global includeIf → per-account config. Store portable (~/) paths so the
         // rule survives moving to another Mac.
         var gitdir = portablePath(expandedFolder)
         if !gitdir.hasSuffix("/") { gitdir += "/" }
         let includeKey = "includeIf.gitdir:\(gitdir).path"
-        let inc = Shell.run(["git", "config", "--global", includeKey, portablePath(accountCfg)])
+        // Edit exactly the file we backed up and the account loader reads. With
+        // only XDG config present, `--global` can choose a different file.
+        let inc = Shell.run(["git", "config", "--file", gitconfigPath(), includeKey, portablePath(accountCfg)])
         guard inc.ok else { return fail(inc) }
 
         return .success(GitConfigWriteResult(accountGitconfigBackupPath: accountBackup,
@@ -416,7 +432,7 @@ enum AccountSetup {
     /// real destination and `rename(2)`d over it (atomic, replaces in place).
     static func writePrivately(_ text: String, to path: String) -> Bool {
         let fm = FileManager.default
-        let destination = pathResolvingFinalSymlink(path)
+        guard let destination = pathResolvingFinalSymlink(path) else { return false }
         let dir = (destination as NSString).deletingLastPathComponent
         let tmp = (dir as NSString).appendingPathComponent(".gitnest-tmp-\(UUID().uuidString.prefix(8))")
         guard fm.createFile(atPath: tmp,
@@ -434,7 +450,7 @@ enum AccountSetup {
     /// file didn't exist before this run, so its creation is undone instead.
     static func restore(_ backup: String?, to path: String) {
         let fm = FileManager.default
-        let destination = pathResolvingFinalSymlink(path)
+        guard let destination = pathResolvingFinalSymlink(path) else { return }
         guard let backup else {
             try? fm.removeItem(atPath: destination)
             return
@@ -457,7 +473,9 @@ enum AccountSetup {
     /// Timestamped backup before editing a file (no-op when the file is absent).
     @discardableResult
     static func backup(_ path: String) throws -> String? {
-        let source = pathResolvingFinalSymlink(path)
+        guard let source = pathResolvingFinalSymlink(path) else {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
         guard FileManager.default.fileExists(atPath: source) else { return nil }
         var dest = backupDestination(for: path)
         while FileManager.default.fileExists(atPath: dest) {
@@ -467,20 +485,25 @@ enum AccountSetup {
         return dest
     }
 
-    /// Dotfile managers often make `~/.ssh/config` or `~/.gitconfig` a symlink.
-    /// `rename(2)` over the link path would replace the link itself, forking the
-    /// user's managed config. Resolve only the final component: parent directory
-    /// symlinks should keep behaving like normal filesystem paths.
-    private static func pathResolvingFinalSymlink(_ path: String) -> String {
-        guard let target = try? FileManager.default.destinationOfSymbolicLink(atPath: path) else {
-            return path
+    /// Follow the complete symlink chain before an atomic rename. Resolving only
+    /// one hop replaces an intermediate link in dotfile-manager setups.
+    private static func pathResolvingFinalSymlink(_ path: String) -> String? {
+        var destination = path
+        var seen: Set<String> = []
+        // URL.resolvingSymlinksInPath leaves dangling links unresolved. Walk the
+        // final component explicitly so rollback can remove a newly-created target
+        // without deleting a pre-existing link whose target was originally absent.
+        while let target = try? FileManager.default.destinationOfSymbolicLink(atPath: destination) {
+            guard seen.insert(destination).inserted, seen.count <= 64 else { return nil }
+            let parent = (destination as NSString).deletingLastPathComponent
+            destination =
+                URL(
+                    fileURLWithPath: target.hasPrefix("/")
+                        ? target : (parent as NSString).appendingPathComponent(target)
+                )
+                .standardizedFileURL.path
         }
-        if target.hasPrefix("/") { return target }
-        let dir = (path as NSString).deletingLastPathComponent
-        return URL(fileURLWithPath: dir)
-            .appendingPathComponent(target)
-            .standardizedFileURL
-            .path
+        return destination
     }
 
     static func backupDestination(for path: String,
@@ -500,11 +523,8 @@ enum AccountSetup {
             guard !line.isEmpty else { continue }
             let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
             guard parts.first?.caseInsensitiveCompare("Host") == .orderedSame else { continue }
-            for pattern in parts.dropFirst() {
-                let trimmed = pattern.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                if hostMatchesPattern(host: host, pattern: trimmed) {
-                    return true
-                }
+            if hostMatchesPatterns(host: host, patterns: parts.dropFirst().map(String.init)) {
+                return true
             }
         }
         return false
@@ -530,27 +550,8 @@ enum AccountSetup {
         let trimmed = pattern.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
 
-        // Comma-separated alternates on one Host line (OpenSSH 7.6+). They are
-        // evaluated left-to-right; the final matching pattern wins, so a later
-        // negated pattern can override an earlier positive one.
-        if trimmed.contains(",") {
-            let parts = trimmed.split(separator: ",").map(String.init)
-            var lastMatchWasPositive = false
-            for part in parts {
-                let cleanPart = part.trimmingCharacters(in: .whitespaces)
-                let isNegated = cleanPart.hasPrefix("!")
-                let inner = isNegated ? String(cleanPart.dropFirst()) : cleanPart
-                if hostMatchesPattern(host: host, pattern: inner, allowPureWildcard: allowPureWildcard) {
-                    lastMatchWasPositive = !isNegated
-                }
-            }
-            return lastMatchWasPositive
-        }
-
-        // OpenSSH negation: `!pattern` matches when the inner pattern does not.
-        if trimmed.hasPrefix("!") {
-            return !hostMatchesPattern(host: host, pattern: String(trimmed.dropFirst()), allowPureWildcard: allowPureWildcard)
-        }
+        // Negation belongs to the whole Host line; it never grants a match alone.
+        guard !trimmed.hasPrefix("!") else { return false }
 
         if trimmed.caseInsensitiveCompare(host) == .orderedSame { return true }
         guard trimmed.contains("*") || trimmed.contains("?") else { return false }
@@ -578,6 +579,23 @@ enum AccountSetup {
         return re.firstMatch(in: host, options: [], range: range) != nil
     }
 
+    /// OpenSSH Host patterns are whitespace-separated. Any matching negation
+    /// excludes the entire block, regardless of where positive patterns appear.
+    static func hostMatchesPatterns(host: String, patterns: [String], allowPureWildcard: Bool = false) -> Bool {
+        var matched = false
+        for token in patterns {
+            let pattern = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            if pattern.hasPrefix("!") {
+                if hostMatchesPattern(host: host, pattern: String(pattern.dropFirst()), allowPureWildcard: true) {
+                    return false
+                }
+            } else if hostMatchesPattern(host: host, pattern: pattern, allowPureWildcard: allowPureWildcard) {
+                matched = true
+            }
+        }
+        return matched
+    }
+
     /// IdentityFile directives in `config` that OpenSSH would *also* offer for `host`
     /// — via an earlier `Host *` / `Host github-*` block — but which aren't this
     /// account's own key. With `IdentitiesOnly yes` those extra identities are still
@@ -586,7 +604,7 @@ enum AccountSetup {
     /// expanded, de-duplicated foreign key paths (empty when the config is clean).
     static func foreignIdentityFiles(host: String, expectedKeyPath: String, in config: String) -> [String] {
         let expected = (expectedKeyPath as NSString).expandingTildeInPath
-        var blockApplies = false
+        var blockApplies = true
         var foreign: [String] = []
         var seen: Set<String> = []
 
@@ -603,10 +621,9 @@ enum AccountSetup {
             guard let keyword = parts.first else { continue }
 
             if keyword.caseInsensitiveCompare("Host") == .orderedSame {
-                blockApplies = parts.dropFirst().contains { token in
-                    let pattern = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-                    return hostMatchesPattern(host: host, pattern: pattern, allowPureWildcard: true)
-                }
+                blockApplies = hostMatchesPatterns(
+                    host: host, patterns: parts.dropFirst().map(String.init),
+                    allowPureWildcard: true)
             } else if keyword.caseInsensitiveCompare("Match") == .orderedSame {
                 // A `Match` block's applicability depends on runtime conditions we
                 // don't model; stop attributing IdentityFiles to `host` until the
@@ -675,14 +692,21 @@ enum AccountSetup {
         return path
     }
 
-    /// Unset every global `includeIf.gitdir:*` rule whose value resolves to
-    /// `accountCfg`. Quiet when there are none (`--get-regexp` exits non-zero).
-    private static func removeIncludeRules(pointingTo accountCfg: String) {
-        let listed = Shell.run(["git", "config", "--global", "-z", "--get-regexp", "gitdir:"])
-        guard listed.ok else { return }
+    /// Unset both case-sensitive and case-insensitive folder rules for this
+    /// account. Failures propagate so the writer can roll back both config files.
+    static func removeIncludeRules(
+        pointingTo accountCfg: String,
+        configPath: String = gitconfigPath()
+    ) -> ShellResult {
+        let prefix = ["git", "config", "--file", configPath]
+        let listed = Shell.run(prefix + ["-z", "--get-regexp", "^includeif\\.gitdir(/i)?:.*\\.path$"])
+        if listed.exitCode == 1 { return ShellResult(exitCode: 0, stdout: "", stderr: "") }
+        guard listed.ok else { return listed }
         for key in includeKeysPointing(to: accountCfg, inNullDelimited: listed.stdout) {
-            _ = Shell.run(["git", "config", "--global", "--unset-all", key])
+            let removed = Shell.run(prefix + ["--unset-all", key])
+            guard removed.ok else { return removed }
         }
+        return ShellResult(exitCode: 0, stdout: "", stderr: "")
     }
 
     /// Canonical `includeIf.gitdir:*.path` keys in `output` whose value points at

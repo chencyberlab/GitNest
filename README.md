@@ -107,7 +107,15 @@ and committed diffs.
   cleanup can move the original selected folder to Trash after a successful
   upload. Overlapping Load repos / refresh requests are queued (not dropped), so
   a refresh that was already running cannot leave the new repo missing until
-  restart.
+  restart. Existing repositories must have a checked-out branch; a detached HEAD
+  is refused before staging or remote creation, and existing branches are never reset.
+  Copying a linked worktree or a folder with a symlinked `.git` is also refused,
+  because its Git metadata would still belong to the source repository.
+
+Account setup preserves symlink chains in managed config files and refuses to
+replace an unreadable SSH config. Completing the wizard switches repository state
+along with the selected account. Status checks include untracked files even when
+your terminal's `status.showUntrackedFiles` setting hides them.
 
 Every action button has a tooltip explaining what it does. All command output
 appears in the **Output** pane at the bottom.
@@ -131,12 +139,12 @@ It shells out to tools you already have:
 | Clone | `git clone git@github-<account>:OWNER/REPO.git <account-folder>/REPO` |
 | Init project | `gh auth switch -u <account>`, verify active `gh` login, `git init`, `gh repo create`, `git push -u origin <branch>` |
 | Pull | `git -C <local-path> pull` |
-| Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch`; repo-list loads publish this fast local status first, then run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only, and a clone/pull/fetch/push runs the live check for just the repo you acted on. |
-| View working diff | `git --no-optional-locks -C <local-path> status --porcelain=v1 -z --untracked-files=all`, then an on-demand `git --no-optional-locks -C <local-path> diff --no-ext-diff --no-color --no-textconv --unified=3 <captured-HEAD> -- <selected-path>`; untracked files use `git diff --no-index … /dev/null <selected-path>` so they appear as additions. An untracked folder that holds its own repository is reported as such instead of diffed — git lists it as a single entry with nothing inside to compare. |
+| Status check | `git --no-optional-locks -C <local-path> status --porcelain --branch --untracked-files=normal`; repo-list loads publish this fast local status first, then run `git --no-optional-locks -C <local-path> fetch --prune --quiet <upstream-remote>` so ahead/behind is compared with current GitHub state. The frequent 10-second scan remains local-only, and a clone/pull/fetch/push runs the live check for just the repo you acted on. |
+| View working diff | `git --no-optional-locks -C <local-path> status --porcelain=v1 -z --untracked-files=all`, then an on-demand `git --no-optional-locks --literal-pathspecs -C <local-path> diff --no-ext-diff --no-color --no-textconv --unified=3 <captured-HEAD> -- <selected-path>`; untracked files use `git diff --no-index … /dev/null <selected-path>` so they appear as additions. An untracked folder that holds its own repository is reported as such instead of diffed — git lists it as a single entry with nothing inside to compare. |
 | Open local folder/editor/terminal | Finder uses `NSWorkspace.open`; configured editors and terminals use `/usr/bin/open -a <app> <local-path>` |
 | Commit | `git -C <local-path> add -A && git -C <local-path> commit -m "<msg>"` |
 | View recent commit history | `git --no-optional-locks -C <local-path> log -n 20 --no-color -z --pretty=format:<machine-readable-fields>` |
-| Inspect a commit | `git --no-optional-locks -C <local-path> show -s -z --format=<machine-readable-fields> <commit>` plus `git diff --name-status -z --find-renames <first-parent> <commit> --`; selecting a file lazily runs `git diff --no-ext-diff --no-color --no-textconv --find-renames --unified=3 <first-parent> <commit> -- <path>`. Root commits are compared with an empty tree. |
+| Inspect a commit | `git --no-optional-locks -C <local-path> show -s -z --format=<machine-readable-fields> <commit>` plus `git diff --name-status -z --find-renames <first-parent> <commit> --`; selecting a file lazily runs `git --literal-pathspecs diff --no-ext-diff --no-color --no-textconv --find-renames --unified=3 <first-parent> <commit> -- <path>`. Root commits are compared with an empty tree. |
 | Push | `git -C <local-path> push` after confirmation |
 | Delete local | Moves `<local-path>` to Trash via `FileManager.trashItem` |
 
@@ -151,16 +159,18 @@ git@github-work:work-user/GitNest.git
 > **Note on `gh`'s active account.** `gh auth switch` changes *global* on-disk state
 > that GitNest shares with any `gh` you run in a terminal. GitNest serializes its own
 > `gh` usage (switch → use → restore) and puts the active account back on quit, but it
-> can't coordinate with a `gh auth switch` you run elsewhere *at the same time*. This
-> is safe by construction: every account-sensitive call re-verifies `gh api user`
-> matches the intended account and refuses to proceed otherwise, so the worst case of
-> a concurrent external switch is a refused operation — never an action on the wrong
-> account.
+> can't coordinate with a `gh auth switch` you run elsewhere *at the same time*. It
+> checks that `gh api user` matches the intended account before
+> account-sensitive work. A mismatch refuses the operation. An external switch
+> after verification can still race a subsequent command, so avoid switching `gh`
+> accounts in a terminal while GitNest is performing account-sensitive work.
 
 ### Auto-refresh scheduling
 
 A single background timer wakes every interval you pick (Off / 30s / 2m / 5m /
-10m). It is anchored to app launch — or to the last time you changed the interval —
+10m) while GitNest is active. Refresh timers pause when another app becomes active
+and restart when you return; commands already in progress may finish. It is
+anchored to app launch, foreground return, or the last time you changed the interval —
 **not** to when you press **Load repos**. On each wake it considers **every account
 you have loaded at least once** (loading an account via **Load repos** is what opts
 it into auto-refresh) and refreshes only the accounts that are *due*, one at a time,

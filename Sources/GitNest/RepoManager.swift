@@ -97,21 +97,33 @@ final class RepoManager: ObservableObject {
     /// Per-clone status probe. Injected so the local-first/live-remote ordering is
     /// testable without fetching a real repository.
     private let repoStatus: @Sendable (String, Bool) -> RepoStatus?
+    private let localFolderState: @Sendable (Repo, String, String) -> LocalRepoFolderState
+    /// A scoped action can finish while a slow account-wide scan is still reading
+    /// siblings. Only the latest request for each repo may publish its result.
+    private var statusRefreshSessions: [String: [Repo.ID: UUID]] = [:]
+    private var cloneScanSessions: [String: UUID] = [:]
+    private var liveStatusSessions: Set<UUID> = []
 
-    init(ghChain: GhChain,
-         logStore: LogStore,
-         accountManager: AccountManager,
-         listRepos: @escaping @Sendable (String) -> Result<[Repo], CommandError> = {
-             GitHub.listRepos(owner: $0)
-         },
-         repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus? = {
-             GitHub.status(at: $0, refreshRemote: $1)
-         }) {
+    init(
+        ghChain: GhChain,
+        logStore: LogStore,
+        accountManager: AccountManager,
+        listRepos: @escaping @Sendable (String) -> Result<[Repo], CommandError> = {
+            GitHub.listRepos(owner: $0)
+        },
+        repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus? = {
+            GitHub.status(at: $0, refreshRemote: $1)
+        },
+        localFolderState: @escaping @Sendable (Repo, String, String) -> LocalRepoFolderState = {
+            AppModel.localFolderState(for: $0, path: $1, expectedSSHHost: $2)
+        }
+    ) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.accountManager = accountManager
         self.listRepos = listRepos
         self.repoStatus = repoStatus
+        self.localFolderState = localFolderState
         bindFilteredRepos()
         rebuildFilteredRepos()
     }
@@ -245,6 +257,8 @@ final class RepoManager: ObservableObject {
     }
 
     private func loadSortState(for alias: String) {
+        repoSortField = .updated
+        repoSortAscending = false
         guard let raw = UserDefaults.standard.string(forKey: Self.sortDefaultsKey(for: alias)) else { return }
         let parts = raw.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
         guard parts.count == 2 else { return }
@@ -554,6 +568,7 @@ final class RepoManager: ObservableObject {
             .filter { shouldAutoRefreshRepos(for: $0.alias) }
             .sorted { ($0.alias == selected ? 1 : 0) < ($1.alias == selected ? 1 : 0) }
         for account in targets {
+            guard !Task.isCancelled, appIsActive, canAutoRefresh, repoAutoRefreshSeconds > 0 else { return }
             await loadRepos(for: account, silent: true, userInitiated: false)
         }
     }
@@ -595,7 +610,11 @@ final class RepoManager: ObservableObject {
               !repos.isEmpty,
               // A post-load remote refresh is in flight; let it finish so this
               // local-only tick can't race it and clobber the just-fetched state.
-              !isCheckingRepoRemotes else { return }
+            !isCheckingRepoRemotes,
+            // Scoped Fetch/Push/Pull checks need the same protection as a
+            // post-load sweep: a timer tick must not supersede their live result.
+            liveStatusSessions.isEmpty
+        else { return }
         await refreshStatuses(for: account)
     }
 
@@ -609,10 +628,13 @@ final class RepoManager: ObservableObject {
         let targets = sourceRepos
             .filter { sourceCloned.contains($0.id) }
             .map { (id: $0.id, path: localPath($0, in: account)) }
-        guard !targets.isEmpty else {
-            repoStatusesCache[alias] = [:]
-            if accountManager.selectedAccount?.alias == alias, !repoStatuses.isEmpty { repoStatuses = [:] }
-            return
+        let previous = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
+        let requestedIDs = Set(sourceRepos.map(\.id)).union(previous.keys)
+        let session = UUID()
+        if refreshRemote { liveStatusSessions.insert(session) }
+        defer { liveStatusSessions.remove(session) }
+        for id in requestedIDs {
+            statusRefreshSessions[alias, default: [:]][id] = session
         }
         let repoStatus = self.repoStatus
         let probed = await runBlocking { () -> [Repo.ID: RepoStatus] in
@@ -623,19 +645,18 @@ final class RepoManager: ObservableObject {
             }
             return out
         }
-        // Carry-forward merges against the map as it is *now*, not a pre-probe
-        // snapshot: a scoped live refresh (push/pull/fetch) can commit its verdict
-        // while this sweep's git processes are still running, and merging from a
-        // stale snapshot would revert that verdict until the next live pass.
-        var next = probed
-        if !refreshRemote {
-            let previous = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
-            for (id, status) in probed {
-                next[id] = Self.carryingForwardRemoteState(status, previous: previous[id])
+        // Merge against state at completion, preserving newer scoped results and
+        // publishing once so a large sweep does not trigger one view update per repo.
+        var next = accountManager.selectedAccount?.alias == alias ? repoStatuses : (repoStatusesCache[alias] ?? [:])
+        let currentClones = cloneState(for: alias).cloned
+        for id in requestedIDs where statusRefreshSessions[alias]?[id] == session {
+            statusRefreshSessions[alias]?.removeValue(forKey: id)
+            if currentClones.contains(id), let status = probed[id] {
+                next[id] = refreshRemote ? status : Self.carryingForwardRemoteState(status, previous: next[id])
+            } else {
+                next.removeValue(forKey: id)
             }
         }
-        // Only publish when something actually changed — otherwise the 10s timer
-        // would re-render the repo list (and reset hover/tooltip tracking) for nothing.
         repoStatusesCache[alias] = next
         if accountManager.selectedAccount?.alias == alias, next != repoStatuses { repoStatuses = next }
     }
@@ -682,30 +703,43 @@ final class RepoManager: ObservableObject {
     /// repo-list loads, which is where a whole-account resync belongs.
     func refreshStatus(for repo: Repo, in account: Account, refreshRemote: Bool = false) async {
         let alias = account.alias
+        let session = UUID()
+        if refreshRemote { liveStatusSessions.insert(session) }
+        defer { liveStatusSessions.remove(session) }
+        statusRefreshSessions[alias, default: [:]][repo.id] = session
         let sourceCloned = accountManager.selectedAccount?.alias == alias
             ? clonedRepos
             : (clonedReposCache[alias] ?? [])
         // Not a clone (deleted, or the folder was taken over) — drop any stale entry
         // rather than leave a badge describing a repo that is no longer there.
         guard sourceCloned.contains(repo.id) else {
-            commitStatus(nil, for: repo.id, alias: alias)
+            commitProbedStatus(nil, for: repo.id, alias: alias, session: session, refreshRemote: refreshRemote)
             return
         }
         let path = localPath(repo, in: account)
         let repoStatus = self.repoStatus
         let probed = await runBlocking { repoStatus(path, refreshRemote) }
-        guard let probed else {
-            commitStatus(nil, for: repo.id, alias: alias)
+        commitProbedStatus(probed, for: repo.id, alias: alias, session: session, refreshRemote: refreshRemote)
+    }
+
+    private func commitProbedStatus(
+        _ probed: RepoStatus?, for id: Repo.ID, alias: String,
+        session: UUID, refreshRemote: Bool
+    ) {
+        guard statusRefreshSessions[alias]?[id] == session else { return }
+        statusRefreshSessions[alias]?.removeValue(forKey: id)
+        // A folder can be removed while a probe is in flight. Never revive a badge
+        // after clone discovery has already established that the folder is gone.
+        guard cloneState(for: alias).cloned.contains(id), let probed else {
+            commitStatus(nil, for: id, alias: alias)
             return
         }
-        // Read after the probe for the same reason as the sweep: carry forward the
-        // freshest verdict, not one from before this probe's git processes ran.
         let previous = (accountManager.selectedAccount?.alias == alias
             ? repoStatuses
-            : (repoStatusesCache[alias] ?? [:]))[repo.id]
+            : (repoStatusesCache[alias] ?? [:]))[id]
         commitStatus(refreshRemote ? probed : Self.carryingForwardRemoteState(probed, previous: previous),
-                     for: repo.id,
-                     alias: alias)
+            for: id,
+            alias: alias)
     }
 
     /// Merge (or remove) one repo's status in both the cache and — only while that
@@ -762,15 +796,16 @@ final class RepoManager: ObservableObject {
 
     func refreshClonedStatus(for account: Account) async {
         let alias = account.alias
+        let session = UUID()
+        cloneScanSessions[alias] = session
         let sourceRepos = accountManager.selectedAccount?.alias == alias ? repos : (repoCache[alias] ?? [])
+        let localFolderState = self.localFolderState
         let scan = await runBlocking { () -> (present: Set<Repo.ID>, conflicts: [Repo.ID: RepoFolderConflict]) in
             var present: Set<Repo.ID> = []
             var conflicts: [Repo.ID: RepoFolderConflict] = [:]
             for repo in sourceRepos {
                 let path = (account.folder as NSString).appendingPathComponent(repo.name)
-                switch AppModel.localFolderState(for: repo,
-                                                 path: path,
-                                                 expectedSSHHost: account.sshHost) {
+                switch localFolderState(repo, path, account.sshHost) {
                 case .cloned:
                     present.insert(repo.id)
                 case .occupied(let conflict):
@@ -781,12 +816,8 @@ final class RepoManager: ObservableObject {
             }
             return (present, conflicts)
         }
-        clonedReposCache[alias] = scan.present
-        repoFolderConflictsCache[alias] = scan.conflicts
-        if accountManager.selectedAccount?.alias == alias {
-            clonedRepos = scan.present
-            repoFolderConflicts = scan.conflicts
-        }
+        guard cloneScanSessions[alias] == session else { return }
+        commitCloneState(scan.present, scan.conflicts, for: alias)
     }
 
     /// Persist a cloned/conflict update to `alias`'s cache, mirroring it into the
@@ -794,6 +825,7 @@ final class RepoManager: ObservableObject {
     func commitCloneState(_ cloned: Set<Repo.ID>,
                           _ conflicts: [Repo.ID: RepoFolderConflict],
                           for alias: String) {
+        cloneScanSessions.removeValue(forKey: alias)
         clonedReposCache[alias] = cloned
         repoFolderConflictsCache[alias] = conflicts
         if accountManager.selectedAccount?.alias == alias {

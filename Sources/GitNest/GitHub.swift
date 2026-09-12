@@ -1073,7 +1073,7 @@ enum GitHub {
     /// Network-free; failures are explicit so destructive callers can fail closed.
     static func hasUncommittedChanges(at path: String) -> Result<Bool, CommandError> {
         let res = Shell.run([
-            "git", "--no-optional-locks", "-C", path, "status", "--porcelain"
+            "git", "--no-optional-locks", "-C", path, "status", "--porcelain", "--untracked-files=normal",
         ])
         guard res.ok else {
             return .failure(CommandError(message: conciseMessage(res, fallback: "git status failed")))
@@ -1088,7 +1088,13 @@ enum GitHub {
         // --no-optional-locks (GIT_OPTIONAL_LOCKS=0): never take .git/index.lock for
         // this background poll, so it can't collide with a concurrent commit/add/pull
         // and produce a spurious "index.lock: File exists" error on either side.
-        let res = Shell.run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain", "--branch"])
+        // Override status.showUntrackedFiles: hiding files in a terminal must not
+        // make the app's dirty badge or pull preflight report a clean working tree.
+        let statusArgs = [
+            "git", "--no-optional-locks", "-C", path,
+            "status", "--porcelain", "--branch", "--untracked-files=normal",
+        ]
+        let res = Shell.run(statusArgs)
         guard res.ok else { return nil }
         var status = RepoStatus.parse(porcelainBranch: res.stdout)
         // Surface parked work the change badge can't: stashing drops changedFiles to
@@ -1113,7 +1119,7 @@ enum GitHub {
             return status
         }
 
-        let refreshed = Shell.run(["git", "--no-optional-locks", "-C", path, "status", "--porcelain", "--branch"])
+        let refreshed = Shell.run(statusArgs)
         guard refreshed.ok else {
             status.remoteState = .failed(conciseMessage(refreshed, fallback: "git status failed after fetch"))
             return status
@@ -1206,6 +1212,19 @@ enum GitHub {
             return failure(reason, log)
         }
 
+        if plan.willCopy {
+            let sourceGit = (plan.sourcePath as NSString).appendingPathComponent(".git")
+            var info = stat()
+            if lstat(sourceGit, &info) == 0, !isRealDirectory(at: sourceGit) {
+                // Worktree pointer files and symlinks still refer to the original
+                // repository after a filesystem copy. Staging or re-pointing origin
+                // through that copy would mutate the source's Git metadata.
+                return failure(
+                    "This project uses linked Git metadata. Use a regular clone or copy the project files without .git before initializing.",
+                    log)
+            }
+        }
+
         do {
             try fm.createDirectory(atPath: plan.account.folder, withIntermediateDirectories: true)
             if plan.willCopy {
@@ -1251,6 +1270,11 @@ enum GitHub {
             return failure("copy failed: \(error.localizedDescription)", log)
         }
 
+        let gitDir = (plan.workingPath as NSString).appendingPathComponent(".git")
+        if fm.fileExists(atPath: gitDir), case .failure(let error) = projectInitBranch(at: plan.workingPath) {
+            return failure(error.message, log)
+        }
+
         let accountCheck = ensureActiveAccount(owner)
         guard accountCheck.ok else { return failure("gh account switch failed", log, accountCheck) }
         log.append(accountCheck.stdout.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -1266,7 +1290,6 @@ enum GitHub {
             }
         }
 
-        let gitDir = (plan.workingPath as NSString).appendingPathComponent(".git")
         if !fm.fileExists(atPath: gitDir) {
             let initRes = Shell.run(["git", "-C", plan.workingPath, "init", "-b", "main"])
             if initRes.ok {
@@ -1274,10 +1297,16 @@ enum GitHub {
             } else {
                 let fallback = Shell.run(["git", "-C", plan.workingPath, "init"])
                 guard fallback.ok else { return failure("git init failed", log, fallback) }
-                let branch = Shell.run(["git", "-C", plan.workingPath, "checkout", "-B", "main"])
+                let branch = Shell.run(["git", "-C", plan.workingPath, "checkout", "-b", "main"])
                 guard branch.ok else { return failure("creating main branch failed", log, branch) }
                 log.append("Initialized git repository on main")
             }
+        }
+
+        let branch: String
+        switch projectInitBranch(at: plan.workingPath) {
+        case .success(let name): branch = name
+        case .failure(let error): return failure(error.message, log)
         }
 
         let hasHead = Shell.run(["git", "-C", plan.workingPath, "rev-parse", "--verify", "HEAD"]).ok
@@ -1294,14 +1323,6 @@ enum GitHub {
             log.append(hasHead ? "Committed pending changes" : "Created initial commit")
         } else if staged.exitCode != 0 {
             return failure("checking staged changes failed", log, staged)
-        }
-
-        var branch = Shell.run(["git", "-C", plan.workingPath, "branch", "--show-current"])
-            .stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        if branch.isEmpty {
-            let checkout = Shell.run(["git", "-C", plan.workingPath, "checkout", "-B", "main"])
-            guard checkout.ok else { return failure("selecting main branch failed", log, checkout) }
-            branch = "main"
         }
 
         let create = Shell.run(["gh", "repo", "create", repoFullName, visibility.ghFlag])
@@ -1331,6 +1352,21 @@ enum GitHub {
         log.append("Pushed \(branch) to \(repoFullName)")
 
         return ShellResult(exitCode: 0, stdout: log.joined(separator: "\n"), stderr: push.stderr)
+    }
+
+    private static func projectInitBranch(at path: String) -> Result<String, CommandError> {
+        let result = Shell.run(["git", "--no-optional-locks", "-C", path, "symbolic-ref", "--quiet", "--short", "HEAD"])
+        let branch = result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard result.ok, !branch.isEmpty else {
+            // `checkout -B main` on a detached HEAD resets an existing main branch
+            // to the detached commit. Refuse before staging or creating a remote.
+            let message =
+                result.exitCode == 1
+                ? "The project has a detached HEAD. Check out a branch before initializing; existing branches were not changed."
+                : conciseMessage(result, fallback: "could not determine the project's current branch")
+            return .failure(CommandError(message: message))
+        }
+        return .success(branch)
     }
 
     private static func isRealDirectory(at path: String) -> Bool {
@@ -1409,9 +1445,10 @@ enum GitHub {
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else { return nil }
 
-        if let at = trimmed.firstIndex(of: "@"),
-           let colon = trimmed[at...].firstIndex(of: ":"),
-           at < colon {
+        if !trimmed.contains("://"), let at = trimmed.firstIndex(of: "@"),
+            let colon = trimmed[at...].firstIndex(of: ":"),
+            at < colon
+        {
             let host = String(trimmed[trimmed.index(after: at)..<colon]).lowercased()
             guard isGitHubSSHHost(host) else { return nil }
             guard let pair = ownerRepoPair(fromPath: String(trimmed[trimmed.index(after: colon)...])) else {
@@ -1427,6 +1464,9 @@ enum GitHub {
             guard let pair = ownerRepoPair(fromPath: components.path) else { return nil }
             return (pair.owner, pair.repo, host)
         } else {
+            guard let scheme = components.scheme?.lowercased(),
+                ["https", "http", "git"].contains(scheme)
+            else { return nil }
             guard host == "github.com" else { return nil }
         }
         guard let pair = ownerRepoPair(fromPath: components.path) else { return nil }

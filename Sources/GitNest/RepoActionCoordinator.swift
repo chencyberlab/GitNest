@@ -147,12 +147,12 @@ final class RepoActionCoordinator: ObservableObject {
         let account = context.account
         let alias = account.alias
         let dest = context.path
-        // Snapshot the target account's state, whether or not it is visible.
-        // Explicit-account actions can complete after the user switches accounts.
-        var (cloned, conflicts) = repoManager.cloneState(for: alias)
         let state = await runBlocking {
             AppModel.localFolderState(for: repo, path: dest, expectedSSHHost: account.sshHost)
         }
+        // Merge into the current cache: another folder's action can finish while
+        // this probe runs, even when both actions belong to the same account.
+        var (cloned, conflicts) = repoManager.cloneState(for: alias)
         switch state {
         case .cloned:
             cloned.insert(repo.id)

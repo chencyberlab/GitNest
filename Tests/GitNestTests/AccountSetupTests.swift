@@ -77,17 +77,144 @@ final class AccountSetupTests: XCTestCase {
         XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-*"))
     }
 
-    func testHostMatchesPatternHandlesNegationAndCommaAlternates() {
+    func testHostPatternsRequireAPositiveMatchAndHonorEveryExclusion() {
         XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-*"))
-        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob"))
-        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-alice"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob"))
+        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-alice"))
         XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,github-carol"))
-        // Negated alternates are processed left-to-right: a later positive pattern
-        // can re-include a host excluded by an earlier negated one.
-        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "!github-bob,github-alice"))
-        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-bob", pattern: "!github-bob,github-alice"))
-        XCTAssertFalse(AccountSetup.hostMatchesPattern(host: "github-alice", pattern: "github-bob,!github-alice"))
-        XCTAssertTrue(AccountSetup.hostMatchesPattern(host: "github-bob", pattern: "github-bob,!github-alice"))
+        XCTAssertTrue(AccountSetup.containsHostEntry(host: "github-alice", in: "Host github-* !github-bob"))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host github-* !github-alice"))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host !github-alice github-*"))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host !github-bob"))
+        XCTAssertFalse(AccountSetup.containsHostEntry(host: "github-alice", in: "Host github-* !*"))
+    }
+
+    func testForeignIdentityFilesHonorsExcludedHostsAndGlobalDirectives() {
+        let config = """
+            IdentityFile ~/.ssh/global
+            Host * !github-alice
+                IdentityFile ~/.ssh/excluded
+            Host !github-alice github-*
+                IdentityFile ~/.ssh/excluded-too
+            Host github-alice
+                IdentityFile ~/.ssh/id_alice
+            """
+        XCTAssertEqual(
+            AccountSetup.foreignIdentityFiles(
+                host: "github-alice", expectedKeyPath: "~/.ssh/id_alice",
+                in: config),
+            [("~/.ssh/global" as NSString).expandingTildeInPath])
+    }
+
+    func testSSHHostPatternInterpretationAgreesWithOpenSSH() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestSSHPatterns-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config")
+        for patterns in [
+            "github-* !github-alice", "!github-alice github-*", "!github-bob",
+            "github-bob,github-alice", "github-* !github-bob",
+        ] {
+            let text = "Host \(patterns)\n    HostName matched.example\n"
+            try text.write(to: config, atomically: true, encoding: .utf8)
+            let result = Shell.run(["/usr/bin/ssh", "-G", "-F", config.path, "github-alice"])
+            XCTAssertTrue(result.ok, result.stderr)
+            let matched = result.stdout.components(separatedBy: .newlines).contains("hostname matched.example")
+            XCTAssertEqual(AccountSetup.containsHostEntry(host: "github-alice", in: text), matched, patterns)
+        }
+    }
+
+    func testUnreadableSSHConfigIsNotReplaced() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestBadSSHConfig-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config")
+        let original = Data([0xff, 0xfe, 0x80])
+        try original.write(to: config)
+
+        guard case .failure(let error) = AccountSetup.ensureSSHConfig(alias: "alice", configPath: config.path) else {
+            return XCTFail("An undecodable config must fail closed")
+        }
+        XCTAssertTrue(error.message.contains("could not read"))
+        XCTAssertEqual(try Data(contentsOf: config), original)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: directory.path), ["config"])
+    }
+
+    func testSSHConfigCreationAndBackupPreserveExistingHosts() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestSSHWrite-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config")
+        let created = try AccountSetup.ensureSSHConfig(alias: "alice", configPath: config.path).get()
+        XCTAssertNil(created.backupPath)
+        let original = try String(contentsOf: config, encoding: .utf8)
+        let updated = try AccountSetup.ensureSSHConfig(alias: "bob", configPath: config.path).get()
+        let backup = try XCTUnwrap(updated.backupPath)
+        XCTAssertEqual(try String(contentsOfFile: backup, encoding: .utf8), original)
+        let text = try String(contentsOf: config, encoding: .utf8)
+        XCTAssertTrue(text.contains("Host github-alice"))
+        XCTAssertTrue(text.contains("Host github-bob"))
+    }
+
+    func testAtomicConfigWriteAndRestorePreserveEverySymlinkInAChain() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestLinkChain-\(UUID())")
+        let fm = FileManager.default
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: directory) }
+        let target = directory.appendingPathComponent("target")
+        let middle = directory.appendingPathComponent("middle")
+        let config = directory.appendingPathComponent("config")
+        try "original".write(to: target, atomically: true, encoding: .utf8)
+        try fm.createSymbolicLink(atPath: middle.path, withDestinationPath: "target")
+        try fm.createSymbolicLink(atPath: config.path, withDestinationPath: "middle")
+        let backup = try AccountSetup.backup(config.path)
+
+        XCTAssertTrue(AccountSetup.writePrivately("updated", to: config.path))
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "updated")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: config.path), "middle")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: middle.path), "target")
+        AccountSetup.restore(backup, to: config.path)
+        XCTAssertEqual(try String(contentsOf: target, encoding: .utf8), "original")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: middle.path), "target")
+    }
+
+    func testRootFolderOverlapsEveryAccountFolder() {
+        XCTAssertTrue(AccountSetup.foldersOverlap("/", "/Users/example/projects"))
+        XCTAssertTrue(AccountSetup.foldersOverlap("/Users/example/projects", "/"))
+    }
+
+    func testRemovingIncludeRulesFindsCaseInsensitiveRulesAndPreservesOtherAccounts() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestIncludes-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config")
+        let target = directory.appendingPathComponent("account").path
+        for (key, value) in [
+            ("includeIf.gitdir:/old/.path", target),
+            ("includeIf.gitdir/i:/OLD/.path", target),
+            ("includeIf.gitdir:/other/.path", "/other-account"),
+        ] {
+            XCTAssertTrue(Shell.run(["git", "config", "--file", config.path, key, value]).ok)
+        }
+
+        let result = AccountSetup.removeIncludeRules(pointingTo: target, configPath: config.path)
+
+        XCTAssertTrue(result.ok, result.stderr)
+        let text = try String(contentsOf: config, encoding: .utf8)
+        XCTAssertFalse(text.contains(target))
+        XCTAssertTrue(text.contains("/other-account"))
+        XCTAssertTrue(AccountSetup.removeIncludeRules(pointingTo: target, configPath: config.path).ok)
+    }
+
+    func testRemovingIncludeRulesReportsAnInvalidConfig() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GitNestBadIncludes-\(UUID())")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let config = directory.appendingPathComponent("config")
+        try "[unterminated\n".write(to: config, atomically: true, encoding: .utf8)
+        let result = AccountSetup.removeIncludeRules(pointingTo: "/account", configPath: config.path)
+        XCTAssertFalse(result.ok)
+        XCTAssertEqual(try String(contentsOf: config, encoding: .utf8), "[unterminated\n")
     }
 
     func testForeignIdentityFilesIgnoresACleanConfig() {

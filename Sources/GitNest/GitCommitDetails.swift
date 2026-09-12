@@ -196,13 +196,13 @@ extension GitHub {
         var arguments: [String]
         if let parent = snapshot.detail.parentHashes.first {
             arguments = [
-                "git", "--no-optional-locks", "-C", path,
+                "git", "--no-optional-locks", "--literal-pathspecs", "-C", path,
                 "diff", "--no-ext-diff", "--no-color", "--no-textconv",
                 "--find-renames", "--unified=3", parent, hash, "--",
             ]
         } else {
             arguments = [
-                "git", "--no-optional-locks", "-C", path,
+                "git", "--no-optional-locks", "--literal-pathspecs", "-C", path,
                 "show", "--no-ext-diff", "--no-color", "--no-textconv",
                 "--format=", "--root", "--find-renames", "--unified=3", hash, "--",
             ]

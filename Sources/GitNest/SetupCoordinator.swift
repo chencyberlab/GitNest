@@ -131,8 +131,8 @@ final class SetupCoordinator: ObservableObject {
         }
         authProcessController.finish(authProcess)
         watcher.cancel()
-        addAccountClipboardWatcher = nil
         guard isCurrentAddAccountSession(session) else { return }
+        addAccountClipboardWatcher = nil
         let out = (result.login.stdout + result.login.stderr).trimmingCharacters(in: .whitespacesAndNewlines)
         if let code = DeviceCode.extract(fromGhOutput: out) { addAccountDeviceCode = code }
         let safeOut = DeviceCode.redactedGhOutput(out)
@@ -143,6 +143,7 @@ final class SetupCoordinator: ObservableObject {
         }
         // gh just wrote a fresh token to ~/.config/gh/hosts.yml — assert 0600 on it.
         await runBlocking { GitHub.hardenGhConfigPermissions() }
+        guard isCurrentAddAccountSession(session) else { return }
         guard let identity = result.identity else {
             setAddAccountError("Could not read account after sign-in.")
             addAccountBusy = false
@@ -262,6 +263,7 @@ final class SetupCoordinator: ObservableObject {
         logStore.append("Add account: wrote gitconfig + includeIf, created \(folder).")
 
         await addAccountReverify()
+        guard isCurrentAddAccountSession(session) else { return }
         accountManager.loadAccounts()
         addAccountBusy = false
     }
@@ -285,15 +287,12 @@ final class SetupCoordinator: ObservableObject {
         }
     }
 
-    /// Close the wizard, refresh everything, and select the new account.
-    func completeAddAccount() {
+    /// Close the wizard and hand selection back to AppModel's cross-manager flow.
+    func completeAddAccount() -> String? {
         let newAlias = addAccountAlias
         addAccountSessionID = UUID()
         addAccountActive = false
-        accountManager.refreshAll()
-        if let newAlias, let acct = accountManager.accounts.first(where: { $0.alias.caseInsensitiveCompare(newAlias) == .orderedSame }) {
-            accountManager.selectAccount(acct)
-        }
+        return newAlias
     }
 
 }

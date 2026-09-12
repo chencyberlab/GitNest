@@ -58,13 +58,111 @@ final class ScopedStatusRefreshTests: XCTestCase {
 
     private let account = Account(alias: "me", name: "Me", email: "me@example.com", folder: "/tmp/gitnest-me")
 
+    private final class DelayedFirstProbe: @unchecked Sendable {
+        private let lock = NSLock()
+        private var calls = 0
+        let started = AtomicFlag()
+        let release = DispatchSemaphore(value: 0)
+
+        func run() -> RepoStatus {
+            lock.lock()
+            calls += 1
+            let first = calls == 1
+            lock.unlock()
+            if first {
+                started.set()
+                _ = release.wait(timeout: .now() + 5)
+                return makeStatus(changed: 9, remote: .failed("old fetch"))
+            }
+            return makeStatus(changed: 0, remote: .checked)
+        }
+    }
+
+    func testSlowSweepCannotOverwriteNewerScopedStatus() async {
+        for refreshRemote in [false, true] {
+            let probe = DelayedFirstProbe()
+            defer { probe.release.signal() }
+            let target = repo("tools")
+            let sibling = repo("api")
+            let (manager, _) = makeManager(repoStatus: { _, _ in probe.run() })
+            manager.repos = [target, sibling]
+            manager.clonedRepos = [target.id, sibling.id]
+
+            let sweep = Task { await manager.refreshStatuses(for: account, refreshRemote: refreshRemote) }
+            while !probe.started.isSet { await Task.yield() }
+            await manager.refreshStatus(for: target, in: account, refreshRemote: true)
+            probe.release.signal()
+            await sweep.value
+
+            XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 0)
+            XCTAssertEqual(manager.repoStatuses[target.id]?.remoteState, .checked)
+            XCTAssertEqual(manager.repoStatuses[sibling.id]?.changedFiles, 0)
+            XCTAssertEqual(manager.repoStatusesCache[account.alias], manager.repoStatuses)
+        }
+    }
+
+    func testTimerWaitsForScopedLiveRefreshBeforeStartingLocalScan() async {
+        let probe = DelayedFirstProbe()
+        defer { probe.release.signal() }
+        let target = repo("tools")
+        let (manager, _) = makeManager(repoStatus: { _, _ in probe.run() })
+        manager.repos = [target]
+        manager.clonedRepos = [target.id]
+        let live = Task { await manager.refreshStatus(for: target, in: account, refreshRemote: true) }
+        while !probe.started.isSet { await Task.yield() }
+
+        await manager.autoRefreshStatusesTick()
+        XCTAssertNil(manager.repoStatuses[target.id])
+        probe.release.signal()
+        await live.value
+        XCTAssertEqual(manager.repoStatuses[target.id]?.remoteState, .failed("old fetch"))
+
+        await manager.autoRefreshStatusesTick()
+        XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 0)
+    }
+
+    func testSlowScopedProbeCannotOverwriteANewerProbe() async {
+        let probe = DelayedFirstProbe()
+        defer { probe.release.signal() }
+        let target = repo("tools")
+        let (manager, _) = makeManager(repoStatus: { _, _ in probe.run() })
+        manager.repos = [target]
+        manager.clonedRepos = [target.id]
+        let old = Task { await manager.refreshStatus(for: target, in: account, refreshRemote: true) }
+        while !probe.started.isSet { await Task.yield() }
+        await manager.refreshStatus(for: target, in: account, refreshRemote: true)
+        probe.release.signal()
+        await old.value
+
+        XCTAssertEqual(manager.repoStatuses[target.id]?.changedFiles, 0)
+        XCTAssertEqual(manager.repoStatuses[target.id]?.remoteState, .checked)
+    }
+
+    func testSlowProbeCannotRestoreStatusAfterCloneRemoval() async {
+        let probe = DelayedFirstProbe()
+        defer { probe.release.signal() }
+        let target = repo("tools")
+        let (manager, _) = makeManager(repoStatus: { _, _ in probe.run() })
+        manager.repos = [target]
+        manager.clonedRepos = [target.id]
+        let old = Task { await manager.refreshStatus(for: target, in: account) }
+        while !probe.started.isSet { await Task.yield() }
+        manager.commitCloneState([], [:], for: account.alias)
+        probe.release.signal()
+        await old.value
+
+        XCTAssertNil(manager.repoStatuses[target.id])
+        XCTAssertNil(manager.repoStatusesCache[account.alias]?[target.id])
+    }
+
     private func repo(_ name: String) -> Repo {
         Repo(name: name, nameWithOwner: "me/\(name)", description: nil,
              visibility: "private", updatedAt: nil, url: "https://github.com/me/\(name)")
     }
 
     private func makeManager(
-        repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus?
+        repoStatus: @escaping @Sendable (String, Bool) -> RepoStatus?,
+        localFolderState: @escaping @Sendable (Repo, String, String) -> LocalRepoFolderState = { _, _, _ in .absent }
     ) -> (RepoManager, AccountManager) {
         let logStore = LogStore()
         let ghChain = GhChain()
@@ -73,11 +171,38 @@ final class ScopedStatusRefreshTests: XCTestCase {
                                             authProcessController: AuthProcessController())
         accountManager.accounts = [account]
         accountManager.selectedAccount = account
-        let repoManager = RepoManager(ghChain: ghChain,
-                                      logStore: logStore,
-                                      accountManager: accountManager,
-                                      repoStatus: repoStatus)
+        let repoManager = RepoManager(
+            ghChain: ghChain,
+            logStore: logStore,
+            accountManager: accountManager,
+            repoStatus: repoStatus,
+            localFolderState: localFolderState)
         return (repoManager, accountManager)
+    }
+
+    func testSlowCloneScanCannotOverwriteANewerCloneState() async {
+        let started = AtomicFlag()
+        let release = DispatchSemaphore(value: 0)
+        defer { release.signal() }
+        let target = repo("tools")
+        let (manager, _) = makeManager(
+            repoStatus: { _, _ in nil },
+            localFolderState: { _, _, _ in
+                started.set()
+                _ = release.wait(timeout: .now() + 5)
+                return .cloned
+            })
+        manager.repos = [target]
+        let old = Task { await manager.refreshClonedStatus(for: account) }
+        while !started.isSet { await Task.yield() }
+        let conflict = RepoFolderConflict(path: "/tmp/replaced", origin: "https://github.com/other/tools")
+        manager.commitCloneState([], [target.id: conflict], for: account.alias)
+        release.signal()
+        await old.value
+
+        XCTAssertTrue(manager.clonedRepos.isEmpty)
+        XCTAssertEqual(manager.repoFolderConflicts[target.id], conflict)
+        XCTAssertEqual(manager.repoFolderConflictsCache[account.alias]?[target.id], conflict)
     }
 
     /// The whole point of the change: the scoped path shells out for exactly one

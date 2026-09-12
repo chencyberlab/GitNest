@@ -132,7 +132,7 @@ extension GitHub {
         // back readable and unambiguous (no quotePath dance, no " -> " guessing).
         let res = Shell.run([
             "git", "--no-optional-locks", "-C", path,
-            "status", "--porcelain", "-z"
+            "status", "--porcelain", "-z", "--untracked-files=normal",
         ])
         guard res.ok else {
             let raw = (res.stderr.isEmpty ? res.stdout : res.stderr)

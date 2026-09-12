@@ -45,6 +45,7 @@ struct CopyableField: View {
 /// choose a folder, create a dedicated SSH key, guide the key onto GitHub, then
 /// write the local config (with backups) and verify.
 struct AddAccountSheet: View {
+    @EnvironmentObject var model: AppModel
     @EnvironmentObject var setupCoordinator: SetupCoordinator
     @Environment(\.theme) private var theme
 
@@ -263,7 +264,9 @@ struct AddAccountSheet: View {
             .buttonStyle(PrimaryButtonStyle())
             .disabled(setupCoordinator.addAccountBusy)
         case .finish:
-            Button { setupCoordinator.completeAddAccount() } label: {
+            Button {
+                model.completeAddAccount()
+            } label: {
                 Label("Done", systemImage: "checkmark")
             }
             .buttonStyle(PrimaryButtonStyle())

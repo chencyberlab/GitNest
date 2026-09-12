@@ -60,21 +60,28 @@ final class AppModel: ObservableObject {
     /// network, and GitHub API usage.
     @Published var appIsActive = true
     private var workspaceObservers: [any NSObjectProtocol] = []
+    private let workspaceNotificationCenter: NotificationCenter
 
     deinit {
         for observer in workspaceObservers {
-            NotificationCenter.default.removeObserver(observer)
+            workspaceNotificationCenter.removeObserver(observer)
         }
     }
 
     private var storeCancellables = Set<AnyCancellable>()
 
-    init() {
+    init(
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        readAccounts: (() -> [Account])? = nil
+    ) {
+        self.workspaceNotificationCenter = workspaceNotificationCenter
         self.ghChain = GhChain()
         self.logStore = LogStore()
         self.alertStore = AlertStore()
         self.authProcessController = AuthProcessController()
-        self.accountManager = AccountManager(ghChain: ghChain, logStore: logStore, authProcessController: authProcessController)
+        self.accountManager = AccountManager(
+            ghChain: ghChain, logStore: logStore,
+            authProcessController: authProcessController, readAccounts: readAccounts)
         self.repoManager = RepoManager(ghChain: ghChain, logStore: logStore, accountManager: accountManager)
         self.repoActionCoordinator = RepoActionCoordinator(repoManager: repoManager,
                                                            logStore: logStore,
@@ -159,9 +166,9 @@ final class AppModel: ObservableObject {
     /// Pause/resume auto-refresh timers when the app moves to/from the background.
     /// Comparing `processIdentifier` avoids relying on the bundle identifier, which
     /// may differ between a manually assembled .app and `swift run`.
-    private func observeAppActivation() {
+    func observeAppActivation() {
         guard workspaceObservers.isEmpty else { return }
-        let center = NotificationCenter.default
+        let center = workspaceNotificationCenter
         workspaceObservers.append(center.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
@@ -208,9 +215,11 @@ final class AppModel: ObservableObject {
             guard let self,
                   let account = self.accountManager.selectedAccount,
                   self.repoManager.canAutoRefresh else { return }
-            if !self.repoManager.repos.isEmpty {
-                await self.repoManager.refreshStatuses(for: account)
-            }
+            await self.repoManager.autoRefreshStatusesTick()
+            guard self.appIsActive, self.repoManager.canAutoRefresh,
+                self.accountManager.selectedAccount == account,
+                self.repoManager.repoAutoRefreshAccounts.contains(account.alias)
+            else { return }
             if self.repoManager.shouldAutoRefreshRepos(for: account.alias) {
                 await self.repoManager.loadRepos(for: account, silent: true, userInitiated: false)
             }
@@ -226,6 +235,22 @@ final class AppModel: ObservableObject {
         if repoManager.repoAutoRefreshAccounts.contains(account.alias),
            repoManager.shouldAutoRefreshRepos(for: account.alias) {
             Task { await repoManager.loadRepos(for: account, silent: true, userInitiated: false) }
+        }
+    }
+
+    /// Completing setup changes selection across managers, just like a sidebar click.
+    /// Save the old account before reloading configuration so its rows cannot become
+    /// the new account's cache when the user switches away again.
+    func completeAddAccount() {
+        let newAlias = setupCoordinator.completeAddAccount()
+        repoManager.saveVisibleRepoState()
+        accountManager.refreshAll()
+        if let newAlias,
+            let account = accountManager.accounts.first(where: {
+                $0.alias.caseInsensitiveCompare(newAlias) == .orderedSame
+            })
+        {
+            selectAccount(account)
         }
     }
 

@@ -24,7 +24,6 @@
     "DontRepeatTypeInStaticProperties": true,
     "FileScopedDeclarationPrivacy": true,
     "FullyIndirectEnum": true,
-    "GroupOverridesAcrossAccessControl": false,
     "IdentifiersMustBeASCII": true,
     "NeverForceUnwrap": true,
     "NeverUseForceTry": true,

@@ -504,8 +504,11 @@ extension GitHub {
         }
 
         let comparesWithEmpty = file.status == .untracked || base == .emptyRepository
+        // `--` ends options, but paths still use Git's wildcard/magic syntax.
+        // Literal pathspecs keep a file such as [id].swift or :(exclude)foo scoped
+        // to the selected file and preserve the per-file size guard above.
         var args = [
-            "git", "--no-optional-locks", "-C", path,
+            "git", "--no-optional-locks", "--literal-pathspecs", "-C", path,
             "diff", "--no-ext-diff", "--no-color", "--no-textconv", "--unified=3",
         ]
         if comparesWithEmpty {

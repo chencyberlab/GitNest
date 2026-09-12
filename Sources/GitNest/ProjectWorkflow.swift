@@ -65,9 +65,8 @@ final class ProjectWorkflow: ObservableObject {
             ? sourcePath
             : (accountFolder as NSString).appendingPathComponent(repoName)
 
-        // The in-place path refuses on an origin mismatch; the copy path keeps the
-        // folder's `.git` and re-points origin, so flag when copying would push a
-        // *different* repo's full history. (Local read; doesn't hit the network.)
+        // The in-place path refuses on an origin mismatch; the copy path drops
+        // foreign Git history. Surface that difference before the user confirms.
         var sourceOrigin: String?
         if !inAccountFolder,
            let origin = await runBlocking({ GitHub.originURL(at: sourcePath) }),

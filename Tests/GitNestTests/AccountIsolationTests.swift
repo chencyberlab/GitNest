@@ -39,6 +39,25 @@ final class AccountIsolationTests: XCTestCase {
              url: "https://github.com/\(owner)/\(name)")
     }
 
+    func testAccountWithoutSavedSortUsesDefaultsInsteadOfAnotherAccountsSort() {
+        let (manager, accounts) = makeManager()
+        let first = account("sort-first-\(UUID().uuidString)")
+        let second = account("sort-second-\(UUID().uuidString)")
+        let key = "repoSort-\(first.alias)"
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        accounts.selectedAccount = first
+        manager.sortBy(.name)
+        XCTAssertEqual(manager.repoSortField, .name)
+        XCTAssertTrue(manager.repoSortAscending)
+
+        manager.restoreRepoState(for: second)
+        XCTAssertEqual(manager.repoSortField, .updated)
+        XCTAssertFalse(manager.repoSortAscending)
+        manager.restoreRepoState(for: first)
+        XCTAssertEqual(manager.repoSortField, .name)
+        XCTAssertTrue(manager.repoSortAscending)
+    }
+
     /// Switching away from an account must clear the visible repo list (the new
     /// account hasn't loaded), and switching back must restore the first account's
     /// repos and selection intact from its cache — never the other account's.

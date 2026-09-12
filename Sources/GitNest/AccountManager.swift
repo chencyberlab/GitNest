@@ -29,6 +29,7 @@ final class AccountManager: ObservableObject {
     private let ghChain: GhChain
     private let logStore: LogStore
     private let authProcessController: AuthProcessController
+    private let readAccounts: (() -> [Account])?
 
     var accountStatusSessionID = UUID()
     var accountStatusLoadMode: AccountStatusLoadMode = .smart
@@ -41,18 +42,25 @@ final class AccountManager: ObservableObject {
     private var reauthClipboardWatcher: Task<Void, Never>?
     static let accountOrderDefaultsKey = "accountOrder"
 
-    init(ghChain: GhChain, logStore: LogStore, authProcessController: AuthProcessController) {
+    init(
+        ghChain: GhChain, logStore: LogStore, authProcessController: AuthProcessController,
+        readAccounts: (() -> [Account])? = nil
+    ) {
         self.ghChain = ghChain
         self.logStore = logStore
         self.authProcessController = authProcessController
+        self.readAccounts = readAccounts
     }
 
     // MARK: Loading and selection
 
     func loadAccounts() {
-        accounts = orderedAccounts(GitConfig.loadAccounts { [logStore] message in
-            logStore.append("⚠ \(message)")
-        })
+        let loaded =
+            readAccounts?()
+            ?? GitConfig.loadAccounts { [logStore] message in
+                logStore.append("⚠ \(message)")
+            }
+        accounts = orderedAccounts(loaded)
         if let selectedAccount {
             self.selectedAccount = accounts.first { $0.alias == selectedAccount.alias }
         }
